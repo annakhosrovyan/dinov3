@@ -11,6 +11,7 @@ from pathlib import Path
 
 import torch
 
+from dinov3.checkpointer.checkpointer import adapt_patch_embed_input_channels
 from .utils import DINOV3_BASE_URL
 
 
@@ -138,6 +139,7 @@ def _make_dinov3_vit(
         else:
             url = convert_path_or_url_to_url(weights)
         state_dict = torch.hub.load_state_dict_from_url(url, map_location="cpu", check_hash=check_hash)
+        state_dict = adapt_patch_embed_input_channels(state_dict, model.patch_embed.proj.weight.shape[1])
         model.load_state_dict(state_dict, strict=True)
     else:
         model.init_weights()

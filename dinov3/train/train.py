@@ -306,9 +306,16 @@ def build_data_loader_from_cfg(
     batch_size = dataloader_batch_size_per_gpu
     num_workers = cfg.train.num_workers
     dataset_path = cfg.train.dataset_path
+    augmentation = model.build_data_augmentation_dino(cfg)
+    logger.info(
+        "Data loader uses augmentation class=%s module=%s for dataset_path=%s",
+        augmentation.__class__.__name__,
+        augmentation.__class__.__module__,
+        dataset_path,
+    )
     dataset = make_dataset(
         dataset_str=dataset_path,
-        transform=model.build_data_augmentation_dino(cfg),
+        transform=augmentation,
         target_transform=lambda _: (),
     )
 
@@ -595,7 +602,14 @@ def main(argv=None):
     else:
         setup_job(output_dir=args.output_dir, seed=args.seed)
         cfg = setup_config(args, strict_cfg=False)
-        logger.info(cfg)
+        logger.info(
+            "Config summary: arch=%s in_chans=%s dataset=%s batch_size_per_gpu=%s num_workers=%s",
+            cfg.student.arch,
+            cfg.student.in_chans,
+            cfg.train.dataset_path,
+            cfg.train.batch_size_per_gpu,
+            cfg.train.num_workers,
+        )
         setup_logging(
             output=os.path.join(os.path.abspath(args.output_dir), "nan_logs"),
             name="nan_logger",

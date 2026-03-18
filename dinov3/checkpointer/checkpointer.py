@@ -25,6 +25,7 @@ Distributed checkpointer docs:
 """
 
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -40,6 +41,121 @@ import torch.distributed.checkpoint.state_dict as dcpsd
 from torch.distributed.checkpoint.stateful import Stateful
 
 logger = logging.getLogger("dinov3")
+
+
+def _tensor_sample(values: torch.Tensor, count: int = 5) -> list[float]:
+    flat = values.detach().reshape(-1)
+    if flat.numel() == 0:
+        return []
+    return [float(x) for x in flat[: min(count, flat.numel())].cpu()]
+
+
+def _remap_legacy_keys(state_dict: dict) -> dict:
+    remapped_state = dict(state_dict)
+    remap_count = 0
+    gamma_pattern = re.compile(r"\.gamma_(1|2)$")
+
+    for key in list(remapped_state.keys()):
+        match = gamma_pattern.search(key)
+        if match is None:
+            continue
+        suffix = ".ls1.gamma" if match.group(1) == "1" else ".ls2.gamma"
+        new_key = gamma_pattern.sub(suffix, key)
+        if new_key not in remapped_state:
+            remapped_state[new_key] = remapped_state[key]
+        del remapped_state[key]
+        remap_count += 1
+
+    for key in list(remapped_state.keys()):
+        if not key.endswith("reg_token"):
+            continue
+        mask_key = f"{key[:-len('reg_token')]}mask_token"
+        reg_token = remapped_state[key]
+        if mask_key not in remapped_state and isinstance(reg_token, torch.Tensor):
+            if reg_token.ndim == 3 and reg_token.shape[1] >= 1:
+                remapped_state[mask_key] = reg_token[:, 0, :].clone()
+                remap_count += 1
+            elif reg_token.ndim == 2:
+                remapped_state[mask_key] = reg_token.clone()
+                remap_count += 1
+        del remapped_state[key]
+        remap_count += 1
+
+    for key in list(remapped_state.keys()):
+        if not key.endswith("attn.qkv.weight"):
+            continue
+        bias_key = key[:-len("weight")] + "bias"
+        if bias_key in remapped_state:
+            continue
+        qkv_weight = remapped_state[key]
+        if not isinstance(qkv_weight, torch.Tensor):
+            continue
+        if qkv_weight.ndim != 2:
+            continue
+        remapped_state[bias_key] = torch.zeros(
+            qkv_weight.shape[0],
+            dtype=qkv_weight.dtype,
+            device=qkv_weight.device,
+        )
+        remap_count += 1
+
+    if remap_count > 0:
+        logger.info("Remapped %d legacy checkpoint keys", remap_count)
+    return remapped_state
+
+
+def adapt_patch_embed_input_channels(state_dict: dict, target_in_chans: int) -> dict:
+    state_dict = _remap_legacy_keys(state_dict)
+    patch_key = None
+    for key in state_dict.keys():
+        if key.endswith("patch_embed.proj.weight"):
+            patch_key = key
+            break
+    if patch_key is None:
+        return state_dict
+
+    weight = state_dict[patch_key]
+    if not isinstance(weight, torch.Tensor):
+        return state_dict
+
+    if weight.ndim != 4:
+        raise ValueError("patch_embed.proj.weight must have 4 dimensions")
+
+    source_in_chans = weight.shape[1]
+    logger.info(
+        "patch_embed.proj.weight found: shape=%s target_in_chans=%d mean=%.6f std=%.6f sample=%s",
+        tuple(weight.shape),
+        target_in_chans,
+        float(weight.mean().item()),
+        float(weight.std().item()),
+        _tensor_sample(weight[0, : min(source_in_chans, 3), 0, 0], count=3),
+    )
+    if source_in_chans == target_in_chans:
+        return state_dict
+
+    if source_in_chans == 3 and target_in_chans == 5:
+        expanded = torch.zeros(
+            (weight.shape[0], target_in_chans, weight.shape[2], weight.shape[3]),
+            dtype=weight.dtype,
+            device=weight.device,
+        )
+        expanded[:, :3, :, :] = weight
+        mean_rgb = weight.mean(dim=1, keepdim=True)
+        expanded[:, 3:5, :, :] = mean_rgb.repeat(1, 2, 1, 1)
+        state_dict[patch_key] = expanded
+        logger.info(
+            "Adapted %s to shape=%s extra_channel_mean=%.6f sample_c3=%s sample_c4=%s",
+            patch_key,
+            tuple(expanded.shape),
+            float(expanded[:, 3:5, :, :].mean().item()),
+            _tensor_sample(expanded[0, 3, :2, :2]),
+            _tensor_sample(expanded[0, 4, :2, :2]),
+        )
+        return state_dict
+
+    raise ValueError(
+        f"Unsupported patch embedding adaptation from {source_in_chans} to {target_in_chans} channels"
+    )
 
 
 class CheckpointRetentionPolicy(Enum):
@@ -272,9 +388,60 @@ def init_fsdp_model_from_checkpoint(
     keys_not_sharded: List[str] | None = None,
     process_group: dist.ProcessGroup = None,
 ):
+    def _normalize_checkpoint_keys_for_model(raw_state: dict, target_model: torch.nn.Module) -> dict:
+        normalized = {}
+        for key, value in raw_state.items():
+            if key.startswith("module."):
+                normalized[key[len("module."):]] = value
+            else:
+                normalized[key] = value
+
+        if not hasattr(target_model, "backbone"):
+            return normalized
+
+        roots = {k.split(".", 1)[0] for k in normalized.keys()}
+        known_roots = {"backbone", "dino_head", "ibot_head", "dino_loss", "ibot_patch_loss", "teacher", "student", "model_ema"}
+        backbone_like_prefixes = (
+            "patch_embed.",
+            "blocks.",
+            "norm.",
+            "cls_token",
+            "mask_token",
+            "reg_token",
+            "rope_embed.",
+            "pos_embed",
+        )
+        has_backbone_root = any(k.startswith("backbone.") for k in normalized.keys())
+        looks_like_backbone_only = any(
+            key.startswith(backbone_like_prefixes) for key in normalized.keys()
+        )
+        if (not has_backbone_root) and roots.isdisjoint(known_roots) and looks_like_backbone_only:
+            normalized = {f"backbone.{k}": v for k, v in normalized.items()}
+
+        return normalized
+
+    if skip_load_keys is None:
+        skip_load_keys = []
+    if keys_not_sharded is None:
+        keys_not_sharded = []
     if not Path(checkpoint_path).is_dir():  # PyTorch standard checkpoint
         logger.info(f"Loading pretrained weights from {checkpoint_path}")
-        chkpt = torch.load(checkpoint_path, map_location="cpu")["teacher"]
+        loaded = torch.load(checkpoint_path, map_location="cpu")
+        if isinstance(loaded, dict):
+            if "teacher" in loaded and isinstance(loaded["teacher"], dict):
+                chkpt = loaded["teacher"]
+            elif "model" in loaded and isinstance(loaded["model"], dict):
+                chkpt = loaded["model"]
+            elif "student" in loaded and isinstance(loaded["student"], dict):
+                chkpt = loaded["student"]
+            elif "state_dict" in loaded and isinstance(loaded["state_dict"], dict):
+                chkpt = loaded["state_dict"]
+            else:
+                chkpt = loaded
+        else:
+            raise ValueError(f"Unsupported checkpoint format at {checkpoint_path}")
+        chkpt = _normalize_checkpoint_keys_for_model(chkpt, model)
+        chkpt = adapt_patch_embed_input_channels(chkpt, model.backbone.patch_embed.proj.weight.shape[1])
         from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
         if process_group is None:
@@ -285,21 +452,62 @@ def init_fsdp_model_from_checkpoint(
             )
         else:
             world_mesh = DeviceMesh.from_group(process_group, "cuda")
-        chkpt = {
-            key: (
-                torch.distributed.tensor.distribute_tensor(tensor, world_mesh, src_data_rank=None)
-                if not any(key_not_sharded in key for key_not_sharded in keys_not_sharded)
-                else tensor
-            )
-            for key, tensor in chkpt.items()
+        distributed_chkpt = {}
+        for key, tensor in chkpt.items():
+            if not isinstance(tensor, torch.Tensor):
+                continue
+            if any(key_not_sharded in key for key_not_sharded in keys_not_sharded):
+                distributed_chkpt[key] = tensor
+            else:
+                distributed_chkpt[key] = torch.distributed.tensor.distribute_tensor(
+                    tensor, world_mesh, src_data_rank=None
+                )
+        filtered_state = {
+            key: tensor
+            for key, tensor in distributed_chkpt.items()
+            if not any(skip_load_key in key for skip_load_key in skip_load_keys)
         }
-        model.load_state_dict(
-            {
-                key: tensor
-                for key, tensor in chkpt.items()
-                if not any(skip_load_key in key for skip_load_key in skip_load_keys)
-            }
+        model_state_keys = set(model.state_dict().keys())
+        matched_keys = [k for k in filtered_state.keys() if k in model_state_keys]
+        if len(matched_keys) == 0:
+            raise RuntimeError(
+                f"No checkpoint keys matched model keys for {checkpoint_path}. "
+                "Checkpoint/model key mapping is invalid."
+            )
+        msg = model.load_state_dict(filtered_state, strict=False)
+        missing_keys = sorted(msg.missing_keys)
+        unexpected_keys = sorted(msg.unexpected_keys)
+        logger.info(
+            "Checkpoint load summary: matched=%d missing=%d unexpected=%d",
+            len(matched_keys),
+            len(missing_keys),
+            len(unexpected_keys),
         )
+        if missing_keys:
+            expected_missing = sorted(
+                [
+                    key
+                    for key in missing_keys
+                    if any(skip_load_key in key for skip_load_key in skip_load_keys)
+                ]
+            )
+            unexpected_missing = sorted(
+                [
+                    key
+                    for key in missing_keys
+                    if not any(skip_load_key in key for skip_load_key in skip_load_keys)
+                ]
+            )
+            logger.info(
+                "Checkpoint missing keys (expected by skip rules): %s",
+                expected_missing,
+            )
+            logger.info(
+                "Checkpoint missing keys (not covered by skip rules): %s",
+                unexpected_missing,
+            )
+        if unexpected_keys:
+            logger.info("Checkpoint unexpected keys: %s", unexpected_keys)
     else:  # DCP checkpoint
         load_checkpoint(ckpt_dir=checkpoint_path, model=model, process_group=process_group)
 
@@ -316,6 +524,7 @@ def init_model_from_checkpoint_for_evals(
     state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
     # remove `backbone.` prefix induced by multicrop wrapper
     state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
+    state_dict = adapt_patch_embed_input_channels(state_dict, model.patch_embed.proj.weight.shape[1])
     msg = model.load_state_dict(state_dict, strict=False)
     logger.info("Pretrained weights found at {} and loaded with msg: {}".format(pretrained_weights, msg))
 
@@ -343,7 +552,7 @@ def cleanup_checkpoint(ckpt_dir: str, checkpoint_retention_policy: CheckpointRet
     checkpoint_filters = checkpoint_retention_policy.keep_filters
     checkpoints = [p for p in ckpt_dir.iterdir() if p.is_dir()]
     for checkpoint in checkpoints:
-        if checkpoint in checkpoint_filters:
+        if checkpoint.name in checkpoint_filters:
             continue
         try:
             shutil.rmtree(checkpoint)

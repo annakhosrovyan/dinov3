@@ -55,11 +55,11 @@ def apply_scaling_rules_to_cfg(cfg):  # to fix
 
 
 def write_config(cfg, output_dir, name="config.yaml"):
-    logger.info(OmegaConf.to_yaml(cfg))
     output_dir = os.path.abspath(output_dir)
     saved_cfg_path = os.path.join(output_dir, name)
     with open(saved_cfg_path, "w") as f:
         OmegaConf.save(config=cfg, f=f)
+    logger.info(f"Saved resolved config to {saved_cfg_path}")
     return saved_cfg_path
 
 

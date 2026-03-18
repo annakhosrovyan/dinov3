@@ -63,7 +63,7 @@ gram:
   loss_weight_schedule: null  # (dict): If not None, use a schedule for the loss weight instead of `loss_weight`
 train:
   batch_size_per_gpu: 64
-  dataset_path: ImageNet:split=TRAIN
+  dataset_path: MixedSatelliteDataset:sen2a_data_path=/nfs/h100/raid/rs/satlas_dataset/sentinel2a:sen2a_stats_dir=/nfs/h100/raid/rs/satlas_dataset/stats/sen2a_stats:sen2b_data_path=/nfs/h100/raid/rs/satlas_dataset/sentinel2b:sen2b_stats_dir=/nfs/h100/raid/rs/satlas_dataset/stats/sen2b_stats:ben_data_path=/nfs/ap/mnt/frtn/rs-multiband/BEN_complete.h5:sen12ms_data_path=/nfs/ap/mnt/frtn/rs-multiband/sen12ms.h5:intelinair_data_path=/nfs/ap/mnt/frtn/rs-multiband/intelinair.h5:maid_data_path=/nfs/h100/raid/rs/maid
   data_config: null
   output_dir: .
   saveckp_freq: 20
@@ -82,11 +82,11 @@ train:
   sharded_eval_checkpoint: false
   cache_dataset: false
 student:
-  arch: vit_large
+  arch: vit_base
   patch_size: 16
   drop_path_rate: 0.3
   layerscale: 1.0e-05
-  pretrained_weights: ''
+  pretrained_weights: './pretrained_weights/dinov3_vitb16_pretrain.pth'
   ffn_layer: "mlp"
   ffn_ratio: 4.0
   resume_from_teacher_chkpt: ""
@@ -98,7 +98,7 @@ student:
   mask_k_bias: false
   untie_cls_and_patch_norms: false  # If true, use separate norms for CLS/reg and patch/mask tokens
   untie_global_and_local_cls_norm: false  # If true, use separate norms for local and global crop CLS token during training
-  in_chans: 3
+  in_chans: 5
   pos_embed_type: rope
   pos_embed_rope_base: 100.0
   pos_embed_rope_min_period: null
@@ -116,7 +116,7 @@ teacher:
   warmup_teacher_temp: 0.04
   teacher_temp: 0.07
   warmup_teacher_temp_epochs: 30
-  in_chans: 3
+  in_chans: 5
 distillation:  # teacher
   enabled: false
   full_cfg_path: ""

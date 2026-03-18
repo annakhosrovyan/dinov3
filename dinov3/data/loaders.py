@@ -10,7 +10,7 @@ from typing import Any, Callable, List, Optional, TypeVar
 import torch
 from torch.utils.data import Sampler
 
-from .datasets import ADE20K, CocoCaptions, ImageNet, ImageNet22k, NYU
+from .datasets import MixedSatelliteDataset
 from .samplers import EpochSampler, InfiniteSampler, ShardedInfiniteSampler
 
 logger = logging.getLogger("dinov3")
@@ -48,32 +48,42 @@ def _parse_dataset_str(dataset_str: str):
 
     name = tokens[0]
     kwargs = {}
+    allowed_keys = {
+        "sen1_data_path",
+        "sen1_stats_dir",
+        "sen1_weight",
+        "sen2a_data_path",
+        "sen2a_stats_dir",
+        "sen2a_weight",
+        "sen2b_data_path",
+        "sen2b_stats_dir",
+        "sen2b_weight",
+        "ben_data_path",
+        "ben_weight",
+        "sen12ms_data_path",
+        "sen12ms_weight",
+        "intelinair_data_path",
+        "intelinair_weight",
+        "maid_data_path",
+        "maid_weight",
+        "multimodal_mode",
+    }
 
     for token in tokens[1:]:
-        key, value = token.split("=")
-        assert key in ("root", "extra", "split")
+        if "=" not in token:
+            raise ValueError(f'Invalid dataset token "{token}" in dataset string: {dataset_str}')
+        key, value = token.split("=", 1)
+        if key not in allowed_keys:
+            raise ValueError(
+                f'Unsupported dataset key "{key}" for "{name}". '
+                f"Allowed keys: {sorted(allowed_keys)}"
+            )
         kwargs[key] = value
 
-    if name == "ImageNet":
-        class_ = ImageNet
-        if "split" in kwargs:
-            kwargs["split"] = ImageNet.Split[kwargs["split"]]
-    elif name == "ImageNet22k":
-        class_ = ImageNet22k
-    elif name == "ADE20K":
-        class_ = ADE20K
-        if "split" in kwargs:
-            kwargs["split"] = ADE20K.Split[kwargs["split"]]
-    elif name == "CocoCaptions":
-        class_ = CocoCaptions
-        if "split" in kwargs:
-            kwargs["split"] = CocoCaptions.Split[kwargs["split"]]
-    elif name == "NYU":
-        class_ = NYU
-        if "split" in kwargs:
-            kwargs["split"] = NYU.Split[kwargs["split"]]
+    if name == "MixedSatelliteDataset":
+        class_ = MixedSatelliteDataset
     else:
-        raise ValueError(f'Unsupported dataset "{name}"')
+        raise ValueError(f'Unsupported dataset "{name}". Only MixedSatelliteDataset is supported in this satellite-only setup.')
 
     return class_, kwargs
 

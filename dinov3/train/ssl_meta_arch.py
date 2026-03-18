@@ -14,7 +14,6 @@ from torch import Tensor, nn
 import dinov3.distributed as distributed
 from dinov3.checkpointer import init_fsdp_model_from_checkpoint
 from dinov3.configs import get_default_config
-from dinov3.data import DataAugmentationDINO
 from dinov3.fsdp.ac_compile_parallelize import ac_compile_parallelize
 from dinov3.layers.dino_head import DINOHead
 from dinov3.loss import DINOLoss, GramLoss, KoLeoLoss, KoLeoLossDistributed, iBOTPatchLoss
@@ -298,12 +297,20 @@ class SSLMetaArch(nn.Module):
         self.teacher = nn.ModuleDict(teacher_model_dict)
 
     def init_weights(self) -> None:
-        # All weights are set to `nan` to ensure we initialize everything explicitly
-        self.student.backbone.init_weights()
         self.student.dino_head.init_weights()
         self.student.ibot_head.init_weights()
         self.dino_loss.init_weights()
         self.ibot_patch_loss.init_weights()
+        self.student.backbone.init_weights()
+        if self.cfg.student.pretrained_weights:
+            logger.info(f"Loading pretrained weights from {self.cfg.student.pretrained_weights}")
+            init_fsdp_model_from_checkpoint(
+                self.student,
+                self.cfg.student.pretrained_weights,
+                skip_load_keys=["dino_head", "ibot_head", "dino_loss.center", "ibot_patch_loss.center"],
+                keys_not_sharded=["backbone.rope_embed.periods", "qkv.bias_mask"],
+                process_group=distributed.get_process_subgroup(),
+            )
         self.model_ema.load_state_dict(self.student.state_dict())
         if self.has_gram_teacher:
             if self.gram_ckpt is not None:
@@ -745,20 +752,43 @@ class SSLMetaArch(nn.Module):
             torch._foreach_add_(gramteacher_param_list, teacher_param_list, alpha=1 - m)
 
     def build_data_augmentation_dino(self, cfg):
-        return DataAugmentationDINO(
-            cfg.crops.global_crops_scale,
-            cfg.crops.local_crops_scale,
-            cfg.crops.local_crops_number,
+        from dinov3.data.datasets.augmentation import MAIDAugmentation
+        from dinov3.data.datasets.hdf5_augmentation import HDF5Augmentation
+
+        maid_augmentation = MAIDAugmentation(
+            global_crops_scale=cfg.crops.global_crops_scale,
+            local_crops_scale=cfg.crops.local_crops_scale,
+            global_crops_number=2,
+            local_crops_number=cfg.crops.local_crops_number,
             global_crops_size=cfg.crops.global_crops_size,
             local_crops_size=cfg.crops.local_crops_size,
-            gram_teacher_crops_size=cfg.crops.gram_teacher_crops_size,
-            gram_teacher_no_distortions=cfg.crops.gram_teacher_no_distortions,
-            local_crops_subset_of_global_crops=cfg.crops.localcrops_subset_of_globalcrops,
-            share_color_jitter=cfg.crops.share_color_jitter,
-            horizontal_flips=cfg.crops.horizontal_flips,
-            mean=cfg.crops.rgb_mean,
-            std=cfg.crops.rgb_std,
         )
+        hdf5_augmentation = HDF5Augmentation(
+            global_crops_scale=cfg.crops.global_crops_scale,
+            local_crops_scale=cfg.crops.local_crops_scale,
+            global_crops_number=2,
+            local_crops_number=cfg.crops.local_crops_number,
+            global_crops_size=cfg.crops.global_crops_size,
+            local_crops_size=cfg.crops.local_crops_size,
+        )
+
+        class DatasetAwareAugmentation:
+            def __init__(self, maid_aug, hdf5_aug):
+                self.maid_aug = maid_aug
+                self.hdf5_aug = hdf5_aug
+
+            def __call__(self, image, dataset_name=None):
+                if dataset_name == "MAID":
+                    return self.maid_aug(image)
+                return self.hdf5_aug(image)
+
+        augmentation = DatasetAwareAugmentation(maid_augmentation, hdf5_augmentation)
+        logger.info(
+            "Using dataset-aware augmentation routing: MAID->%s, others->%s",
+            maid_augmentation.__class__.__name__,
+            hdf5_augmentation.__class__.__name__,
+        )
+        return augmentation
 
     def get_maybe_fused_params_for_submodel(self, m: nn.Module):
         params_groups = get_params_groups_with_decay_fsdp(
