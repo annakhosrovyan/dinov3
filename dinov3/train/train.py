@@ -36,7 +36,7 @@ from dinov3.data import (
     CombinedDataLoader,
 )
 from dinov3.logging import MetricLogger, setup_logging
-from dinov3.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosine_decay
+from dinov3.train.cosine_lr_scheduler import CosineScheduler, WSDLRScheduler, linear_warmup_cosine_decay
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.train.ssl_meta_arch import SSLMetaArch
 
@@ -105,6 +105,7 @@ def build_schedulers(cfg):
         return build_schedulers_v2(cfg)
 
     OFFICIAL_EPOCH_LENGTH = cfg.train.OFFICIAL_EPOCH_LENGTH
+    lr_scheduler = str(cfg.optim.get("lr_scheduler", "cosine")).lower()
     lr = dict(
         base_value=cfg.optim["lr"],
         final_value=cfg.optim["min_lr"],
@@ -133,16 +134,36 @@ def build_schedulers(cfg):
         start_warmup_value=cfg.teacher["warmup_teacher_temp"],
     )
 
-    lr_schedule = CosineScheduler(**lr)
+    if lr_scheduler == "wsd":
+        lr_schedule = WSDLRScheduler(
+            base_value=cfg.optim["lr"],
+            lr_min=cfg.optim["min_lr"],
+            total_iters=cfg.optim["epochs"] * OFFICIAL_EPOCH_LENGTH,
+            warmup_iters=cfg.optim["warmup_epochs"] * OFFICIAL_EPOCH_LENGTH,
+            start_warmup_value=0,
+            final_decay_pct=float(cfg.optim.get("wsd_final_decay_pct", 0.1)),
+        )
+        last_layer_lr_schedule = WSDLRScheduler(
+            base_value=cfg.optim["lr"],
+            lr_min=cfg.optim["min_lr"],
+            total_iters=cfg.optim["epochs"] * OFFICIAL_EPOCH_LENGTH,
+            warmup_iters=cfg.optim["warmup_epochs"] * OFFICIAL_EPOCH_LENGTH,
+            start_warmup_value=0,
+            final_decay_pct=float(cfg.optim.get("wsd_final_decay_pct", 0.1)),
+        )
+    elif lr_scheduler == "cosine":
+        lr_schedule = CosineScheduler(**lr)
+        last_layer_lr_schedule = CosineScheduler(**lr)
+    else:
+        raise ValueError(f"Unsupported optim.lr_scheduler={lr_scheduler}")
     wd_schedule = CosineScheduler(**wd)
     momentum_schedule = CosineScheduler(**momentum)
     teacher_temp_schedule = CosineScheduler(**teacher_temp)
-    last_layer_lr_schedule = CosineScheduler(**lr)
 
     last_layer_lr_schedule.schedule[: cfg.optim["freeze_last_layer_epochs"] * OFFICIAL_EPOCH_LENGTH] = (
         0  # mimicking the original schedules
     )
-    logger.info("Schedulers ready.")
+    logger.info(f"Schedulers ready. lr_scheduler={lr_scheduler}")
     return (
         lr_schedule,
         wd_schedule,
@@ -438,6 +459,27 @@ def do_train(cfg, model, resume=False):
     logger.info("Starting training from iteration %d", start_iter)
     metrics_file = os.path.join(cfg.train.output_dir, "training_metrics.json")
     metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
+    wandb_module = None
+    wandb_run = None
+    if cfg.wandb.enabled and distributed.is_main_process():
+        try:
+            import wandb as wandb_module
+        except ImportError as exc:
+            raise RuntimeError(
+                "wandb logging is enabled but the wandb package is not installed."
+            ) from exc
+        init_kwargs = {
+            "project": cfg.wandb.project,
+            "name": cfg.wandb.run_name or None,
+            "group": cfg.wandb.group or None,
+            "dir": cfg.train.output_dir,
+            "resume": "allow",
+        }
+        if cfg.wandb.entity:
+            init_kwargs["entity"] = cfg.wandb.entity
+        if cfg.wandb.tags:
+            init_kwargs["tags"] = list(cfg.wandb.tags)
+        wandb_run = wandb_module.init(**init_kwargs)
     # Manual garbage collection
     gc.disable()
     gc.collect()
@@ -556,6 +598,23 @@ def do_train(cfg, model, resume=False):
         metric_logger.update(mom=mom)
         metric_logger.update(last_layer_lr=last_layer_lr)
         metric_logger.update(total_loss=total_loss, **metrics_dict)
+        if wandb_run is not None:
+            wandb_metrics = {
+                "iteration": float(iteration),
+                "lr": float(lr),
+                "wd": float(wd),
+                "mom": float(mom),
+                "last_layer_lr": float(last_layer_lr),
+                "total_loss": float(total_loss.item()),
+            }
+            for key, value in metrics_dict.items():
+                if isinstance(value, DTensor):
+                    wandb_metrics[key] = float(value.full_tensor().item())
+                elif torch.is_tensor(value):
+                    wandb_metrics[key] = float(value.item())
+                else:
+                    wandb_metrics[key] = float(value)
+            wandb_module.log(wandb_metrics, step=iteration)
 
         # Submit evaluation jobs
         if (
@@ -583,6 +642,8 @@ def do_train(cfg, model, resume=False):
 
         iteration = iteration + 1
     metric_logger.synchronize_between_processes()
+    if wandb_run is not None:
+        wandb_run.finish()
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 

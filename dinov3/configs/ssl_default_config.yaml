@@ -129,6 +129,8 @@ hrft:  # non-hrft'd student
 optim:
   epochs: 100
   optimizer: adamw
+  lr_scheduler: wsd
+  wsd_final_decay_pct: 0.1
   weight_decay: 0.04
   weight_decay_end: 0.4
   lr: 0.001
@@ -180,6 +182,13 @@ checkpointing:
   period: 3750
   max_to_keep: 3
   keep_every: 99999999999999999  # Save a checkpoint every N iterations, regardless of max_to_keep and period
+wandb:
+  enabled: true
+  project: dinov3-satellite
+  entity: ""
+  run_name: ""
+  group: ""
+  tags: []
 
 # Example of constant schedules with schedules v2
 # # schedules:

@@ -9,10 +9,12 @@ dist/
 **/notebooks
 
 # Ignore shell scripts
-*.sh
+# *.sh
 
 # Ignore swap files
 *.swp
 
 # Ignore vscode directory
 .vscode/
+
+pretrained_weights/

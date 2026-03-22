@@ -66,6 +66,9 @@ def _parse_dataset_str(dataset_str: str):
         "intelinair_weight",
         "maid_data_path",
         "maid_weight",
+        "naip_data_path",
+        "naip_stats_dir",
+        "naip_weight",
         "multimodal_mode",
     }
 

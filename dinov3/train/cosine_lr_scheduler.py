@@ -51,6 +51,48 @@ class CosineScheduler(object):
             return self.schedule[it]
 
 
+class WSDLRScheduler(object):
+    def __init__(
+        self,
+        base_value,
+        lr_min,
+        total_iters,
+        warmup_iters=0,
+        start_warmup_value=0,
+        final_decay_pct=0.1,
+    ):
+        super().__init__()
+        assert total_iters > 0
+        assert 0.0 <= final_decay_pct <= 1.0
+        assert lr_min >= 0.0
+        self.final_value = np.float64(lr_min)
+        self.total_iters = total_iters
+        warmup_schedule = np.linspace(start_warmup_value, base_value, warmup_iters, endpoint=False)
+        decay_start = int(np.floor((1.0 - final_decay_pct) * total_iters))
+        if decay_start < warmup_iters:
+            decay_start = warmup_iters
+        constant_len = max(0, decay_start - warmup_iters)
+        constant_schedule = np.full((constant_len,), fill_value=base_value, dtype=np.float64)
+        decay_len = total_iters - warmup_iters - constant_len
+        if decay_len > 0:
+            decay_schedule = np.linspace(base_value, lr_min, decay_len, endpoint=True)
+            self.schedule = np.concatenate((warmup_schedule, constant_schedule, decay_schedule), dtype=np.float64)
+        else:
+            self.schedule = np.concatenate((warmup_schedule, constant_schedule), dtype=np.float64)
+        if len(self.schedule) > self.total_iters:
+            self.schedule = self.schedule[: self.total_iters]
+        elif len(self.schedule) < self.total_iters:
+            padding = np.full((self.total_iters - len(self.schedule),), fill_value=lr_min, dtype=np.float64)
+            self.schedule = np.concatenate((self.schedule, padding), dtype=np.float64)
+        assert len(self.schedule) == self.total_iters
+
+    def __getitem__(self, it):
+        if it >= self.total_iters:
+            return self.final_value
+        else:
+            return self.schedule[it]
+
+
 def linear_warmup_cosine_decay(
     start: float,
     peak: float,

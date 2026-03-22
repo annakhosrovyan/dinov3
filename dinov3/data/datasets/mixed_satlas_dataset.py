@@ -6,7 +6,7 @@ import torch
 import math
 
 from dinov3.data.datasets.channel_utils import to_five_channels
-from dinov3.data.datasets.satlas_datasets import Sen1Dataset, Sen2Dataset
+from dinov3.data.datasets.satlas_datasets import NaipDataset, Sen1Dataset, Sen2Dataset
 from dinov3.data.datasets.hdf5_dataset import BENDataset, IntelinairDataset, Sen12MSDataset
 from dinov3.data.datasets.maid_dataset import MAIDDataset
 
@@ -31,6 +31,9 @@ class MixedSatelliteDataset(Dataset):
         intelinair_weight: Optional[float] = 1.0,
         maid_data_path: Optional[str] = None,
         maid_weight: Optional[float] = 1.0,
+        naip_data_path: Optional[str] = None,
+        naip_stats_dir: Optional[str] = None,
+        naip_weight: Optional[float] = 1.0,
         transform=None,
         **kwargs: Any,
     ) -> None:
@@ -124,6 +127,15 @@ class MixedSatelliteDataset(Dataset):
                 **kwargs,
             )
             add_dataset("MAID", maid_ds, maid_weight)
+
+        if naip_data_path is not None and naip_stats_dir is not None:
+            naip_ds = NaipDataset(
+                data_path=naip_data_path,
+                stats_dir=naip_stats_dir,
+                transform=identity_transform,
+                **kwargs,
+            )
+            add_dataset("NAIP", naip_ds, naip_weight)
 
         if not self.datasets:
             raise ValueError("At least one dataset must be specified")

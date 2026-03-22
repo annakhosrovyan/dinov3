@@ -332,12 +332,13 @@ class NaipDataset(SatlasDataset):
             return self.__getitem__(new_index)
         combined = np.stack(channels, axis=-1)
         if np.isnan(combined).any():
-            self.save_error_path(self.band_paths["ir"][index])
+            self.save_error_path(self.band_paths["tci"][index])
             self.ok_indices.remove(index)
             new_index = int(np.random.choice(self.ok_indices))
             return self.__getitem__(new_index)
         combined = (combined - self.means) / self.stds
         images = combined.astype(np.float32)
+        validate_channel_count(images)
         images = self.transform(images)
         return images, self.band_names, self.data_path
 
