@@ -8,6 +8,7 @@
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
 
+conda activate dinov3
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
 
