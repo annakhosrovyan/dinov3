@@ -42,7 +42,7 @@ from dinov3.train.ssl_meta_arch import SSLMetaArch
 
 assert torch.__version__ >= (2, 1)
 torch.backends.cuda.matmul.allow_tf32 = True  # pytorch 1.12 sets this to false by default
-torch.backends.cudnn.benchmark = False  # True
+torch.backends.cudnn.benchmark = True
 
 logger = logging.getLogger("dinov3")
 
@@ -326,6 +326,8 @@ def build_data_loader_from_cfg(
     )
     batch_size = dataloader_batch_size_per_gpu
     num_workers = cfg.train.num_workers
+    persistent_workers = bool(cfg.train.get("persistent_workers", True))
+    prefetch_factor = int(cfg.train.get("prefetch_factor", 4))
     dataset_path = cfg.train.dataset_path
     augmentation = model.build_data_augmentation_dino(cfg)
     logger.info(
@@ -354,6 +356,8 @@ def build_data_loader_from_cfg(
         sampler_type=sampler_type,
         sampler_advance=start_iter * dataloader_batch_size_per_gpu,
         drop_last=True,
+        persistent_workers=persistent_workers if num_workers > 0 else False,
+        prefetch_factor=prefetch_factor,
         collate_fn=collate_fn,
     )
     return data_loader

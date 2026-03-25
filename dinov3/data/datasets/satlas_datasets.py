@@ -102,6 +102,29 @@ class SatlasDataset(Dataset):
                 loaded.close()
         return None
 
+    def _init_ok_index_pool(self, size: int) -> None:
+        if size <= 0:
+            raise ValueError("dataset is empty")
+        self.ok_indices: List[int] = list(range(size))
+        self.ok_index_pos: Dict[int, int] = {idx: idx for idx in self.ok_indices}
+
+    def _sample_ok_index(self) -> int:
+        if not self.ok_indices:
+            raise RuntimeError("no valid samples left in dataset")
+        random_pos = int(np.random.randint(0, len(self.ok_indices)))
+        return self.ok_indices[random_pos]
+
+    def _invalidate_index(self, index: int) -> None:
+        pos = self.ok_index_pos.pop(index, None)
+        if pos is None:
+            return
+        last_index = self.ok_indices[-1]
+        self.ok_indices[pos] = last_index
+        self.ok_index_pos[last_index] = pos
+        self.ok_indices.pop()
+        if index == last_index:
+            self.ok_index_pos.pop(last_index, None)
+
 
 class Sen1Dataset(SatlasDataset):
     def __init__(
@@ -145,46 +168,47 @@ class Sen1Dataset(SatlasDataset):
             self._save_manifest(manifest_paths, self.band_paths)
         if len(self.band_paths["VV"]) != len(self.band_paths["VH"]):
             raise ValueError("SEN1 manifest contains mismatched VV/VH lengths")
-        self.ok_indices = list(range(len(self.band_paths["VV"])))
+        self._init_ok_index_pool(len(self.band_paths["VV"]))
 
     def __len__(self) -> int:
         return len(self.band_paths["VV"])
 
     def __getitem__(self, index: int) -> Tuple[Any, Any, Any, Any]:
-        if index not in self.ok_indices:
-            index = int(np.random.choice(self.ok_indices))
-        vv_path = self.band_paths["VV"][index]
-        vh_path = self.band_paths["VH"][index]
-        try:
-            vv_img = cv2.imread(vv_path, cv2.IMREAD_GRAYSCALE).astype(np.uint8)
-            vh_img = cv2.imread(vh_path, cv2.IMREAD_GRAYSCALE).astype(np.uint8)
-        except Exception:
-            self.save_error_path(vv_path)
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        if vv_img is None or vh_img is None:
-            self.save_error_path(vv_path)
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        if vv_img.shape != vh_img.shape:
-            self.save_error_path(vv_path)
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        if np.isnan(vv_img).any() or np.isnan(vh_img).any():
-            self.save_error_path(vv_path)
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        vv_img = (vv_img - self.vv_mean) / self.vv_std
-        vh_img = (vh_img - self.vh_mean) / self.vh_std
-        images = np.stack((vv_img, vh_img), axis=-1)
-        images = images.astype(np.float32)
-        validate_channel_count(images)
-        images = self.transform(images)
-        return images, self.band_names, self.data_path
+        if index not in self.ok_index_pos:
+            index = self._sample_ok_index()
+        while True:
+            vv_path = self.band_paths["VV"][index]
+            vh_path = self.band_paths["VH"][index]
+            try:
+                vv_img_raw = cv2.imread(vv_path, cv2.IMREAD_GRAYSCALE)
+                vh_img_raw = cv2.imread(vh_path, cv2.IMREAD_GRAYSCALE)
+            except Exception:
+                vv_img_raw = None
+                vh_img_raw = None
+            if vv_img_raw is None or vh_img_raw is None:
+                self.save_error_path(vv_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            vv_img = vv_img_raw.astype(np.uint8)
+            vh_img = vh_img_raw.astype(np.uint8)
+            if vv_img.shape != vh_img.shape:
+                self.save_error_path(vv_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            if np.isnan(vv_img).any() or np.isnan(vh_img).any():
+                self.save_error_path(vv_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            vv_img = (vv_img - self.vv_mean) / self.vv_std
+            vh_img = (vh_img - self.vh_mean) / self.vh_std
+            images = np.stack((vv_img, vh_img), axis=-1)
+            images = images.astype(np.float32)
+            validate_channel_count(images)
+            images = self.transform(images)
+            return images, self.band_names, self.data_path
 
 
 class Sen2Dataset(SatlasDataset):
@@ -222,47 +246,46 @@ class Sen2Dataset(SatlasDataset):
                 png_names = [name for name in os.listdir(tci_path) if name.lower().endswith(".png")]
                 self.band_paths[tci_folder].extend(os.path.join(tci_path, name) for name in png_names)
             self._save_manifest(manifest_paths, {tci_folder: self.band_paths[tci_folder]})
-        self.ok_indices = list(range(len(self.band_paths[tci_folder])))
+        self._init_ok_index_pool(len(self.band_paths[tci_folder]))
 
     def __len__(self) -> int:
         return len(self.band_paths["tci"])
 
     def __getitem__(self, index: int) -> Tuple[Any, Any, Any, Any]:
-        if index not in self.ok_indices:
-            index = int(np.random.choice(self.ok_indices))
-        channels: List[np.ndarray] = []
-        try:
-            tci_img = cv2.imread(self.band_paths["tci"][index])
-        except Exception:
-            self.save_error_path(self.band_paths["tci"][index])
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        if tci_img is None or tci_img.ndim < 3 or tci_img.shape[2] < 3:
-            self.save_error_path(self.band_paths["tci"][index])
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        channels.append(tci_img[..., 2])
-        channels.append(tci_img[..., 1])
-        channels.append(tci_img[..., 0])
-        shape_set = {ch.shape for ch in channels}
-        if len(shape_set) != 1:
-            self.save_error_path(self.band_paths["tci"][index])
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        combined = np.stack(channels, axis=-1)
-        if np.isnan(combined).any():
-            self.save_error_path(self.band_paths["tci"][index])
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        combined = (combined - self.means) / self.stds
-        images = combined.astype(np.float32)
-        validate_channel_count(images)
-        images = self.transform(images)
-        return images, self.band_names, self.data_path
+        if index not in self.ok_index_pos:
+            index = self._sample_ok_index()
+        while True:
+            channels: List[np.ndarray] = []
+            tci_path = self.band_paths["tci"][index]
+            try:
+                tci_img = cv2.imread(tci_path)
+            except Exception:
+                tci_img = None
+            if tci_img is None or tci_img.ndim < 3 or tci_img.shape[2] < 3:
+                self.save_error_path(tci_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            channels.append(tci_img[..., 2])
+            channels.append(tci_img[..., 1])
+            channels.append(tci_img[..., 0])
+            shape_set = {ch.shape for ch in channels}
+            if len(shape_set) != 1:
+                self.save_error_path(tci_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            combined = np.stack(channels, axis=-1)
+            if np.isnan(combined).any():
+                self.save_error_path(tci_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            combined = (combined - self.means) / self.stds
+            images = combined.astype(np.float32)
+            validate_channel_count(images)
+            images = self.transform(images)
+            return images, self.band_names, self.data_path
 
 
 class NaipDataset(SatlasDataset):
@@ -300,45 +323,44 @@ class NaipDataset(SatlasDataset):
                 png_names = [name for name in os.listdir(tci_path) if name.lower().endswith(".png")]
                 self.band_paths[tci_folder].extend(os.path.join(tci_path, name) for name in png_names)
             self._save_manifest(manifest_paths, {tci_folder: self.band_paths[tci_folder]})
-        self.ok_indices = list(range(len(self.band_paths[tci_folder])))
+        self._init_ok_index_pool(len(self.band_paths[tci_folder]))
 
     def __len__(self) -> int:
         return len(self.band_paths["tci"])
 
     def __getitem__(self, index: int) -> Tuple[Any, Any, Any, Any]:
-        if index not in self.ok_indices:
-            index = int(np.random.choice(self.ok_indices))
-        channels: List[np.ndarray] = []
-        try:
-            tci_img = cv2.imread(self.band_paths["tci"][index])
-        except Exception:
-            self.save_error_path(self.band_paths["tci"][index])
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        if tci_img is None or tci_img.ndim < 3 or tci_img.shape[2] < 3:
-            self.save_error_path(self.band_paths["tci"][index])
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        channels.append(tci_img[..., 2])
-        channels.append(tci_img[..., 1])
-        channels.append(tci_img[..., 0])
-        shape_set = {ch.shape for ch in channels}
-        if len(shape_set) != 1:
-            self.save_error_path(self.band_paths["tci"][index])
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        combined = np.stack(channels, axis=-1)
-        if np.isnan(combined).any():
-            self.save_error_path(self.band_paths["tci"][index])
-            self.ok_indices.remove(index)
-            new_index = int(np.random.choice(self.ok_indices))
-            return self.__getitem__(new_index)
-        combined = (combined - self.means) / self.stds
-        images = combined.astype(np.float32)
-        validate_channel_count(images)
-        images = self.transform(images)
-        return images, self.band_names, self.data_path
+        if index not in self.ok_index_pos:
+            index = self._sample_ok_index()
+        while True:
+            channels: List[np.ndarray] = []
+            tci_path = self.band_paths["tci"][index]
+            try:
+                tci_img = cv2.imread(tci_path)
+            except Exception:
+                tci_img = None
+            if tci_img is None or tci_img.ndim < 3 or tci_img.shape[2] < 3:
+                self.save_error_path(tci_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            channels.append(tci_img[..., 2])
+            channels.append(tci_img[..., 1])
+            channels.append(tci_img[..., 0])
+            shape_set = {ch.shape for ch in channels}
+            if len(shape_set) != 1:
+                self.save_error_path(tci_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            combined = np.stack(channels, axis=-1)
+            if np.isnan(combined).any():
+                self.save_error_path(tci_path)
+                self._invalidate_index(index)
+                index = self._sample_ok_index()
+                continue
+            combined = (combined - self.means) / self.stds
+            images = combined.astype(np.float32)
+            validate_channel_count(images)
+            images = self.transform(images)
+            return images, self.band_names, self.data_path
 

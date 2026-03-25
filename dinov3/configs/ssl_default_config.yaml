@@ -81,6 +81,8 @@ train:
   cudagraphs: false
   sharded_eval_checkpoint: false
   cache_dataset: false
+  persistent_workers: true
+  prefetch_factor: 4
 student:
   arch: vit_base
   patch_size: 16

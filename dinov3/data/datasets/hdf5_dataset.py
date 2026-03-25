@@ -1,7 +1,7 @@
 import math
 import os
 import random
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import h5py
 import numpy as np
@@ -50,6 +50,7 @@ class HDF5Dataset(Dataset):
         self.transform = transform
         self.data_path = data_path
         self.ok_indices: List[int] = list(range(self.data.shape[0]))
+        self.ok_index_pos: Dict[int, int] = {idx: idx for idx in self.ok_indices}
 
     def __len__(self) -> int:
         return self.data_len
@@ -133,16 +134,33 @@ class HDF5Dataset(Dataset):
             masks.append(mask)
         return masks
 
+    def _sample_ok_index(self) -> int:
+        if not self.ok_indices:
+            raise RuntimeError("no valid samples left in dataset")
+        random_pos = int(np.random.randint(0, len(self.ok_indices)))
+        return self.ok_indices[random_pos]
+
+    def _invalidate_index(self, index: int) -> None:
+        pos = self.ok_index_pos.pop(index, None)
+        if pos is None:
+            return
+        last_index = self.ok_indices[-1]
+        self.ok_indices[pos] = last_index
+        self.ok_index_pos[last_index] = pos
+        self.ok_indices.pop()
+        if index == last_index:
+            self.ok_index_pos.pop(last_index, None)
+
     def __getitem__(self, index: int) -> Tuple[Any, Any, Any, Any]:
-        if index not in self.ok_indices:
-            index = random.choice(self.ok_indices)
+        if index not in self.ok_index_pos:
+            index = self._sample_ok_index()
         if self.band_indices:
             orig_image = self.data[index][..., self.band_indices]
         else:
             orig_image = self.data[index]
         while np.isnan(orig_image).any():
-            self.ok_indices.remove(index)
-            index = random.choice(self.ok_indices)
+            self._invalidate_index(index)
+            index = self._sample_ok_index()
             if self.band_indices:
                 orig_image = self.data[index][..., self.band_indices]
             else:

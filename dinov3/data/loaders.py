@@ -205,6 +205,7 @@ def make_data_loader(
     sampler_advance: int = 0,
     drop_last: bool = True,
     persistent_workers: bool = False,
+    prefetch_factor: Optional[int] = None,
     collate_fn: Optional[Callable[[List[T]], Any]] = None,
     worker_init_fn: Optional[Callable[[List[T]], Any]] = None,
 ):
@@ -222,6 +223,7 @@ def make_data_loader(
         sampler_advance: How many samples to skip (when applicable).
         drop_last: Whether the last non-full batch of data should be dropped.
         persistent_workers: maintain the workers Dataset instances alive after a dataset has been consumed once.
+        prefetch_factor: Number of batches loaded in advance by each worker.
         collate_fn: Function that performs batch collation
         worker_init_fn: Optional init function for each dataloader worker.
     """
@@ -236,8 +238,8 @@ def make_data_loader(
     )
 
     logger.info("using PyTorch data loader")
-    data_loader = torch.utils.data.DataLoader(
-        dataset,
+    data_loader_kwargs = dict(
+        dataset=dataset,
         sampler=sampler,
         batch_size=batch_size,
         num_workers=num_workers,
@@ -247,6 +249,9 @@ def make_data_loader(
         collate_fn=collate_fn,
         worker_init_fn=worker_init_fn,
     )
+    if num_workers > 0 and prefetch_factor is not None:
+        data_loader_kwargs["prefetch_factor"] = prefetch_factor
+    data_loader = torch.utils.data.DataLoader(**data_loader_kwargs)
 
     try:
         logger.info(f"# of batches: {len(data_loader):,d}")
