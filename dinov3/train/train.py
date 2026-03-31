@@ -454,9 +454,9 @@ def do_train(cfg, model, resume=False):
     else:
         global_batch_size = cfg.train.batch_size_per_gpu * distributed.get_world_size()
 
-    # Precompute FLOP constant for MFU tracking (done once, outside the loop)
+    # Precompute MAC constant for MFU tracking (done once, outside the loop)
     num_gpus = distributed.get_world_size()
-    flops_per_image = compute_dino_flops_per_image(
+    macs_per_image = compute_dino_flops_per_image(
         global_crop_size=cfg.crops.global_crops_size,
         local_crop_size=cfg.crops.local_crops_size,
         patch_size=cfg.student.patch_size,
@@ -469,7 +469,7 @@ def do_train(cfg, model, resume=False):
         gram_enabled=cfg.gram.use_loss,
         head_overhead_pct=0.05,
     )
-    logger.info(f"MFU tracking: {flops_per_image/1e9:.1f} GFLOPs/image, {num_gpus} GPUs")
+    logger.info(f"MFU tracking: {macs_per_image/1e9:.1f} GMACs/image, {num_gpus} GPUs")
 
     # Build data loader
     data_loader = build_multi_resolution_data_loader_from_cfg(
@@ -611,7 +611,7 @@ def do_train(cfg, model, resume=False):
         step_end_event.synchronize()
         step_time_ms = step_start_event.elapsed_time(step_end_event)
         images_per_sec = global_batch_size / (step_time_ms / 1000.0)
-        mfu = compute_mfu(images_per_sec, flops_per_image, num_gpus)
+        mfu = compute_mfu(images_per_sec, macs_per_image, num_gpus)
 
         # [GRAM] Update gram teacher when using gram teacher and frequent updates
         if (

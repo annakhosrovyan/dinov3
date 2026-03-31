@@ -7,9 +7,9 @@ from dinov3.utils.mfu import vit_forward_flops, compute_dino_flops_per_image, co
 
 class TestVitForwardFlops:
     def test_global_crop_matches_dinov2_paper(self):
-        """DINOv2 paper reports ~17.5 GFLOPs for ViT-B/16 global crop (197 tokens)."""
+        """DINOv2 paper reports ~17.5 GFLOPs (MAC convention) for ViT-B/16 global crop (197 tokens)."""
         flops = vit_forward_flops(seq_len=197, hidden_dim=768, num_layers=12, ffn_ratio=4.0)
-        assert 16e9 <= flops <= 19e9, f"Expected ~17.4 GFLOPs, got {flops/1e9:.2f}"
+        assert 16e9 <= flops <= 19e9, f"Expected ~17.4 GMACs, got {flops/1e9:.2f}"
 
     def test_local_crop_smaller_than_global(self):
         """Local crop (37 tokens) should be much cheaper than global (197 tokens)."""
@@ -44,14 +44,14 @@ class TestVitForwardFlops:
 
 class TestComputeDinoFlopsPerImage:
     def test_default_config_range(self):
-        """Default config (2 global + 8 local, gram disabled) should be ~221 GFLOPs."""
+        """Default config (2 global + 8 local, gram disabled) should be ~221 GMACs."""
         flops = compute_dino_flops_per_image(
             global_crop_size=224, local_crop_size=96, patch_size=16,
             n_global_crops=2, n_local_crops=8,
             hidden_dim=768, num_layers=12, ffn_ratio=4.0,
             n_registers=0, gram_enabled=False, head_overhead_pct=0.05,
         )
-        assert 200e9 <= flops <= 245e9, f"Expected ~221 GFLOPs, got {flops/1e9:.1f}"
+        assert 200e9 <= flops <= 245e9, f"Expected ~221 GMACs, got {flops/1e9:.1f}"
 
     def test_gram_adds_flops(self):
         """Enabling gram teacher adds one more teacher-forward (2 global crops)."""
@@ -85,49 +85,54 @@ class TestComputeDinoFlopsPerImage:
         global_fwd = vit_forward_flops(197, 768, 12, 4.0)
         expected = 4 * global_fwd  # student_fwd + 2*student_fwd + teacher_fwd
         assert abs(flops - expected) / expected < 0.01, \
-            f"Expected {expected/1e9:.2f} GFLOPs, got {flops/1e9:.2f}"
+            f"Expected {expected/1e9:.2f} GMACs, got {flops/1e9:.2f}"
 
 
 class TestComputeMfu:
     def test_mfu_is_fraction_between_0_and_1(self):
-        flops = compute_dino_flops_per_image()
-        mfu = compute_mfu(images_per_sec=512, flops_per_image=flops, num_gpus=8)
+        macs = compute_dino_flops_per_image()
+        mfu = compute_mfu(images_per_sec=512, macs_per_image=macs, num_gpus=8)
         assert 0.0 < mfu < 1.0, f"MFU={mfu:.4f} should be in (0, 1)"
 
     def test_mfu_scales_linearly_with_throughput(self):
-        flops = compute_dino_flops_per_image()
-        mfu_1x = compute_mfu(512, flops, 8)
-        mfu_2x = compute_mfu(1024, flops, 8)
+        macs = compute_dino_flops_per_image()
+        mfu_1x = compute_mfu(512, macs, 8)
+        mfu_2x = compute_mfu(1024, macs, 8)
         assert abs(mfu_2x / mfu_1x - 2.0) < 0.01
 
     def test_mfu_scales_inversely_with_more_gpus(self):
-        flops = compute_dino_flops_per_image()
-        mfu_8  = compute_mfu(512, flops, 8)
-        mfu_16 = compute_mfu(512, flops, 16)
+        macs = compute_dino_flops_per_image()
+        mfu_8  = compute_mfu(512, macs, 8)
+        mfu_16 = compute_mfu(512, macs, 16)
         assert abs(mfu_8 / mfu_16 - 2.0) < 0.01
 
     def test_floor_estimate_at_expected_baseline(self):
         """
-        At 512 img/s (8 GPUs × 64 img/GPU, ~1 s/step), MFU ≈ 0.7%.
+        At 512 img/s (8 GPUs × 64 img/GPU, ~1 s/step), MFU ≈ 1.46%.
 
-        NOTE: The plan document cited ~7% here, but that is a calculation error.
-        With H100_BF16_TFLOPS=1979 and flops_per_image≈226 GFLOPs:
-          MFU = 512 × 226e9 / (8 × 1979e12) ≈ 0.73%
-        The ~7% figure would require either H100=197.9 TFLOPS or ~5000 img/s throughput.
-        1-second steps at bs=64/GPU give low absolute MFU because H100 peak is enormous;
-        the real baseline (with compile, ~100ms steps) would be ~7% at ~5000 img/s.
+        With H100_BF16_TFLOPS=1979 and macs_per_image≈226 GMACs:
+          hardware_flops = 2 × 226e9 = 452e9
+          MFU = 512 × 452e9 / (8 × 1979e12) ≈ 1.46%
+        The 2× factor converts MACs → hardware FLOPs (H100 TFLOPS spec counts
+        each multiply-add as 2 hardware FLOPs).
         """
-        flops = compute_dino_flops_per_image()
-        mfu = compute_mfu(512, flops, 8, H100_BF16_TFLOPS)
-        # Correct range for 512 img/s, 8× H100s, ~226 GFLOPs/image: ~0.73%
-        assert 0.003 <= mfu <= 0.02, \
-            f"MFU at 512 img/s should be ~0.7%, got {mfu*100:.2f}%"
+        macs = compute_dino_flops_per_image()
+        mfu = compute_mfu(512, macs, 8, H100_BF16_TFLOPS)
+        # Correct range for 512 img/s, 8× H100s, ~226 GMACs/image: ~1.46%
+        assert 0.008 <= mfu <= 0.025, \
+            f"MFU at 512 img/s should be ~1.46%, got {mfu*100:.2f}%"
 
     def test_perfect_mfu_is_1(self):
-        """If images_per_sec = (num_gpus × peak_tflops × 1e12) / flops_per_image, MFU=1."""
-        flops = 100e9
+        """If actual hardware FLOPs/sec == theoretical peak, MFU=1.
+
+        With 2× MAC→hardware-FLOP conversion:
+          hardware_flops_per_sec = images_per_sec × 2 × macs_per_image
+          theoretical = gpus × peak_tflops × 1e12
+          → perfect_ips = (gpus × peak × 1e12) / (2 × macs)
+        """
+        macs = 100e9
         peak = 1000.0  # 1000 TFLOPS per GPU
         gpus = 2
-        perfect_ips = (gpus * peak * 1e12) / flops
-        mfu = compute_mfu(perfect_ips, int(flops), gpus, peak_tflops=peak)
+        perfect_ips = (gpus * peak * 1e12) / (2 * macs)
+        mfu = compute_mfu(perfect_ips, int(macs), gpus, peak_tflops=peak)
         assert abs(mfu - 1.0) < 1e-6

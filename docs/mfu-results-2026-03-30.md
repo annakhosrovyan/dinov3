@@ -8,6 +8,15 @@
 
 MFU tracking is implemented and verified correct. Training logs now emit `mfu`, `images_per_sec`, and `step_time_ms` every 10 iterations.
 
+> **Convention note (2026-03-31)**: The MFU formula was corrected to use hardware FLOP convention.
+> `compute_dino_flops_per_image()` returns MACs (1 MAC = 1 multiply-add, fvcore / DINOv2 paper
+> convention). `compute_mfu()` applies a 2× factor to convert MACs → hardware FLOPs before
+> dividing by H100 peak (1979 TFLOPS, which is specified in hardware FLOPs).
+> All MFU values in this document are **pre-fix** (MAC convention = half of hardware MFU):
+>   - 2-GPU baseline: 2.48% MAC-MFU → **~4.96% hardware MFU**
+>   - 8-GPU baseline: 2.82% MAC-MFU → **~5.64% hardware MFU**
+> Gap to 10% hardware MFU at 8 GPUs: ~1.8× (previously cited 3.6× was vs 10% MAC-MFU).
+
 ---
 
 ## Phase 1–3 Results: Unit Tests and Smoke Tests

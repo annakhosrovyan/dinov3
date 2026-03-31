@@ -14,19 +14,20 @@ def vit_forward_flops(
     num_layers: int,
     ffn_ratio: float = 4.0,
 ) -> int:
-    """FLOPs for one forward pass of a ViT on one image (bidirectional attention).
+    """MACs for one forward pass of a ViT on one image (bidirectional attention).
 
-    Each multiply-add counts as 2 FLOPs.
+    Uses MAC convention: 1 MAC = 1 multiply-add (fvcore / DINOv2 paper convention).
+    The DINOv2 paper reports ~17.4 GFLOPs for ViT-B/16 global crop using this convention.
+    Hardware TFLOPS specs (e.g. H100 1979 TFLOPS) count each MAC as 2 FLOPs; see
+    compute_mfu() for the 2× conversion factor.
 
-    Per-layer breakdown:
-      QKV projection:  seq_len × D × 3D × 2 = 6 × seq_len × D²
-      O projection:    seq_len × D × D × 2   = 2 × seq_len × D²
-      Attn scores:     seq_len² × D × 2      (QKᵀ, full square, bidirectional)
-      Attn weighted:   seq_len² × D × 2      (softmax(QKᵀ)V)
-      FFN up+down:     seq_len × D × ffn_dim × 2 × 2 = 4 × seq_len × D × ffn_dim
+    Per-layer breakdown (all in MACs):
+      QKV projections: 3 × seq_len × D²   (three [D→D] projections)
+      O projection:    1 × seq_len × D²
+      Attn QKᵀ + AV:  2 × seq_len² × D   (bidirectional, full square)
+      FFN up + down:   2 × seq_len × D × ffn_dim
     """
     ffn_dim = int(hidden_dim * ffn_ratio)
-    # Convention: 1 FLOP = 1 multiply-add (MAC), matching fvcore / DINOv2 paper ~17.4 GFLOPs.
     # Linear: Q, K, V, O projections each [seq_len, D] × [D, D] → seq_len × D² MACs each.
     #   QKV = 3 × seq_len × D², O = 1 × seq_len × D²  →  4 × seq_len × D²
     # Attention: QKᵀ and AV each need seq_len × seq_len × D MACs (per-head × num_heads).
@@ -51,7 +52,10 @@ def compute_dino_flops_per_image(
     gram_enabled: bool = False,
     head_overhead_pct: float = 0.05,
 ) -> int:
-    """Total FLOPs for one full training step per original image in the batch.
+    """Total MACs for one full training step per original image in the batch.
+
+    Uses MAC convention (1 MAC = 1 multiply-add). To convert to hardware FLOPs
+    for MFU computation, multiply by 2 — see compute_mfu().
 
     Accounts for:
       - Student forward (global + local crops) + backward (~2× forward)
@@ -73,7 +77,7 @@ def compute_dino_flops_per_image(
         head_overhead_pct: Fraction added for DINO/iBOT heads (default 0.05 = 5%).
 
     Returns:
-        Total FLOPs per image as an integer.
+        Total MACs per image as an integer.
     """
     global_seq = (global_crop_size // patch_size) ** 2 + 1 + n_registers
     local_seq = (local_crop_size // patch_size) ** 2 + 1 + n_registers
@@ -92,21 +96,28 @@ def compute_dino_flops_per_image(
 
 def compute_mfu(
     images_per_sec: float,
-    flops_per_image: int,
+    macs_per_image: int,
     num_gpus: int,
     peak_tflops: float = H100_BF16_TFLOPS,
 ) -> float:
     """Compute Model FLOP Utilization (MFU) as a fraction 0.0–1.0.
 
+    MFU = actual_hardware_flops_per_sec / peak_hardware_flops_per_sec
+
+    The 2× factor converts MACs (from compute_dino_flops_per_image) to hardware FLOPs:
+    hardware vendors count each multiply-add as 2 FLOPs, so H100's 1979 TFLOPS spec
+    is in hardware FLOPs, not MACs. Without this factor, MFU would be underreported by 2×.
+
     Args:
         images_per_sec: Total images processed per second across all GPUs.
-        flops_per_image: FLOPs per image per step (from compute_dino_flops_per_image).
+        macs_per_image: MACs per image per step (from compute_dino_flops_per_image).
         num_gpus: Number of GPUs in the run.
         peak_tflops: Peak TFLOPS per GPU (default H100 BF16 = 1979.0).
 
     Returns:
         MFU as a fraction (multiply by 100 to get percentage).
     """
-    actual_tflops = (images_per_sec * flops_per_image) / 1e12
+    # 2× converts MACs → hardware FLOPs (1 MAC = 2 hardware FLOPs: 1 multiply + 1 add)
+    actual_tflops = (images_per_sec * 2 * macs_per_image) / 1e12
     theoretical_peak = num_gpus * peak_tflops
     return actual_tflops / theoretical_peak
