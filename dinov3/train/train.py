@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import sys
+import time
 from functools import partial
 from pathlib import Path
 
@@ -36,6 +37,7 @@ from dinov3.data import (
     CombinedDataLoader,
 )
 from dinov3.logging import MetricLogger, setup_logging
+from dinov3.utils.mfu import compute_dino_flops_per_image, compute_mfu
 from dinov3.train.cosine_lr_scheduler import CosineScheduler, WSDLRScheduler, linear_warmup_cosine_decay
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.train.ssl_meta_arch import SSLMetaArch
@@ -452,6 +454,23 @@ def do_train(cfg, model, resume=False):
     else:
         global_batch_size = cfg.train.batch_size_per_gpu * distributed.get_world_size()
 
+    # Precompute FLOP constant for MFU tracking (done once, outside the loop)
+    num_gpus = distributed.get_world_size()
+    flops_per_image = compute_dino_flops_per_image(
+        global_crop_size=cfg.crops.global_crops_size,
+        local_crop_size=cfg.crops.local_crops_size,
+        patch_size=cfg.student.patch_size,
+        n_global_crops=2,
+        n_local_crops=cfg.crops.local_crops_number,
+        hidden_dim=768,
+        num_layers=12,
+        ffn_ratio=getattr(cfg.student, "ffn_ratio", 4.0),
+        n_registers=cfg.student.n_storage_tokens,
+        gram_enabled=cfg.gram.use_loss,
+        head_overhead_pct=0.05,
+    )
+    logger.info(f"MFU tracking: {flops_per_image/1e9:.1f} GFLOPs/image, {num_gpus} GPUs")
+
     # Build data loader
     data_loader = build_multi_resolution_data_loader_from_cfg(
         cfg=cfg,
@@ -504,6 +523,8 @@ def do_train(cfg, model, resume=False):
         num_gram_updates = math.ceil((start_iter + 1 - cfg.gram.it_first_update) / cfg.gram.update_frequency)
         logger.info(f"Gram was updated {num_gram_updates} times before iteration {start_iter}")
     consecutive_nan_count = 0
+    step_start_event = torch.cuda.Event(enable_timing=True)
+    step_end_event = torch.cuda.Event(enable_timing=True)
     for data in metric_logger.log_every(
         data_loader,
         print_freq=10,
@@ -534,6 +555,7 @@ def do_train(cfg, model, resume=False):
         apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
 
         # Forward backward
+        step_start_event.record()
         optimizer.zero_grad(set_to_none=True)
         total_loss, metrics_dict = model.forward_backward(data, teacher_temp=teacher_temp, iteration=it)
 
@@ -583,6 +605,13 @@ def do_train(cfg, model, resume=False):
         # Step optimizer
         optimizer.step()
         model.update_ema(mom)
+        step_end_event.record()
+
+        # Compute step time and MFU using CUDA events (GPU-synchronized timing)
+        step_end_event.synchronize()
+        step_time_ms = step_start_event.elapsed_time(step_end_event)
+        images_per_sec = global_batch_size / (step_time_ms / 1000.0)
+        mfu = compute_mfu(images_per_sec, flops_per_image, num_gpus)
 
         # [GRAM] Update gram teacher when using gram teacher and frequent updates
         if (
@@ -602,6 +631,11 @@ def do_train(cfg, model, resume=False):
         metric_logger.update(mom=mom)
         metric_logger.update(last_layer_lr=last_layer_lr)
         metric_logger.update(total_loss=total_loss, **metrics_dict)
+        metric_logger.update(
+            mfu=mfu * 100,
+            images_per_sec=images_per_sec,
+            step_time_ms=step_time_ms,
+        )
         if wandb_run is not None:
             wandb_metrics = {
                 "iteration": float(iteration),
@@ -618,6 +652,9 @@ def do_train(cfg, model, resume=False):
                     wandb_metrics[key] = float(value.item())
                 else:
                     wandb_metrics[key] = float(value)
+            wandb_metrics["mfu_pct"] = float(mfu * 100)
+            wandb_metrics["images_per_sec"] = float(images_per_sec)
+            wandb_metrics["step_time_ms"] = float(step_time_ms)
             wandb_module.log(wandb_metrics, step=iteration)
 
         # Submit evaluation jobs
