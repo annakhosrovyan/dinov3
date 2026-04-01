@@ -11,16 +11,22 @@ iterate on, and validate MFU tracking in the DINOv3 satellite training codebase.
 >
 > 1. **Section 2.3 smoke test expected value**: `expect ~7%` is wrong. The correct hardware MFU
 >    at 512 img/s, 8 GPUs, ~226 GMACs/image is:
->    `512 × 226e9 × 2 / (8 × 1979e12) = 1.46%`. The 7% figure came from using MAC counts
->    against a hardware-FLOP denominator without the 2× conversion factor.
+>    `512 × 226e9 × 2 / (8 × 989e12) = 2.93%`. The 7% figure came from using MAC counts
+>    against a hardware-FLOP denominator without the 2× conversion factor, and also used
+>    the wrong (sparsity) denominator.
 >
 > 2. **Section 3 test code — three bugs** (all corrected in the actual `tests/test_mfu.py`):
 >    - `compute_mfu(images_per_sec=512, flops_per_image=flops, ...)`: the kwarg is now
 >      `macs_per_image`, not `flops_per_image`
 >    - `test_floor_estimate`: bounds `0.05 <= mfu <= 0.20` (5–20%) are wrong. Correct bounds
->      for 512 img/s at 8×H100: `0.008 <= mfu <= 0.025` (~1.46% with hardware FLOP convention)
+>      for 512 img/s at 8×H100: `0.020 <= mfu <= 0.040` (~2.93% with dense 989 TFLOPS denominator)
 >    - `test_perfect_mfu_is_1`: `perfect_ips = (gpus × peak × 1e12) / flops` is wrong. With
 >      the 2× MAC→hardware-FLOP conversion, correct is `/ (2 × macs)`
+>
+> 4. **H100 denominator** (2026-04-01): `H100_BF16_TFLOPS = 1979.0` throughout this plan is wrong.
+>    NVIDIA's 1979 TFLOPS assumes 2:4 structured sparsity. Dense BF16 (what all standard
+>    transformer/ViT training uses) is **989 TFLOPS**. Similarly `A100_BF16_TFLOPS = 312.0`
+>    should be `156.0`. The actual `dinov3/utils/mfu.py` uses the corrected values.
 >
 > 3. **Section 2.2 formula table**: `QKV+O projections: 8 × seq × D²` uses hardware FLOP
 >    convention (×2 per MAC). The rest of the table and the actual implementation use MAC
@@ -121,8 +127,8 @@ patch_size = 16
 n_registers = 0
 ```
 
-**H100 peak**: `H100_BF16_TFLOPS = 1979.0`
-Also define `A100_BF16_TFLOPS = 312.0` for reference.
+**H100 peak**: `H100_BF16_TFLOPS = 989.0` (dense; NVIDIA's published 1979 assumes 2:4 sparsity — see ERRATA item 4)
+Also define `A100_BF16_TFLOPS = 156.0` for reference (NVIDIA publishes 312, also sparse).
 
 **Sanity check numbers** (must hold when function is called with these inputs):
 - `vit_forward_flops(seq_len=197, hidden_dim=768, num_layers=12, ffn_ratio=4.0)` → ~17.4 GFLOPs (DINOv2 paper reference)
@@ -581,7 +587,7 @@ If the first run reveals problems, iterate in this order:
   ```python
   logger.info(f"Debug MFU: flops_per_image={flops_per_image:.2e}, global_batch_size={global_batch_size}, step_time_ms={step_time_ms:.1f}")
   ```
-- Check the formula: `mfu = (images_per_sec × flops) / (num_gpus × 1979e12)`
+- Check the formula: `mfu = (images_per_sec × 2 × macs) / (num_gpus × 989e12)` (dense denominator; 2× converts MACs→hardware FLOPs)
 
 ### Problem: MFU is very noisy (>50% variance after warmup)
 - Root cause: Data loading variability is included in step time.

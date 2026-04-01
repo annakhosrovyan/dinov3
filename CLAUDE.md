@@ -127,7 +127,7 @@ Config: `pyproject.toml`. Pylint is scoped to similarities/misc only.
 | `n_storage_tokens` | **0** (satellite fork drops register tokens — confirmed from `ssl_default_config.yaml`) |
 | Global crop tokens | **197** (196 patches + 1 CLS + 0 registers) |
 | Local crop tokens | **37** (36 patches + 1 CLS + 0 registers) |
-| H100 BF16 peak | 1979 TFLOPS |
+| H100 BF16 peak (dense) | 989 TFLOPS (NVIDIA publishes 1979 but that assumes 2:4 sparsity) |
 
 `vit_base` defined at `dinov3/models/vision_transformer.py:344`
 
@@ -207,20 +207,36 @@ compute_precision.reduce_dtype: fp32  # Gradient reduction dtype
 crops.local_crops_number: 8     # 8 local crops (affects student FLOP count significantly)
 ```
 
-### MFU — Baseline Results (2026-03-30)
+### MFU — Baseline Results
 
-Measured on job 6585, gpu02, 2× H100, bs=32/GPU, torch.compile=True, synthetic data:
+> **Convention**: `compute_dino_flops_per_image()` returns **MACs** (1 MAC = 1 multiply-add,
+> fvcore / DINOv2 paper convention). `compute_mfu()` applies 2× MAC→hardware-FLOP conversion
+> and uses `H100_BF16_TFLOPS = 989.0` (dense, no 2:4 sparsity). NVIDIA's published 1979 TFLOPS
+> assumes structured sparsity; standard transformer training uses dense matmuls so 989 is correct.
+> See `dinov3/utils/mfu.py` and `docs/mfu-results-2026-03-30.md` for full derivation.
+
+**2-GPU baseline** (job 6585, gpu02, bs=32/GPU, torch.compile=True, synthetic data):
 
 | Metric | Value |
 |---|---|
-| MFU (post-warmup avg) | **2.48%** |
+| MFU hardware dense (post-warmup avg) | **~9.9%** |
 | images/sec (total, 2 GPU) | ~434 |
 | step_time_ms | ~147ms |
-| FLOPs/image | 226.4 GFLOPs |
+| MACs/image | 226.4 GMACs |
 
-**FLOP formula uses MAC convention** (1 FLOP = 1 multiply-add), consistent with DINOv2 paper (~17.4 GFLOPs global forward). H100 BF16 peak = 1979 TFLOPS. To hit **10% MFU at 8 GPUs**: need ~8800 img/s total (~1100/GPU); current is ~217/GPU, so ~5× gap.
+**8-GPU baseline** (job 6770, gpu03, bs=64/GPU, torch.compile=True, real Weka data):
 
-**Note**: First iteration is ~35 seconds (torch.compile warmup). Skip first 1–2 logged points for any analysis.
+| Metric | Value |
+|---|---|
+| MFU hardware dense (overall avg) | **~11.3%** |
+| MFU hardware dense (steady state iters 100–160) | **~12–13.4%** |
+| images/sec (total, 8 GPU) | ~1970 |
+| images/sec per GPU | ~246 |
+| step_time_ms | ~220–320ms (thermal variance) |
+
+At 8 GPUs, **steady-state MFU already exceeds 10%** (dense). Overall avg ~11.3% includes compile-warmup iterations.
+
+**Note**: First iteration is ~35 seconds (torch.compile warmup). Skip first 1–2 logged points (iters 1–10) for any steady-state analysis.
 
 ### Known Performance Considerations
 - **CUDA event timing implemented**: `torch.cuda.Event` pairs wrap `zero_grad` → `update_ema` — GPU-synchronized step time. The wall-clock `time.time()` in `MetricLogger.log_every()` (`helpers.py:69`) is separate and still present (used for eta/data-time).

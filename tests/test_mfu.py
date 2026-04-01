@@ -108,19 +108,20 @@ class TestComputeMfu:
 
     def test_floor_estimate_at_expected_baseline(self):
         """
-        At 512 img/s (8 GPUs × 64 img/GPU, ~1 s/step), MFU ≈ 1.46%.
+        At 512 img/s (8 GPUs × 64 img/GPU, ~1 s/step), MFU ≈ 2.93%.
 
-        With H100_BF16_TFLOPS=1979 and macs_per_image≈226 GMACs:
+        With H100_BF16_TFLOPS=989 (dense, no 2:4 sparsity) and macs_per_image≈226 GMACs:
           hardware_flops = 2 × 226e9 = 452e9
-          MFU = 512 × 452e9 / (8 × 1979e12) ≈ 1.46%
-        The 2× factor converts MACs → hardware FLOPs (H100 TFLOPS spec counts
-        each multiply-add as 2 hardware FLOPs).
+          MFU = 512 × 452e9 / (8 × 989e12) ≈ 2.93%
+        The 2× factor converts MACs → hardware FLOPs (1 MAC = 2 hardware FLOPs).
+        989 TFLOPS is the correct dense BF16 peak; NVIDIA's published 1979 assumes
+        2:4 structured sparsity which standard transformer training does not use.
         """
         macs = compute_dino_flops_per_image()
         mfu = compute_mfu(512, macs, 8, H100_BF16_TFLOPS)
-        # Correct range for 512 img/s, 8× H100s, ~226 GMACs/image: ~1.46%
-        assert 0.008 <= mfu <= 0.025, \
-            f"MFU at 512 img/s should be ~1.46%, got {mfu*100:.2f}%"
+        # Correct range for 512 img/s, 8× H100s, ~226 GMACs/image: ~2.93%
+        assert 0.020 <= mfu <= 0.040, \
+            f"MFU at 512 img/s should be ~2.93%, got {mfu*100:.2f}%"
 
     def test_perfect_mfu_is_1(self):
         """If actual hardware FLOPs/sec == theoretical peak, MFU=1.

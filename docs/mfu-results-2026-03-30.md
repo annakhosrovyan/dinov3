@@ -10,15 +10,19 @@ MFU tracking is implemented and verified correct. Training logs now emit `mfu`, 
 
 > **Convention fix (2026-03-31)**: The original MFU formula had a 2× error. `compute_dino_flops_per_image()`
 > returns MACs (1 MAC = 1 multiply-add, matching fvcore / DINOv2 paper), but the denominator
-> (H100 1979 TFLOPS) is in hardware FLOPs (1 multiply-add = 2 FLOPs). `compute_mfu()` now
-> applies a 2× conversion factor. All logged MFU values in this document are **from before the
-> fix** (MAC-convention MFU = ½ of hardware MFU). Corrected hardware-convention values:
-> - Phase 4 (2-GPU, synthetic): 2.48% → **~4.96% hardware MFU**
-> - Phase 5 (8-GPU, real data): 2.82% → **~5.64% hardware MFU**
+> must be in hardware FLOPs (1 multiply-add = 2 FLOPs). `compute_mfu()` now applies a 2×
+> conversion factor.
 >
-> Gap to 10% hardware MFU at 8 GPUs: **~1.8×** (not 3.6× as originally stated, which was
-> computed against 10% MAC-convention MFU). Future runs with the fixed code will log the correct
-> hardware-convention MFU directly.
+> **Denominator fix (2026-04-01)**: NVIDIA's published H100 BF16 spec (1979 TFLOPS) assumes
+> 2:4 structured sparsity. Standard transformer training uses dense matmuls; the correct
+> dense peak is **989 TFLOPS**. `H100_BF16_TFLOPS` updated from 1979 → 989. This doubles
+> all hardware-convention MFU values vs. the 2026-03-31 numbers below.
+>
+> All logged MFU values in this document are **from before both fixes**. Fully corrected values:
+> - Phase 4 (2-GPU, synthetic): 2.48% MAC-conv → **~9.9% hardware MFU (dense)**
+> - Phase 5 (8-GPU, real data): 2.82% MAC-conv → **~11.3% hardware MFU (dense)**
+>
+> At 8 GPUs, steady-state MFU is already above 10% (dense). Future runs will log correct values.
 
 ---
 
@@ -95,9 +99,9 @@ Training  [ 99/100]  mfu: 2.5569 (2.4798)  images_per_sec: 447.0  step_time_ms: 
 
 ### Parsed statistics (post-warmup, iters 20–99)
 
-| Metric | Min | Max | Avg | Hardware-convention (×2) |
+| Metric | Min | Max | Avg | Hardware-conv (dense, ×4 vs logged) |
 |---|---|---|---|---|
-| MFU (%) | 2.459 | 2.557 | 2.480 | ~4.96% |
+| MFU (%) | 2.459 | 2.557 | 2.480 | ~9.9% |
 | images_per_sec | 430.0 | 447.0 | 433.6 | — |
 | step_time_ms | 139.2 | 148.6 | 146.7 | — |
 
@@ -106,7 +110,7 @@ Training  [ 99/100]  mfu: 2.5569 (2.4798)  images_per_sec: 447.0  step_time_ms: 
 | Criterion | Result |
 |---|---|
 | `mfu:` appears in logs with non-NaN floats | ✅ |
-| MFU > 1% (any positive non-trivial value) | ✅ 2.48% MAC / ~4.96% hardware |
+| MFU > 1% (any positive non-trivial value) | ✅ 2.48% MAC-conv / ~9.9% hardware dense |
 | MFU < 80% (not wildly wrong) | ✅ |
 | Variance < 20% of mean after warmup | ✅ 2.6% variance |
 | images_per_sec consistent with step_time_ms | ✅ 64 / 0.147s ≈ 435 ✓ |
@@ -132,17 +136,20 @@ MFU_MAC = images_per_sec × macs_per_image / (num_gpus × peak_tflops × 1e12)
         = 430 × 226e9 / (2 × 1979e12) = 0.0246 = 2.46% ✓
 ```
 
-With the corrected hardware-FLOP convention (×2 factor, as in the fixed `compute_mfu()`):
+With the fully corrected formula (2× MAC→hw-FLOP, dense peak 989 TFLOPS):
 
 ```
-MFU_HW = images_per_sec × 2 × macs_per_image / (num_gpus × peak_tflops × 1e12)
-        = 430 × 2 × 226e9 / (2 × 1979e12) = 0.0492 = 4.92%
+MFU_HW_dense = images_per_sec × 2 × macs_per_image / (num_gpus × 989 × 1e12)
+             = 430 × 2 × 226e9 / (2 × 989e12) = 0.0984 = 9.84%
 ```
+
+Note: using 1979 TFLOPS (NVIDIA's sparsity spec) gives 4.92% — 2× understated because
+that spec assumes 2:4 structured sparsity that dense training does not use.
 
 **Current baseline (2-GPU, synthetic data, with compile)**:
 - ~430 img/s total across 2 GPUs = ~215 img/s per GPU
 - step_time ≈ 148ms at global_batch=64
-- ~4.92% hardware MFU
+- ~9.9% hardware MFU (dense BF16, 989 TFLOPS denominator)
 
 ---
 
@@ -208,9 +215,9 @@ Overall run average (iter 299): **MFU 2.82% (MAC-conv) = ~5.64% hardware MFU, im
 | batch_size/GPU | 32 | 64 |
 | global_batch_size | 64 | 512 |
 | MFU MAC-conv (steady state) | ~2.48% | ~3.0–3.3% |
-| MFU hardware-conv (steady state) | ~4.96% | ~6.0–6.7% |
+| MFU hardware dense (steady state) | ~9.9% | ~12–13.4% |
 | MFU MAC-conv (overall avg) | 2.48% | 2.82% |
-| MFU hardware-conv (overall avg) | ~4.96% | ~5.64% |
+| MFU hardware dense (overall avg) | ~9.9% | ~11.3% |
 | images/sec (total) | ~430 | ~1970 |
 | images/sec per GPU | ~215 | ~246 |
 | step_time_ms | ~147ms | ~220–320ms (thermal variance) |
@@ -221,14 +228,15 @@ Overall run average (iter 299): **MFU 2.82% (MAC-conv) = ~5.64% hardware MFU, im
 - Real Weka satellite data is not an IO bottleneck (< 1ms data loading)
 - Larger batch (64 vs 32) gives modest per-GPU efficiency gain (~246 vs 215 img/s/GPU)
 
-### Gap to 10% hardware MFU
+### Gap to 10% hardware MFU (dense)
 
-At 10% hardware MFU with 8 GPUs:
+At 10% hardware MFU (dense, 989 TFLOPS) with 8 GPUs:
 ```
-0.10 = img/s × 2 × 226e9 / (8 × 1979e12)
-img/s = 0.10 × 8 × 1979e12 / (2 × 226e9) = 3505 img/s
+0.10 = img/s × 2 × 226e9 / (8 × 989e12)
+img/s = 0.10 × 8 × 989e12 / (2 × 226e9) = 1751 img/s
 ```
-Current: ~1970 img/s → **~1.8× improvement needed** (~438 img/s/GPU vs current ~246 img/s/GPU)
+Current: ~1970 img/s → **already above 10% in steady state** (~12–13% at iters 100–160).
+Overall-average MFU is ~11.3% (includes slow compile-warmup iterations).
 
 ---
 

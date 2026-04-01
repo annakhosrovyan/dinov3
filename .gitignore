@@ -18,3 +18,7 @@ dist/
 .vscode/
 
 pretrained_weights/
+
+
+output_*
+.claude/*

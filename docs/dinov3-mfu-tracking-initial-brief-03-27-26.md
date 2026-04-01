@@ -18,16 +18,19 @@
 >    is wrong. The actual implementation in `dinov3/utils/mfu.py` uses the correct MAC convention.
 >
 > 2. **Section 4 compute_mfu**: The formula `actual_tflops = (images_per_sec × flops) / 1e12`
->    is missing a **2× factor**. H100's 1979 TFLOPS spec is in hardware FLOPs (1 multiply-add
->    = 2 FLOPs), but `flops_per_image` returns MACs. The corrected formula is:
+>    is missing a **2× factor**. Each MAC = 2 hardware FLOPs (1 multiply + 1 add), but
+>    `flops_per_image` returns MACs. The corrected formula is:
 >    `actual_tflops = (images_per_sec × 2 × macs_per_image) / 1e12`
->    Without this factor, reported MFU is exactly half the true hardware MFU.
+>    Without this factor, reported MFU is half the true value.
 >
-> 3. **Section 9 baseline estimates**: The 10–14% MFU estimate for torch.compile assumed the
->    old (uncorrected) formula. The actual measured baseline at 8×H100 with compile is:
->    **~5.6% hardware MFU** (2.82% × 2 under the fixed convention). The estimates in Section 9
->    are approximately 2–3× too optimistic relative to the actual measured baseline.
+> 3. **Section 9 baseline estimates**: The 10–14% MFU estimate assumed the old (uncorrected)
+>    formula. Actual measured baseline at 8×H100 with compile is **~11.3% hardware MFU (dense)**.
 >    See `docs/mfu-results-2026-03-30.md` for actual numbers.
+>
+> 4. **H100 denominator** (2026-04-01): `H100_BF16_TFLOPS = 1979.0` throughout this brief is wrong.
+>    NVIDIA's 1979 TFLOPS assumes 2:4 structured sparsity. Dense BF16 (standard transformer
+>    training) is **989 TFLOPS**. Similarly `A100_BF16_TFLOPS = 312.0` should be `156.0`.
+>    The roofline table (Section 8) and ridge point formula are also affected — see inline notes.
 >
 > Everything else in this brief (architecture, token counts, forward pass structure, FSDP2
 > setup, key code paths) is correct and was verified against the implementation.
@@ -171,7 +174,7 @@ def flops_per_image_step(
 
 ```python
 # H100 SXM5 BF16 peak
-H100_BF16_TFLOPS = 1979.0  # TFLOPS
+H100_BF16_TFLOPS = 1979.0  # WRONG: 1979 is with 2:4 sparsity; dense = 989 — see ERRATA item 4
 
 def compute_mfu(
     images_per_sec: float,          # total across all GPUs
@@ -196,7 +199,8 @@ def compute_mfu(
 # Example: 8 GPUs, 64 img/GPU/step, 1-second steps
 # images_per_sec = 8 * 64 = 512
 # compute_mfu(512, 64, 8, gram_enabled=False) ≈ ?
-# 512 * 221e9 / 1e12 / (8 * 1979) ≈ 7.1%  — floor estimate (assumes 1-second/step)
+# 512 * 221e9 * 2 / 1e12 / (8 * 989) ≈ 2.86%  — floor estimate (assumes 1-second/step)
+# NOTE: original had 1979 (sparsity) and missing 2× — see ERRATA items 2 and 4
 # Current config already has compile=True; expect first measurement well above this
 ```
 
@@ -317,8 +321,8 @@ All questions resolved by reading `dinov3/configs/ssl_default_config.yaml` and `
 ```python
 """MFU tracking utilities for DINOv3 / iBOT SSL training."""
 
-H100_BF16_TFLOPS = 1979.0
-A100_BF16_TFLOPS = 312.0
+H100_BF16_TFLOPS = 1979.0  # WRONG: dense = 989 (1979 assumes 2:4 sparsity) — see ERRATA item 4
+A100_BF16_TFLOPS = 312.0   # WRONG: dense = 156 (312 assumes 2:4 sparsity) — see ERRATA item 4
 
 
 def vit_forward_flops(
@@ -465,10 +469,10 @@ These are rough. The actual baseline is the first thing to measure.
 
 | GPU | BF16 TFLOPS | HBM BW | NVLink BW |
 |---|---|---|---|
-| H100 80GB SXM5 | 1,979 | 3.35 TB/s | 900 GB/s |
-| A100 80GB SXM4 | 312 | 2.0 TB/s | 600 GB/s |
+| H100 80GB SXM5 | ~~1,979~~ **989** (dense) | 3.35 TB/s | 900 GB/s |
+| A100 80GB SXM4 | ~~312~~ **156** (dense) | 2.0 TB/s | 600 GB/s |
 
-**Ridge point** (H100): 1979 TFLOPS / 3.35 TB/s ≈ **591 FLOP/byte**
+**Ridge point** (H100): 989 TFLOPS / 3.35 TB/s ≈ **295 FLOP/byte** (dense; original used sparsity number — see ERRATA item 4)
 - Ops with arithmetic intensity < 591 are memory-bound (LayerNorm, softmax, small matmuls)
 - Large matmuls in ViT-B are compute-bound at typical batch sizes
 

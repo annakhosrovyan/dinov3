@@ -4,8 +4,17 @@ Implements the FLOP formulas derived in docs/dinov3-mfu-tracking-initial-brief-0
 Bidirectional attention (no causal mask saving), backward ≈ 2× forward.
 """
 
-H100_BF16_TFLOPS = 1979.0  # H100 SXM5 BF16 peak TFLOPS
-A100_BF16_TFLOPS = 312.0   # A100 SXM4 BF16 peak TFLOPS (reference)
+# H100 SXM5 BF16 peak TFLOPS — dense (no structured sparsity).
+# NVIDIA's published spec-sheet number (1979 TFLOPS) uses 2:4 structured sparsity,
+# which roughly doubles theoretical throughput. Almost all transformer and ViT training
+# uses standard dense matmuls, so 989 TFLOPS is the correct denominator for MFU.
+# Reference: NVIDIA H100 datasheet footnote; see also "ML Engineering" (Bekman et al.)
+# which explicitly corrects for this. Dense = published / 2.
+H100_BF16_TFLOPS = 989.0
+
+# A100 SXM4 BF16 peak TFLOPS — dense (no structured sparsity).
+# NVIDIA publishes 312 TFLOPS for A100 BF16, which is also the sparsity number; dense = 156.
+A100_BF16_TFLOPS = 156.0
 
 
 def vit_forward_flops(
@@ -18,8 +27,9 @@ def vit_forward_flops(
 
     Uses MAC convention: 1 MAC = 1 multiply-add (fvcore / DINOv2 paper convention).
     The DINOv2 paper reports ~17.4 GFLOPs for ViT-B/16 global crop using this convention.
-    Hardware TFLOPS specs (e.g. H100 1979 TFLOPS) count each MAC as 2 FLOPs; see
-    compute_mfu() for the 2× conversion factor.
+    Hardware TFLOPS specs count each MAC as 2 FLOPs (1 multiply + 1 add); see
+    compute_mfu() for the 2× conversion factor. Use H100_BF16_TFLOPS (989, dense)
+    as the denominator — not NVIDIA's published 1979 which assumes 2:4 sparsity.
 
     Per-layer breakdown (all in MACs):
       QKV projections: 3 × seq_len × D²   (three [D→D] projections)
@@ -105,14 +115,15 @@ def compute_mfu(
     MFU = actual_hardware_flops_per_sec / peak_hardware_flops_per_sec
 
     The 2× factor converts MACs (from compute_dino_flops_per_image) to hardware FLOPs:
-    hardware vendors count each multiply-add as 2 FLOPs, so H100's 1979 TFLOPS spec
-    is in hardware FLOPs, not MACs. Without this factor, MFU would be underreported by 2×.
+    hardware vendors count each multiply-add as 2 FLOPs (1 multiply + 1 add).
+    H100_BF16_TFLOPS = 989.0 is the dense (no 2:4 sparsity) peak — NVIDIA's published
+    1979 TFLOPS assumes structured sparsity that standard dense matmuls do not use.
 
     Args:
         images_per_sec: Total images processed per second across all GPUs.
         macs_per_image: MACs per image per step (from compute_dino_flops_per_image).
         num_gpus: Number of GPUs in the run.
-        peak_tflops: Peak TFLOPS per GPU (default H100 BF16 = 1979.0).
+        peak_tflops: Peak TFLOPS per GPU (default H100 BF16 dense = 989.0).
 
     Returns:
         MFU as a fraction (multiply by 100 to get percentage).
