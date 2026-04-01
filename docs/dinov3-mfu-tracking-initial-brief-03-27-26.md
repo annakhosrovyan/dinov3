@@ -6,6 +6,36 @@
 
 ---
 
+> **ERRATA (2026-03-31)** — Three errors in this brief were found after implementation:
+>
+> 1. **Section 3 FLOP formula**: The `vit_b_forward_flops` code snippet uses an inconsistent
+>    mixed convention — `attn_linear = 8 × seq × D²` and `ffn = 4 × seq × D × ffn_dim` treat
+>    each multiply-add as 2 hardware FLOPs, but `attn_scores = 2 × seq² × D` uses the MAC
+>    convention (1 multiply-add = 1 op). The correct consistent approach (MAC convention,
+>    matching fvcore / DINOv2 paper) is:
+>    `attn_linear = 4 × seq × D²`, `attn_scores = 2 × seq² × D`, `ffn = 2 × seq × D × ffn_dim`
+>    → yields ~17.4 GMACs/image for global crop ✓. The mixed formula yielded ~34 GFLOPs, which
+>    is wrong. The actual implementation in `dinov3/utils/mfu.py` uses the correct MAC convention.
+>
+> 2. **Section 4 compute_mfu**: The formula `actual_tflops = (images_per_sec × flops) / 1e12`
+>    is missing a **2× factor**. H100's 1979 TFLOPS spec is in hardware FLOPs (1 multiply-add
+>    = 2 FLOPs), but `flops_per_image` returns MACs. The corrected formula is:
+>    `actual_tflops = (images_per_sec × 2 × macs_per_image) / 1e12`
+>    Without this factor, reported MFU is exactly half the true hardware MFU.
+>
+> 3. **Section 9 baseline estimates**: The 10–14% MFU estimate for torch.compile assumed the
+>    old (uncorrected) formula. The actual measured baseline at 8×H100 with compile is:
+>    **~5.6% hardware MFU** (2.82% × 2 under the fixed convention). The estimates in Section 9
+>    are approximately 2–3× too optimistic relative to the actual measured baseline.
+>    See `docs/mfu-results-2026-03-30.md` for actual numbers.
+>
+> Everything else in this brief (architecture, token counts, forward pass structure, FSDP2
+> setup, key code paths) is correct and was verified against the implementation.
+
+---
+
+---
+
 ## 1. Why PaLM's 6N Formula Doesn't Apply Here
 
 The standard `MFU = tokens/sec × 6N / (num_gpus × peak_TFLOPS)` is for decoder-only causal LMs.  

@@ -5,6 +5,33 @@ iterate on, and validate MFU tracking in the DINOv3 satellite training codebase.
 
 ---
 
+> **ERRATA (2026-03-31)** — Several errors in this plan were found during or after implementation.
+> The plan is preserved as-is for historical reference; do not use the test code or expected
+> values below without reading these corrections first.
+>
+> 1. **Section 2.3 smoke test expected value**: `expect ~7%` is wrong. The correct hardware MFU
+>    at 512 img/s, 8 GPUs, ~226 GMACs/image is:
+>    `512 × 226e9 × 2 / (8 × 1979e12) = 1.46%`. The 7% figure came from using MAC counts
+>    against a hardware-FLOP denominator without the 2× conversion factor.
+>
+> 2. **Section 3 test code — three bugs** (all corrected in the actual `tests/test_mfu.py`):
+>    - `compute_mfu(images_per_sec=512, flops_per_image=flops, ...)`: the kwarg is now
+>      `macs_per_image`, not `flops_per_image`
+>    - `test_floor_estimate`: bounds `0.05 <= mfu <= 0.20` (5–20%) are wrong. Correct bounds
+>      for 512 img/s at 8×H100: `0.008 <= mfu <= 0.025` (~1.46% with hardware FLOP convention)
+>    - `test_perfect_mfu_is_1`: `perfect_ips = (gpus × peak × 1e12) / flops` is wrong. With
+>      the 2× MAC→hardware-FLOP conversion, correct is `/ (2 × macs)`
+>
+> 3. **Section 2.2 formula table**: `QKV+O projections: 8 × seq × D²` uses hardware FLOP
+>    convention (×2 per MAC). The rest of the table and the actual implementation use MAC
+>    convention: `4 × seq × D²` for QKV+O, `2 × seq × D × ffn_dim` for FFN.
+>
+> See `docs/mfu-results-2026-03-30.md` for the actual implementation and corrected results.
+
+---
+
+---
+
 ## 0. How to Launch This Session (Instructions for Aram)
 
 Auto mode is already configured in `~/.claude/settings.json` (`permissions.defaultMode: "auto"`).

@@ -8,14 +8,17 @@
 
 MFU tracking is implemented and verified correct. Training logs now emit `mfu`, `images_per_sec`, and `step_time_ms` every 10 iterations.
 
-> **Convention note (2026-03-31)**: The MFU formula was corrected to use hardware FLOP convention.
-> `compute_dino_flops_per_image()` returns MACs (1 MAC = 1 multiply-add, fvcore / DINOv2 paper
-> convention). `compute_mfu()` applies a 2× factor to convert MACs → hardware FLOPs before
-> dividing by H100 peak (1979 TFLOPS, which is specified in hardware FLOPs).
-> All MFU values in this document are **pre-fix** (MAC convention = half of hardware MFU):
->   - 2-GPU baseline: 2.48% MAC-MFU → **~4.96% hardware MFU**
->   - 8-GPU baseline: 2.82% MAC-MFU → **~5.64% hardware MFU**
-> Gap to 10% hardware MFU at 8 GPUs: ~1.8× (previously cited 3.6× was vs 10% MAC-MFU).
+> **Convention fix (2026-03-31)**: The original MFU formula had a 2× error. `compute_dino_flops_per_image()`
+> returns MACs (1 MAC = 1 multiply-add, matching fvcore / DINOv2 paper), but the denominator
+> (H100 1979 TFLOPS) is in hardware FLOPs (1 multiply-add = 2 FLOPs). `compute_mfu()` now
+> applies a 2× conversion factor. All logged MFU values in this document are **from before the
+> fix** (MAC-convention MFU = ½ of hardware MFU). Corrected hardware-convention values:
+> - Phase 4 (2-GPU, synthetic): 2.48% → **~4.96% hardware MFU**
+> - Phase 5 (8-GPU, real data): 2.82% → **~5.64% hardware MFU**
+>
+> Gap to 10% hardware MFU at 8 GPUs: **~1.8×** (not 3.6× as originally stated, which was
+> computed against 10% MAC-convention MFU). Future runs with the fixed code will log the correct
+> hardware-convention MFU directly.
 
 ---
 
@@ -44,15 +47,24 @@ tests/test_mfu.py::TestComputeMfu::test_perfect_mfu_is_1 PASSED
 
 Env used: `/mnt/weka/shared-cache/miniforge3/envs/gpus` (torch 2.5.1+cu124)
 
-### FLOP formula sanity check
+### MAC formula sanity check
 
 ```
-Global fwd (seq=197): 17.45 GFLOPs  (DINOv2 paper: ~17.5 GFLOPs ✓)
-Local fwd  (seq=37):   3.17 GFLOPs  (expected ~3.2 ✓)
-Total step:           226.4 GFLOPs/image  (expected ~221 GFLOPs ✓, difference due to head_overhead_pct=5%)
+Global fwd (seq=197): 17.45 GMACs  (DINOv2 paper: ~17.5 GFLOPs MAC-convention ✓)
+Local fwd  (seq=37):   3.17 GMACs  (expected ~3.2 ✓)
+Total step:           226.4 GMACs/image  (expected ~221 GMACs ✓, difference due to head_overhead_pct=5%)
 ```
 
-**FLOP convention note**: Uses 1 FLOP = 1 MAC (multiply-add), consistent with fvcore and the DINOv2 paper. The plan's formula specification used an inconsistent mixed convention (2× FLOPs per MAC for linear but 1× for attention), producing ~34 GFLOPs. The implementation uses the consistent MAC convention which matches the ~17.4 GFLOPs DINOv2 reference.
+**Why DINOv2 paper?** DINOv3 (this codebase) is a fork of Meta's DINOv2. The ViT-B/16 architecture
+is identical (embed_dim=768, depth=12, patch_size=16) — the only differences are the 5-channel satellite
+input and no register tokens. The patch embedding layer has negligible FLOPs vs transformer blocks, so
+DINOv2's ~17.5 GFLOPs for a ViT-B global crop is the correct reference for our formula sanity check.
+
+**MAC convention**: Uses 1 MAC = 1 multiply-add (fvcore / DINOv2 paper convention). The plan's formula
+used an inconsistent mixed convention (attn_linear and FFN used hardware-FLOP ×2 factor, attn_scores
+used MAC), yielding ~34 GFLOPs vs the correct ~17.4 GMACs. The implementation uses consistent MAC
+convention. `compute_mfu()` then applies the 2× conversion to get hardware FLOPs before dividing by
+the H100 peak spec.
 
 ---
 
@@ -65,6 +77,8 @@ Total step:           226.4 GFLOPs/image  (expected ~221 GFLOPs ✓, difference 
 **Dataset**: Synthetic HDF5 (500 images, 256×256, 5-channel) — akhosrovyan's Weka data is permission-denied for adovlatyan
 
 ### Training log excerpt (iterations 10–99, after compile warmup)
+
+> Note: `mfu` values below are MAC-convention (pre-fix). Hardware-convention values are ×2.
 
 ```
 Training  [ 10/100]  mfu: 2.4677 (2.2015)  images_per_sec: 431.4  step_time_ms: 148.3
@@ -81,18 +95,18 @@ Training  [ 99/100]  mfu: 2.5569 (2.4798)  images_per_sec: 447.0  step_time_ms: 
 
 ### Parsed statistics (post-warmup, iters 20–99)
 
-| Metric | Min | Max | Avg |
-|---|---|---|---|
-| MFU (%) | 2.459 | 2.557 | 2.480 |
-| images_per_sec | 430.0 | 447.0 | 433.6 |
-| step_time_ms | 139.2 | 148.6 | 146.7 |
+| Metric | Min | Max | Avg | Hardware-convention (×2) |
+|---|---|---|---|---|
+| MFU (%) | 2.459 | 2.557 | 2.480 | ~4.96% |
+| images_per_sec | 430.0 | 447.0 | 433.6 | — |
+| step_time_ms | 139.2 | 148.6 | 146.7 | — |
 
 ### Validation criteria check
 
 | Criterion | Result |
 |---|---|
 | `mfu:` appears in logs with non-NaN floats | ✅ |
-| MFU > 1% (any positive non-trivial value) | ✅ 2.48% avg |
+| MFU > 1% (any positive non-trivial value) | ✅ 2.48% MAC / ~4.96% hardware |
 | MFU < 80% (not wildly wrong) | ✅ |
 | Variance < 20% of mean after warmup | ✅ 2.6% variance |
 | images_per_sec consistent with step_time_ms | ✅ 64 / 0.147s ≈ 435 ✓ |
@@ -105,21 +119,30 @@ Used `torch.cuda.Event(enable_timing=True)` pairs around `optimizer.zero_grad()`
 
 ---
 
-## Why MFU is 2.5% (not ~7% as the plan estimated)
+## Why MFU was logged as ~2.5% (MAC-convention) and what it means
 
-The plan's estimate of 7% at 512 img/s with 8 GPUs was a calculation error. With:
-- `flops_per_image ≈ 226 GFLOPs`
-- `H100_BF16_TFLOPS = 1979`
+The plan's estimate of 7% at 512 img/s with 8 GPUs had two errors:
+1. It used MAC counts divided by hardware-FLOP peak without the 2× conversion
+2. It assumed 1-second steps; actual compile-optimized steps are ~148ms
 
-Actual formula: `MFU = images_per_sec × flops / (num_gpus × peak_tflops × 1e12)`
+With the MAC-convention formula (as logged during Phase 4):
 
-At 2 GPUs, 430 img/s: `430 × 226e9 / (2 × 1979e12) = 0.0246 = 2.46% ✓`
+```
+MFU_MAC = images_per_sec × macs_per_image / (num_gpus × peak_tflops × 1e12)
+        = 430 × 226e9 / (2 × 1979e12) = 0.0246 = 2.46% ✓
+```
 
-The 8-GPU equivalent at the same per-GPU throughput would be 3440 img/s total → still 2.5% MFU. To reach 7% would require ~1230 img/s per GPU (vs current ~215 img/s/GPU), i.e., a ~5.7× speedup. That's the optimization target.
+With the corrected hardware-FLOP convention (×2 factor, as in the fixed `compute_mfu()`):
+
+```
+MFU_HW = images_per_sec × 2 × macs_per_image / (num_gpus × peak_tflops × 1e12)
+        = 430 × 2 × 226e9 / (2 × 1979e12) = 0.0492 = 4.92%
+```
 
 **Current baseline (2-GPU, synthetic data, with compile)**:
 - ~430 img/s total across 2 GPUs = ~215 img/s per GPU
 - step_time ≈ 148ms at global_batch=64
+- ~4.92% hardware MFU
 
 ---
 
@@ -132,8 +155,9 @@ The 8-GPU equivalent at the same per-GPU throughput would be 3440 img/s total �
 | `register_fsdp_forward_method` missing (requires torch ≥ 2.6) | Installed torch 2.6.0+cu124 |
 | Dataset paths permission-denied | Created synthetic HDF5 at `/mnt/weka/adovlatyan/synthetic_intelinair.h5` |
 | HDF5 key mismatch (`Intelinair` vs `intelinair`) | Recreated HDF5 with lowercase `intelinair` key |
-| Plan's `test_floor_estimate` bounds wrong (5–20% vs actual ~0.7%) | Fixed test bounds to `0.003–0.02` (0.3–2%), documented root cause |
+| Plan's `test_floor_estimate` bounds wrong (5–20% vs actual ~1.46%) | Fixed test bounds to `0.008–0.025` (~1.46%), documented root cause |
 | Plan's `test_scales_quadratically` lower bound wrong (2.5× vs actual 2.04×) | Fixed lower bound to `> 2.0` — still correctly verifies quadratic term is present |
+| MFU formula missing 2× MAC→hardware-FLOP factor | Fixed in `compute_mfu()` (2026-03-31); see convention fix note at top |
 
 ---
 
@@ -141,7 +165,7 @@ The 8-GPU equivalent at the same per-GPU throughput would be 3440 img/s total �
 
 | File | Action |
 |---|---|
-| `dinov3/utils/mfu.py` | Created — FLOP counting utilities |
+| `dinov3/utils/mfu.py` | Created — MAC counting utilities; `compute_mfu()` applies 2× to get hardware FLOPs |
 | `tests/test_mfu.py` | Created — 14 unit tests, all pass |
 | `dinov3/train/train.py` | Modified — CUDA event timing + MFU logging in `do_train()` |
 | `scripts/mfu_validation_run.sh` | Created — 2-GPU Slurm validation job |
@@ -162,6 +186,8 @@ The 8-GPU equivalent at the same per-GPU throughput would be 3440 img/s total �
 
 ### Steady-state results (iters 100–160, post-compile)
 
+> Note: `mfu` values below are MAC-convention (pre-fix). Hardware-convention values are ×2.
+
 ```
 Training  [100/300]  mfu: 3.0953  images_per_sec: 2164.6  step_time_ms: 231.6
 Training  [110/300]  mfu: 3.2920  images_per_sec: 2302.2  step_time_ms: 220.6
@@ -172,7 +198,7 @@ Training  [150/300]  mfu: 3.1696  images_per_sec: 2216.6  step_time_ms: 230.3
 Training  [160/300]  mfu: 3.0327  images_per_sec: 2120.9  step_time_ms: 234.9
 ```
 
-Overall run average (iter 299): **MFU 2.82%, images/sec 1973**
+Overall run average (iter 299): **MFU 2.82% (MAC-conv) = ~5.64% hardware MFU, images/sec 1973**
 
 ### Comparison to Phase 4
 
@@ -181,8 +207,10 @@ Overall run average (iter 299): **MFU 2.82%, images/sec 1973**
 | GPUs | 2× H100 | 8× H100 |
 | batch_size/GPU | 32 | 64 |
 | global_batch_size | 64 | 512 |
-| MFU (steady state) | ~2.48% | ~3.0–3.3% |
-| MFU (overall avg) | 2.48% | 2.82% |
+| MFU MAC-conv (steady state) | ~2.48% | ~3.0–3.3% |
+| MFU hardware-conv (steady state) | ~4.96% | ~6.0–6.7% |
+| MFU MAC-conv (overall avg) | 2.48% | 2.82% |
+| MFU hardware-conv (overall avg) | ~4.96% | ~5.64% |
 | images/sec (total) | ~430 | ~1970 |
 | images/sec per GPU | ~215 | ~246 |
 | step_time_ms | ~147ms | ~220–320ms (thermal variance) |
@@ -193,10 +221,14 @@ Overall run average (iter 299): **MFU 2.82%, images/sec 1973**
 - Real Weka satellite data is not an IO bottleneck (< 1ms data loading)
 - Larger batch (64 vs 32) gives modest per-GPU efficiency gain (~246 vs 215 img/s/GPU)
 
-### Gap to 10% MFU
+### Gap to 10% hardware MFU
 
-At 10% MFU with 8 GPUs: need ~7100 img/s total (vs current ~1970 img/s)  
-→ **~3.6× improvement needed** (~890 img/s/GPU vs current ~246 img/s/GPU)
+At 10% hardware MFU with 8 GPUs:
+```
+0.10 = img/s × 2 × 226e9 / (8 × 1979e12)
+img/s = 0.10 × 8 × 1979e12 / (2 × 226e9) = 3505 img/s
+```
+Current: ~1970 img/s → **~1.8× improvement needed** (~438 img/s/GPU vs current ~246 img/s/GPU)
 
 ---
 

@@ -50,7 +50,7 @@ Config CLI overrides use OmegaConf dot-notation: `section.key=value` pairs passe
 
 **Pretrained weights**: Default config points to `./pretrained_weights/dinov3_vitb16_pretrain.pth`. The actual file lives at `/auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth` (accessible from GPU nodes; not from headnode container). Use `student.pretrained_weights=""` to skip for smoke tests — the config guards with `if self.cfg.student.pretrained_weights:`.
 
-**Dataset access**: `run.sh` uses `/mnt/weka/akhosrovyan/re-id/pretraining/...` — these paths are **permission-denied for adovlatyan** from the headnode container, but are accessible from GPU nodes when the job is submitted. A synthetic dataset exists at `/mnt/weka/adovlatyan/synthetic_intelinair.h5` for local testing.
+**Dataset access**: `run.sh` uses `/mnt/weka/akhosrovyan/re-id/pretraining/...` — these paths are **are now allowed for adovlatyan** (but you have to specify the full path, only `re-id/*` is allowed), and should be accessible from GPU nodes when the job is submitted as well. A synthetic dataset exists at `/mnt/weka/adovlatyan/synthetic_intelinair.h5` for local testing.
 
 **Storage**: Use `/mnt/weka/adovlatyan/` for logs and outputs (not `/data/adovlatyan/` which is NFS and deprecated). Log path: `/mnt/weka/adovlatyan/logs/`.
 
