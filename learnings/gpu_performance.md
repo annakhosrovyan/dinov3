@@ -48,3 +48,51 @@ Job 6770 (gpu03, 8×H100, ViT-B, bs=64): step_time_ms increased from ~220ms (ite
 **Why non-trivial**: Benchmark numbers look different depending on when you sample them. The "first clean window" post-compile is optimistic; the thermal steady state (after ~5 min) is the representative number.
 
 **Decision implication**: For MFU benchmarks, either (a) run long enough to reach thermal steady state and report that, or (b) be explicit about whether numbers are "early steady state" vs "thermal steady state." The gap is ~40% — not negligible. Also: don't compare benchmarks between short runs and long runs directly.
+
+---
+
+## H100 BF16 MAMF = 794.5 TFLOPS, not 989 (2026-04-01)
+
+MAMF (Maximum Achievable Matmul FLOPS) is the peak throughput actually measurable on real hardware at the best matrix shapes. H100 SXM BF16 MAMF benchmarks (from ml-engineering book):
+- Theoretical peak: 989 TFLOPS
+- MAMF achieved: **794.5 TFLOPS** (80.3% efficiency at ideal shapes)
+- Best shape tested: 2048×2048×13312
+
+At 11% MFU (109 TFLOPS achieved): **13.7% of MAMF** — that's the true compute efficiency gap to close.
+
+**Why non-trivial**: We use 989 TFLOPS as the denominator in `compute_mfu()`. That's correct for apples-to-apples MFU comparison (it's the convention). But when reasoning about how much headroom exists, the realistic ceiling is 794.5, not 989. "30% MFU" = 297 TFLOPS, which is 37% of MAMF — very achievable.
+
+**Decision implication**: When thinking "how far are we from the hardware limit" use MAMF (794.5) not theoretical (989). The gap is 109 → 794.5 = 7.3× — but reaching 37% of MAMF (30% MFU target) is a 2.7× improvement from current.
+
+---
+
+## Python GC causes multi-GPU stragglers at scale (2026-04-01)
+
+On 8+ GPUs, automatic Python garbage collection runs at different times on different ranks. Each rank pauses briefly → rank 0 may finish backward while rank 7 is GCing → straggler-induced idle time. Shows as periodic dips in MFU or step-time spikes.
+
+```python
+import gc
+gc.disable()   # At trainer start
+# Then manually in training loop:
+if iteration % 100 == 0:
+    gc.collect()
+```
+
+**Why non-trivial**: Not documented in PyTorch training guides. Visible only in long runs with many ranks. GC pauses are small but desynchronized across ranks, causing the fast ranks to wait.
+
+**Decision implication**: Add `gc.disable()` to DINOv3 training startup. Add periodic `gc.collect()` every 100 iters.
+
+---
+
+## Tensor dimension alignment: seq_len and hidden_dim matter; batch size doesn't (2026-04-01)
+
+For Tensor Core efficiency (tile and wave quantization effects):
+- **Matters greatly**: sequence length, hidden dimension — must be multiples of 64–128 for good alignment
+- **Minimal impact**: batch size — "usually has little to no impact" on matmul efficiency
+- ViT-B: hidden_dim=768 (divisible by 64 ✓), seq_len=197 — 197 is **not** a multiple of 64 (196 patches + 1 CLS)
+
+197 / 64 = 3.08 (not aligned). The 3 patches "waste" doesn't matter at these small sequence lengths — but if we ever pad or change sequence structure, keep it at multiples of 64.
+
+**Why non-trivial**: Common advice is "align your batch size to powers of 2." This is mostly wrong for modern matmuls. Sequence length and hidden dim are what matter for tensor core tile alignment.
+
+**Decision implication**: Don't stress over batch size alignment. If sequence length ever changes (e.g., different patch size or crop size), target multiples of 64.

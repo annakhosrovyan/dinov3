@@ -27,7 +27,7 @@ The branch this guide describes is `mfu-tracking-baseline`.
 5. `DINO` is the whole-image / CLS-token learning signal.
 6. `iBOT` is the masked-patch learning signal.
 7. The branch originally underreported MFU by 2x because it mixed up MACs and hardware FLOPs, then fixed that.
-8. The current measured baseline on this branch is about 4.96% hardware MFU on 2 H100s and about 5.64% hardware MFU on 8 H100s.
+8. The current measured baseline on this branch is about 9.9% hardware MFU on 2 H100s and about 11.3% hardware MFU overall on 8 H100s, with higher steady-state windows.
 
 ---
 
@@ -548,8 +548,8 @@ From `docs/mfu-results-2026-03-30.md`:
 
 | Run | Setup | Result |
 |---|---|---|
-| 2-GPU validation | 2 x H100, synthetic data, global batch 64 | about `4.96%` hardware MFU |
-| 8-GPU baseline | 8 x H100, real data, global batch 512 | about `5.64%` hardware MFU overall average |
+| 2-GPU validation | 2 x H100, synthetic data, global batch 64 | about `9.9%` hardware MFU overall average |
+| 8-GPU baseline | 8 x H100, real data, global batch 512 | about `11.3%` hardware MFU overall average, with steady-state around `12%` to `13.4%` |
 
 Useful intuition:
 

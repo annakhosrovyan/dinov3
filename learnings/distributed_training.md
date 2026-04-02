@@ -138,6 +138,28 @@ nvidia-smi --query-gpu=pcie.link.gen.current,pcie.link.width.current --format=cs
 
 ---
 
+## FSDP2 (ZeRO-3) vs DDP: communication volume difference (2026-04-01)
+
+| Strategy | Communication per iteration | Relative overhead |
+|----------|---------------------------|-------------------|
+| DDP | 2× model params (1× all-reduce = reduce-scatter + all-gather) | baseline |
+| ZeRO-1/2 | 2× model params | same as DDP |
+| **FSDP2 / ZeRO-3** | **3× model params** (2× all-gather in fwd+bwd + 1× reduce-scatter) | **+50% vs DDP** |
+
+For ViT-B: 86M params × 2 bytes (BF16) = 172 MB. DDP needs 344 MB per iter; FSDP2 needs 516 MB per iter.
+
+**Critical question**: ViT-B fits entirely in one 80GB H100 (172 MB << 80 GB). FSDP is designed for models that don't fit. Using FSDP2 on ViT-B adds 50% communication overhead for zero memory benefit.
+
+From the book: *"If a model fits on a single GPU: DDP is preferred over ZeRO"*
+
+On a single NVLink node, the 172 MB extra communication is fast (~microseconds on NVLink) so this may not be the dominant bottleneck — but it's unnecessary overhead. **Test DDP vs FSDP2 experimentally** to measure the actual delta.
+
+**Why non-trivial**: FSDP2 is the "modern default" in many PyTorch training setups. It's the right tool for large models (>10B params) but actively harmful for small models that fit in GPU memory.
+
+**Decision implication**: Benchmark DDP vs FSDP2 on single node. If step time drops significantly, switch run.sh to DDP. ViT-B (86M) has no reason to use FSDP2 on 80GB H100s.
+
+---
+
 ## Decision Implication for DINOv3
 
 At 11% MFU (8×H100, bs=64), if Nsight Systems shows:

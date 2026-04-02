@@ -456,14 +456,15 @@ def do_train(cfg, model, resume=False):
 
     # Precompute MAC constant for MFU tracking (done once, outside the loop)
     num_gpus = distributed.get_world_size()
+    _backbone = model.student.backbone  # instead of hardcoding`vit_base` from `student`
     macs_per_image = compute_dino_flops_per_image(
         global_crop_size=cfg.crops.global_crops_size,
         local_crop_size=cfg.crops.local_crops_size,
         patch_size=cfg.student.patch_size,
         n_global_crops=2,
         n_local_crops=cfg.crops.local_crops_number,
-        hidden_dim=768,
-        num_layers=12,
+        hidden_dim=_backbone.embed_dim,
+        num_layers=_backbone.n_blocks,
         ffn_ratio=getattr(cfg.student, "ffn_ratio", 4.0),
         n_registers=cfg.student.n_storage_tokens,
         gram_enabled=cfg.gram.use_loss,

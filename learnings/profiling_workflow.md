@@ -5,6 +5,39 @@ Tailored to DINOv3 8×H100 / FSDP2 / torch.compile setup.
 
 ---
 
+## HFU vs MFU — Not the Same (2026-04-01)
+
+| Metric | Counts | Increases with activation checkpointing? |
+|--------|--------|------------------------------------------|
+| **MFU** (Model FLOPS Utilization) | Theoretical FLOPs the algorithm needs | No — theoretical need doesn't change |
+| **HFU** (Hardware FLOPS Utilization) | Actual FLOPs the hardware executes | Yes — recomputation adds real FLOPs |
+
+With activation checkpointing, HFU > MFU (you're doing more real work per iter but not more useful work).
+
+**Decision implication**: DINOv3's `compute_mfu()` measures MFU (theoretical). If we add activation checkpointing to fit larger batches, MFU denominator stays constant but HFU increases. The trade-off: HFU goes up (less efficient per operation) but larger batch → better per-sample efficiency. Net effect on MFU can still be positive if batch size gain dominates.
+
+**MFU caveat (from ml-engineering book)**: MFU is a rough approximation. BF16-mixed training includes some FP32 operations, but MFU assumes all BF16. Also: MFU can differ for the same code across clusters due to I/O and network variance — don't compare MFU numbers across teams' clusters.
+
+---
+
+## FlopCounterMode — Exact API for FLOP cross-validation (2026-04-01)
+
+```python
+from torch.utils.flop_counter import FlopCounterMode
+
+flop_counter = FlopCounterMode(mods=model, display=False, depth=None)
+with flop_counter:
+    model(**inputs).sum().backward()  # or forward-only for inference
+total_flops = flop_counter.get_total_flops()
+
+# Cross-check against compute_dino_flops_per_image():
+# total_flops / 2 should ≈ macs_per_image * batch_size * (fwd + bwd multiplier)
+```
+
+Run on iteration 2+ only (iteration 1 has one-time kernel compilation overhead). Cache result — don't recount every iter.
+
+---
+
 ## Tool Selection & Recommended Order
 
 | Tool | Scope | When to Use |

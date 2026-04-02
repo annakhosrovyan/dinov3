@@ -129,6 +129,33 @@ DINOv3 uses HDF5 for at least some datasets (`HDF5Dataset`). Sequential reads wi
 
 ---
 
+## Measured num_workers benchmarks (from ml-engineering book, A100 setup) (2026-04-01)
+
+```
+num_workers=0:  ~5.4s per iteration  ← blocking, terrible
+num_workers=1:  ~3.9s per iteration
+num_workers=2:  ~1.3s per iteration  ← big jump
+num_workers=3:  ~0.8s per iteration  ← best in benchmark
+num_workers=4:  ~0.9s per iteration  ← diminishing / overhead
+```
+
+Diminishing returns after 2–3 workers for typical workloads. DINOv3 uses `num_workers=20` (for 8 GPUs = 20 workers total for the node's DataLoader). That's 2.5 workers/GPU — within the range, may be over-provisioned.
+
+**pin_memory + non_blocking measured gains:**
+```
+pin_memory=True,  non_blocking=True:  0.459s  ← best
+pin_memory=True,  non_blocking=False: 0.522s
+pin_memory=False, non_blocking=True:  0.658s  
+pin_memory=False, non_blocking=False: 0.646s
+```
+→ `pin_memory=True + non_blocking=True` = **14% faster H2D** vs default. DINOv3 already uses `pin_memory=True`. The `non_blocking=True` is applied in `collate_data_and_cast()`.
+
+**Why non-trivial**: The effect is measured, not assumed. Also: `pin_memory` uses special OS-pinned memory — if system RAM is tight, this can cause CPU-side OOM. Monitor with `free -h`.
+
+**Decision implication**: DINOv3's DataLoader config is already well-tuned. Don't add workers speculatively — the gain plateaus fast and excess workers add memory overhead.
+
+---
+
 ## Decision Implication for DINOv3
 
 DINOv3 already has `num_workers=20`, `pin_memory=True`, `persistent_workers=True`, `prefetch_factor=8` in `run.sh`. This is a well-configured baseline.
