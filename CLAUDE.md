@@ -238,6 +238,15 @@ At 8 GPUs, **steady-state MFU already exceeds 10%** (dense). Overall avg ~11.3% 
 
 **Note**: First iteration is ~35 seconds (torch.compile warmup). Skip first 1–2 logged points (iters 1–10) for any steady-state analysis.
 
+### Current Performance Priors (2026-04-02)
+- **Use two ceilings in your head**: keep `989 TFLOPS` for standard MFU reporting/comparisons, but use `~794.5 TFLOPS` H100 BF16 MAMF as the realistic matmul ceiling. `11% MFU ~= 109 TFLOPS`, which is only `~13.7%` of MAMF.
+- **MFU is a relative metric, not an absolute truth**: BF16-mixed training still includes FP32 work, and activation checkpointing raises HFU but not MFU. Cross-check FLOP math once with `torch.utils.flop_counter.FlopCounterMode`, then cache the result.
+- **The current data pipeline is probably not the first bottleneck**: this repo already uses the high-value loader settings from the local knowledge-base (`num_workers>0`, `pin_memory=True`, `non_blocking=True`, `persistent_workers=True`, elevated `prefetch_factor`). Reference benchmarks show `num_workers=0` is disastrous, but gains usually plateau quickly after 2-3 workers.
+- **Batch-size alignment is mostly a red herring**: Tensor Core efficiency depends much more on sequence length and hidden dimension than batch size. ViT-B has `hidden_dim=768` (good) and `seq_len=197` (slightly unaligned), but this is not worth architectural churn.
+- **Periodic multi-GPU MFU dips can be Python GC, not kernels**: desynchronized automatic GC can create rank stragglers. If long runs show periodic step spikes, try `gc.disable()` at startup and manual `gc.collect()` every ~100 iterations.
+- **Benchmark DDP against current FSDP2 on single-node ViT-B**: ViT-B is only ~172 MB in BF16 and fits trivially on 80GB H100. ZeRO-3/FSDP2 moves `3x` model params per iteration versus DDP's `2x`, so DDP vs FSDP2 is the highest-value distributed benchmark.
+- See `learnings/README.md` and the topic notes under `learnings/` for the longer-form rationale and references to `~/knowledge-base`.
+
 ### Known Performance Considerations
 - **CUDA event timing implemented**: `torch.cuda.Event` pairs wrap `zero_grad` → `update_ema` — GPU-synchronized step time. The wall-clock `time.time()` in `MetricLogger.log_every()` (`helpers.py:69`) is separate and still present (used for eta/data-time).
 - **Two `cuda.synchronize()` calls** in the training loop (`train.py:666,670`) — only at eval/checkpoint, not every iteration. The MFU timing uses `step_end_event.synchronize()` which adds one sync per iter — acceptable overhead.
