@@ -1,112 +1,441 @@
-# DINOv3 Performance Operating Plan
+# DINOv3 Performance Optimization Plan
 
-**Date**: 2026-04-01  
-**Scope**: Post-MFU-baseline execution plan for profiling, optimization search, run tracking, and documentation hygiene.
+**Date**: 2026-04-02  
+**Status**: Active  
+**Owner Branch**: `mfu-tracking-baseline`  
+**Starting Point**: Step 1 is complete. This document begins at Step 2.
 
-## Current State
+## Purpose
 
-* **MFU tracking** is implemented in the training loop and logged to both console output and `training_metrics.json`.
-* The **MFU denominator** has already been corrected to dense BF16 H100 peak (`989 TFLOPS`) in `dinov3/utils/mfu.py`.
-* **Step timing** is measured with CUDA events around the core training step in `dinov3/train/train.py`.
-* The repo already has **repeatable baseline scripts** for 2-GPU validation and 8-GPU real-data runs in `scripts/mfu_validation_run.sh` and `scripts/mfu_8gpu_real_data.sh`.
+This is the controlling document for MFU-adjacent performance work in this repo.
 
----
+It is meant to be good enough that a later Codex session can be told:
 
-## Working Model
+`Read docs/perf_optimization_plan_04_01_26.md and start on Step X.`
 
-Treat optimization search as a constrained causal search over exposed `step_time_ms`. Use this order:
+The document therefore does four things:
 
-1.  Verify the metric.
-2.  Get one good steady-state trace.
-3.  Build a bottleneck ledger from that trace.
-4.  Change only the knobs that hit the exposed bottleneck.
-5.  Re-profile after each meaningful win.
+1. States the current understanding of the codebase and measured baseline.
+2. Defines the execution order for profiling and optimization work.
+3. Defines branch, documentation, and artifact-management rules.
+4. Defines the deliverables and exit criteria for each step.
 
-### Key Interpretations for this Repo
-* **MFU around 11-13%** on 8x H100 is plausible for this workload and is not obviously a measurement bug.
-* This model is **not comparable** to large decoder-only LLM MFU numbers. Multi-crop ViT SSL has more sequential passes, smaller attention problems, and more overhead-heavy teacher work.
-* Attention already goes through **SDPA** in `dinov3/layers/attention.py:106`.
-* `torch.compile` is enabled and **CUDA graphs** are plumbed but disabled by default in `dinov3/configs/ssl_default_config.yaml:78` and `dinov3/fsdp/ac_compile_parallelize.py:65`.
-* Memory numbers currently logged are **allocated tensor memory**, not full reserved VRAM, in `dinov3/logging/helpers.py:113`.
+## Current Understanding
 
----
+- MFU tracking is implemented and the corrected dense H100 denominator is already in use.
+- Step timing is measured with CUDA events around the core training step.
+- The existing baseline result is directionally credible: dense hardware MFU around `11-13%` on `8x H100` is plausible for this multi-crop ViT SSL workload.
+- This workload should not be benchmarked mentally against large decoder-only LLM MFU numbers.
+- Attention already uses SDPA.
+- `torch.compile` is already enabled by default.
+- CUDA graphs are already wired in the codebase but disabled by default.
+- Existing memory logging is not yet sufficient for optimization decisions because the logs emphasize allocated memory and do not fully expose reserved-memory headroom.
 
-## What To Do Next
+## Recommendation Summary
 
-### Phase 0: Close the MFU Baseline Cleanly
-**Goal**: Leave the repo with one trusted baseline and one trusted explanation.
+Starting from Step 2, stay on `mfu-tracking-baseline`.
 
-* Re-run one short 8-GPU real-data baseline with the current corrected MFU code as the canonical baseline.
-* Record three windows: post-compile steady-state, later thermal steady-state, and whole-run average.
-* Confirm `images_per_sec ~= global_batch_size / (step_time_ms / 1000)`.
-* Record both allocated and reserved memory to clarify headroom.
+That is the right choice for now because:
 
-### Phase 1: Build Profiling Infrastructure
-**Goal**: Make profiling cheap enough that an agent can run it repeatedly.
+- the remaining profiling work is tightly coupled to the MFU implementation
+- unbundling profiling from MFU later is easier if profiling code is additive and flag-gated
+- the branch is clean now, so we can keep history readable with disciplined commits
 
-* Enable `--profiling` in `dinov3/train/train.py:91`.
-* Add a profiling mode featuring:
-    * Warmup-skip window.
-    * PyTorch profiler trace export.
-    * NVTX ranges (data wait, forward/backward, optimizer step, EMA update).
-    * `torch._dynamo` graph-break logging.
-* Extend JSON metrics to include `memory_reserved_mb`, `node_name`, `world_size`, and enabled flags (`compile`, `cudagraphs`, etc.).
+Do not branch off yet just because profiling is being added.
 
-### Phase 2: Run a Single Baseline Profiling Pass
-**Goal**: Determine the exposed limiter before searching combinations.
+Branch off later only when:
 
-1.  **PyTorch profiler** on one short 8-GPU steady-state run.
-2.  **Nsight Systems** if the trace suggests exposed idle, CPU launch, or NCCL.
-3.  **Nsight Compute** only for the top 2-3 kernels from the timeline.
+- an optimization changes training behavior rather than measurement or observability
+- a line of work is speculative enough that it may be abandoned
+- two optimization lines would otherwise become hard to disentangle
 
-### Phase 3: Search Plausible Knobs
-Start with existing knobs: `batch_size_per_gpu`, `checkpointing`, `checkpointing_full`, and `cudagraphs`.
-* Use checkpointing only as an enabler for a larger batch.
-* Test CUDA graphs only after confirming shape stability.
-* If NCCL is not exposed, do not spend time on communication overlap yet.
+## Operating Principles
 
-### Phase 4: Code-Changing Optimizations
-These are secondary moves: batched multi-crop, DDP vs FSDP2 for ViT-B, or custom fused kernels.
+Use this framework for all decisions:
 
----
+1. Trace the exposed step time.
+2. Classify the limiter.
+3. Estimate the step-time share.
+4. Change only the knobs that attack that exposed bottleneck.
+5. Re-profile after each meaningful win.
 
-## Branch Strategy
+Three questions must always be answered before broad optimization work:
 
-* **`mfu-tracking-baseline`**: Keep as the measurement baseline branch.
-* **`perf-profiling-foundation`**: Branch here for profiling infrastructure.
-* **Feature Branches**: Branch from profiling into focused experiments (e.g., `perf-batch-scaling`, `perf-cudagraphs`).
+1. Is the target on the exposed critical path?
+2. Is it compute-bound, memory-bound, communication-bound, or host-bound?
+3. If fixed perfectly, could it move end-to-end throughput enough to matter?
 
----
+## Branch Policy
 
-## Run Tracking Standard
+### Working branch
 
-Every run should leave a compact record. Suggested per-run note block:
+Use `mfu-tracking-baseline` for Steps 2 through 5.
+
+This branch now covers:
+
+- MFU implementation
+- profiling infrastructure
+- baseline profiling runs
+- bottleneck analysis
+- first-pass low-risk optimization screening over already-wired knobs
+
+### When to split
+
+Create a new branch only when starting one of these categories:
+
+- distributed-strategy changes such as `DDP vs FSDP2`
+- architectural work such as batched multi-crop or sequence packing
+- changes likely to affect training quality or semantics
+- multiple competing optimization directions that should be evaluated independently
+
+Reasonable future branch names:
+
+- `perf-ddp-vs-fsdp`
+- `perf-batch-scaling`
+- `perf-cudagraphs`
+- `perf-multicrop-packing`
+
+### Commit discipline on this branch
+
+Keep commits narrow and intentional.
+
+Preferred pattern:
+
+1. profiling instrumentation
+2. profiling job scripts
+3. parsing or ledger tooling
+4. documentation updates
+5. small optimization knob changes
+
+Avoid mixing instrumentation and optimization in one commit unless the instrumentation is inseparable from the change.
+
+## Rules For Keeping MFU and Profiling Bundled Safely
+
+The user concern is correct: it can become annoying to separate profiling work from MFU work later.
+
+The way to avoid that is not to split branches early; it is to impose strict code-shape rules:
+
+1. Profiling code must be additive, not invasive.
+2. The default training path must remain unchanged when profiling is off.
+3. Profiling-only behavior must be behind a flag or explicit config.
+4. Baseline scripts must remain reproducible and not silently change semantics.
+5. Instrumentation must write extra artifacts, not alter training logic.
+
+Concrete implementation rules:
+
+- `--profiling` must gate profiling behavior.
+- NVTX ranges, profiler hooks, trace export, and graph-break logging must be opt-in.
+- New profiling scripts should be separate from baseline scripts rather than rewriting them in place.
+- If a script changes experiment semantics, create a new script rather than mutating the canonical baseline script.
+
+## Documentation Policy
+
+### `docs/`
+
+Use `docs/` for current project-state documents and operational documents.
+
+Recommended files:
+
+- `docs/perf_optimization_plan_04_01_26.md`
+  This file. It is the controller document.
+- `docs/perf_experiment_log.md`
+  Append-only run ledger.
+- `docs/perf_bottleneck_ledger.md`
+  Current performance picture and decision state.
+- `docs/mfu-results-2026-03-30.md`
+  Historical MFU validation record. Update only when clarifying or superseding baseline interpretation.
+
+### `learnings/`
+
+Use `learnings/` only for durable conclusions that survived repeated measurement or trace-backed analysis.
+
+Do not put tentative one-run observations into `learnings/`.
+
+Good candidates for `learnings/`:
+
+- stable profiler workflow decisions
+- repeated bottleneck patterns
+- reliable hardware or cluster-specific caveats
+- conclusions that are likely still true after the current branch ends
+
+### Update rules
+
+After each meaningful run or code change:
+
+1. update the experiment log
+2. update the bottleneck ledger if the bottleneck picture changed
+3. update `learnings/` only if the conclusion now looks durable
+4. update this controller doc only if the plan itself changed
+
+## Artifact Policy
+
+Do not store large runtime artifacts in the git repo.
+
+Keep these outside the repo:
+
+- raw profiler traces
+- Nsight reports
+- large training output directories
+- binary exports
+
+Suggested location pattern on Weka:
+
+- `/mnt/weka/adovlatyan/perf_runs/<date>/<run_name>/`
+- `/mnt/weka/adovlatyan/profiler_traces/<date>/<run_name>/`
+
+Each run directory should contain:
+
+- copied config or command
+- `training_metrics.json`
+- primary log file
+- parsed summary text
+- pointers to any trace artifacts
+
+## Required Per-Run Record
+
+Every submitted run must leave a compact note in the experiment log.
+
+Use this template:
 
 ```text
-Run: 2026-04-01-baseline-rerun
-Branch: <branch>
-Commit: <sha>
-Job: <slurm job id>
-Node: <node>
-Config delta: batch_size_per_gpu=64, compile=true, cudagraphs=false
-Output dir: <path>
-Window used for summary: iters X-Y
-Images/sec: 
-Step time ms: 
-MFU %: 
-Allocated mem MB: 
-Reserved mem MB: 
-Trace artifacts: <none|paths>
-Bottleneck classification: 
-Decision: 
+Run Name:
+Date:
+Branch:
+Commit:
+Step:
+Job ID:
+Node:
+Goal:
+Command or Script:
+Config Delta:
+Output Directory:
+Trace Artifacts:
+Summary Window:
+Images/sec:
+Step Time ms:
+MFU %:
+Allocated Mem MB:
+Reserved Mem MB:
+Observed Bottleneck:
+Decision:
+Next Action:
 ```
 
----
+## Step Structure
 
-## Immediate Recommended Sequence
+Each step below includes:
 
-1.  Reconfirm the 8-GPU corrected baseline as the canonical reference.
-2.  Add profiling mode plus better memory/run metadata logging.
-3.  Run one short baseline PyTorch-profiler job.
-4.  Run one Nsight Systems job if the trace suggests exposed non-kernel time.
-5.  Choose the first 2-3 factors for a small screening design from existing knobs.
+- objective
+- work items
+- required artifacts
+- exit criteria
+
+Do not skip exit criteria.
+
+## Step 2: Build Profiling Foundation
+
+### Objective
+
+Make profiling cheap, reproducible, and safe to run repeatedly from this branch.
+
+### Work items
+
+1. Make the existing `--profiling` flag actually enable a profiling mode.
+2. Add PyTorch profiler support with trace export and a warmup/active schedule.
+3. Add optional NVTX ranges around:
+   - data wait
+   - forward/backward
+   - optimizer step
+   - EMA update
+4. Add optional graph-break diagnostics for `torch.compile`.
+5. Extend training metrics and logs to include:
+   - reserved memory
+   - max reserved memory
+   - node name
+   - world size
+   - compile enabled
+   - cudagraphs enabled
+   - checkpointing enabled
+6. Add one dedicated profiling Slurm script instead of overloading the baseline script.
+
+### Required artifacts
+
+- code changes for profiling mode
+- one profiling run script
+- one short note in the experiment log describing the new profiling path
+
+### Exit criteria
+
+- profiling can be turned on and off without changing default training behavior
+- a profiling run emits trace artifacts plus normal logs
+- the run metadata is rich enough to analyze a result later without guessing the config
+
+## Step 3: Run One Baseline Profiling Pass
+
+### Objective
+
+Get one trustworthy baseline trace for the existing 8-GPU real-data configuration.
+
+### Work items
+
+1. Run one short PyTorch-profiler baseline job on the canonical config.
+2. Capture a steady-state window that skips compile warmup.
+3. Export a compact textual summary alongside the trace artifacts.
+4. Record the result in the experiment log.
+
+### Required artifacts
+
+- trace output directory
+- parsed summary text
+- experiment-log entry
+
+### Exit criteria
+
+- one profiling run exists that can be handed to a later agent without extra context
+- the trace window and exact config are documented
+- the result is sufficient to classify the bottleneck at a first pass
+
+## Step 4: Build the Bottleneck Ledger
+
+### Objective
+
+Translate the baseline trace into a working causal model for step time.
+
+### Work items
+
+1. Create or update `docs/perf_bottleneck_ledger.md`.
+2. For each meaningful exposed cost, record:
+   - phase or kernel family
+   - approximate exposed share of step time
+   - likely bound type
+   - candidate knobs
+   - prerequisites
+   - reasons to defer it
+3. Explicitly classify whether exposed time is dominated by:
+   - GPU compute
+   - CPU launch or host gaps
+   - NCCL
+   - input stalls
+   - skew or thermal drift
+
+### Required artifacts
+
+- bottleneck ledger
+
+### Exit criteria
+
+- the current dominant bottleneck is written down explicitly
+- there is a ranked list of plausible next knobs
+- at least one category of tempting but low-value work has been ruled out
+
+## Step 5: Small Screening Design Over Existing Knobs
+
+### Objective
+
+Search the already-wired configuration space without brute-force chaos.
+
+### Allowed first factors
+
+- `train.batch_size_per_gpu`
+- `train.checkpointing`
+- `train.checkpointing_full`
+- `train.cudagraphs`
+
+### Work items
+
+1. Choose `2-4` factors based on the bottleneck ledger, not by habit.
+2. Use a small screening design rather than a broad sweep.
+3. Keep the baseline script untouched and create separate profiling or experiment scripts as needed.
+4. Record every run in the experiment log.
+5. Update the bottleneck ledger after meaningful result shifts.
+
+### Interpretation rules
+
+- checkpointing is an enabler unless it directly lowers exposed step time at the same batch
+- CUDA graphs are only worth time if launch or CPU gaps are exposed and shapes are stable
+- if NCCL is not exposed, do not prioritize overlap work
+- if batch scaling improves MFU and throughput without exposing a worse bottleneck, keep pushing batch first
+
+### Required artifacts
+
+- experiment-log entries for all screening runs
+- updated bottleneck ledger
+- short summary of main effects and strong interactions
+
+### Exit criteria
+
+- one or two knobs emerge as clearly more promising than the rest
+- at least one low-value direction is explicitly deprioritized
+
+## Step 6: Decide Whether To Stay on This Branch or Split
+
+### Objective
+
+Choose the right branch boundary after the screening results are in.
+
+### Stay on this branch if
+
+- the work is still profiling-heavy
+- the changes are still mostly additive instrumentation
+- the next moves are still low-risk config experiments
+
+### Split to a new branch if
+
+- the next move changes distributed strategy
+- the next move changes model structure or crop processing
+- the next move is risky enough that it may need to be abandoned cleanly
+
+### Exit criteria
+
+- the branch decision is written down in the experiment log or bottleneck ledger
+
+## Step 7: Promote Durable Knowledge
+
+### Objective
+
+Keep the repo understandable when the user is away.
+
+### Work items
+
+1. Move stable conclusions into the appropriate `learnings/*.md` file.
+2. Keep one paragraph of current status at the top of the bottleneck ledger.
+3. Keep the experiment log append-only.
+4. If an older doc has stale numbers or conclusions, correct it rather than letting contradictions accumulate.
+
+### Exit criteria
+
+- the repo documents tell a consistent story
+- a returning human can understand what happened without reading raw Slurm logs
+
+## Specific Guidance On The Branch Question
+
+Yes, Steps 2 through 5 should stay on this branch.
+
+That is the recommended default unless the work suddenly becomes a separate optimization project rather than measurement and profiling work.
+
+The practical reason is simple:
+
+- profiling is part of the MFU story in this repo
+- the code overlap is high
+- default-off instrumentation is easy to keep logically separate
+- the branch is clean and can remain understandable if commit discipline is enforced
+
+The wrong reason to split now would be abstract neatness.
+
+The right reason to split later would be real semantic divergence.
+
+## What A Later Codex Run Should Do
+
+When handing this off later, use a prompt like:
+
+`Read docs/perf_optimization_plan_04_01_26.md and start on Step 2. Follow the branch, documentation, and artifact rules exactly.`
+
+Or:
+
+`Read docs/perf_optimization_plan_04_01_26.md and start on Step 4 using the current profiling artifacts. Update the experiment log and bottleneck ledger as you go.`
+
+## Immediate Next Action
+
+Start on Step 2 on `mfu-tracking-baseline`.
+
+The first concrete deliverable is not a new optimization result. It is a profiling foundation that makes all later optimization work easier to run, easier to compare, and easier to document.
