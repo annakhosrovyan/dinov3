@@ -166,3 +166,57 @@ At 11% MFU (8×H100, bs=64), if Nsight Systems shows:
 - **NCCL and compute interleaved** → overlap is working, bottleneck is elsewhere
 - **NCCL blocking compute** → FSDP prefetch config or graph break issue
 - **Any rank significantly slower** → dataset I/O imbalance or masking variance across ranks
+
+---
+
+## expandable_segments and DDP vs FSDP2 (experimental results 2026-04-03)
+
+**Result**: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is critical for DDP at large
+batch sizes, and harmful for FSDP2.
+
+### DDP bimodal MFU — root cause confirmed
+
+DDP bs=256 without ES showed bimodal MFU: alternating ~11% and ~18% phases across the run.
+With ES enabled, the bimodal pattern completely disappeared — stable 24.5% MFU.
+
+**Root cause**: Without ES, PyTorch's CUDA allocator reserves fixed-size memory segments.
+The large gradient tensor from the end-of-backward all-reduce at bs=256 (128 MB per all-reduce
+for DDP) triggers periodic defragmentation of the allocator's segment pool. This stalls
+the forward pass for several iterations after each defrag event, creating the low-MFU phase.
+`expandable_segments` lets the allocator grow segments in-place, eliminating the defrag cycle.
+
+### FSDP2 + ES regression
+
+FSDP2 allocates and frees many small tensors per transformer block (all_gather buffers, sharded
+weight copies). With ES, the allocator's tendency to expand existing segments causes over-reservation
+— it holds onto memory that FSDP2 would normally return, reducing effective memory bandwidth and
+creating contention. Net effect: 7–12% throughput regression.
+
+### Config rules
+
+```python
+# For DDP training — always set this:
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+# For FSDP2 training — do NOT set expandable_segments
+# (the default allocator is better matched to FSDP2's alloc/free pattern)
+```
+
+In Slurm scripts:
+```bash
+# DDP script header:
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# FSDP2 script: do not set PYTORCH_CUDA_ALLOC_CONF
+```
+
+### Final rankings (8×H100, ViT-B, torch.compile, real data)
+
+| Config | MFU | img/s | Mem | Notes |
+|--------|-----|-------|-----|-------|
+| DDP bs=256 + ES | **24.5%** | **4229** | 66 GB | New best — stable, no bimodal |
+| DDP bs=128 + ES | 22.9% | 3993 | 34 GB | Best memory-efficient option |
+| FSDP2 bs=256 | 23.5% | 4106 | 66 GB | Old best — beaten by DDP+ES |
+| DDP bs=128 | 23.1% | 4042 | 34 GB | Without ES — still good |
+| DDP bs=64 + ES | 17.5% | 3061 | 18 GB | No benefit from ES at bs=64 |
+| FSDP2 bs=256 + ES | 21.8% | 3809 | 66 GB | ES actively hurts FSDP2 |

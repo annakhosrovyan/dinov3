@@ -64,6 +64,23 @@ mypy dinov3/              # type checking
 
 Config: `pyproject.toml`. Pylint is scoped to similarities/misc only.
 
+## Search Tools
+
+For any file search or grep within the current git-indexed repository, use the `fff` MCP tools first.
+Prefer `mcp__fff__find_files` for file discovery and `mcp__fff__grep` / `mcp__fff__multi_grep` for content search instead of shelling out to `find`, `grep`, or `rg`.
+
+## Claude Code Codex Plugin
+
+If you are running in Claude Code and the `openai-codex` plugin is installed, use the Codex plugin periodically to review code you write in this repository.
+Prefer `/codex:review` for a read-only review of your current changes, and use `/codex:adversarial-review` when you want an explicit challenge pass on assumptions, risks, or design choices.
+Run these reviews before shipping larger or riskier edits, and use the feedback to tighten the patch before finishing.
+
+## Communication Preference
+
+Prefer answers and docs that end with a brief synthesis when it helps orientation.
+A short closing block like `Conclusion:` or `Short version:` is useful when the preceding explanation is longer or more exploratory.
+Keep it concise; do not force the format when the answer is already naturally short.
+
 ## Architecture
 
 ### Configuration System (`dinov3/configs/`)
