@@ -14,6 +14,8 @@ High-signal optimization notes distilled from local measurements and `~/knowledg
 ## Topic Notes
 
 - `gpu_performance.md`: realistic H100 ceilings, tensor-shape alignment, GC stragglers, FFN-vs-attention cost, memory headroom, thermal drift.
+- `cuda_graphs.md`: what CUDA graphs means in this repo, what a backbone block is, why upstream left the flag off by default, and why the current ViT-B satellite recipe is still a plausible candidate.
+- `terminology.md`: ongoing glossary of repo-specific terms and recurring performance jargon with code-grounded examples.
 - `distributed_training.md`: communication overlap, NCCL pitfalls, DDP vs ZeRO/FSDP trade-offs, why ViT-B may not want FSDP2 on one node.
 - `profiling_workflow.md`: MFU vs HFU, `FlopCounterMode`, profiler order of operations, Nsight and `perf` workflows.
 - `data_pipeline.md`: DataLoader tuning, H2D overlap, measured `num_workers` and `pin_memory` gains, when to escalate to DALI or GDS.

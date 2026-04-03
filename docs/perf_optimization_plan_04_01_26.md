@@ -29,6 +29,7 @@ The document therefore does four things:
 - Attention already uses SDPA.
 - `torch.compile` is already enabled by default.
 - CUDA graphs are already wired in the codebase but disabled by default.
+- For the current canonical ViT-B satellite recipe, CUDA graphs are a viable screening candidate because the active training path is relatively fixed-shape; the gain is still unmeasured and should not be assumed.
 - Existing memory logging is not yet sufficient for optimization decisions because the logs emphasize allocated memory and do not fully expose reserved-memory headroom.
 
 ## Recommendation Summary
@@ -353,6 +354,7 @@ Search the already-wired configuration space without brute-force chaos.
 
 - checkpointing is an enabler unless it directly lowers exposed step time at the same batch
 - CUDA graphs are only worth time if launch or CPU gaps are exposed and shapes are stable
+- On the current fixed `224/96` ViT-B recipe, `train.cudagraphs=true` is a reasonable experiment and is likely stackable with later non-semantic optimizations because it targets execution overhead rather than changing training semantics
 - if NCCL is not exposed, do not prioritize overlap work
 - if batch scaling improves MFU and throughput without exposing a worse bottleneck, keep pushing batch first
 
