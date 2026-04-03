@@ -38,6 +38,13 @@ from dinov3.data import (
 )
 from dinov3.logging import MetricLogger, setup_logging
 from dinov3.utils.mfu import compute_dino_flops_per_image, compute_mfu
+from dinov3.utils.profiling import (
+    build_profiler,
+    enable_graph_break_logging,
+    get_memory_stats,
+    get_run_metadata,
+    make_nvtx,
+)
 from dinov3.train.cosine_lr_scheduler import CosineScheduler, WSDLRScheduler, linear_warmup_cosine_decay
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.train.ssl_meta_arch import SSLMetaArch
@@ -456,15 +463,18 @@ def do_train(cfg, model, resume=False):
 
     # Precompute MAC constant for MFU tracking (done once, outside the loop)
     num_gpus = distributed.get_world_size()
-    _backbone = model.student.backbone  # instead of hardcoding`vit_base` from `student`
+    # Unwrap DDP if present to access backbone attributes
+    _backbone_raw = model.student.backbone
+    if hasattr(_backbone_raw, "module"):
+        _backbone_raw = _backbone_raw.module
     macs_per_image = compute_dino_flops_per_image(
         global_crop_size=cfg.crops.global_crops_size,
         local_crop_size=cfg.crops.local_crops_size,
         patch_size=cfg.student.patch_size,
         n_global_crops=2,
         n_local_crops=cfg.crops.local_crops_number,
-        hidden_dim=_backbone.embed_dim,
-        num_layers=_backbone.n_blocks,
+        hidden_dim=_backbone_raw.embed_dim,
+        num_layers=_backbone_raw.n_blocks,
         ffn_ratio=getattr(cfg.student, "ffn_ratio", 4.0),
         n_registers=cfg.student.n_storage_tokens,
         gram_enabled=cfg.gram.use_loss,
@@ -508,6 +518,28 @@ def do_train(cfg, model, resume=False):
     gc.disable()
     gc.collect()
 
+    # Profiling setup (gated by args.profiling passed via cfg)
+    profiling_enabled = getattr(cfg.train, "_profiling", False)
+    nvtx = make_nvtx(profiling_enabled)
+    profiler = None
+    if profiling_enabled:
+        logger.info("Profiling mode enabled")
+        profiler = build_profiler(
+            output_dir=cfg.train.output_dir,
+            warmup=int(getattr(cfg.train, "_profiler_warmup", 5)),
+            active=int(getattr(cfg.train, "_profiler_active", 3)),
+            repeat=int(getattr(cfg.train, "_profiler_repeat", 1)),
+            rank=distributed.get_rank(),
+        )
+        if getattr(cfg.train, "_graph_break_log", False):
+            enable_graph_break_logging()
+        # Log static run metadata once
+        run_meta = get_run_metadata(cfg)
+        logger.info("Run metadata: %s", run_meta)
+        # Pass nvtx factory to model for inner NVTX ranges
+        if hasattr(model, "set_nvtx"):
+            model.set_nvtx(nvtx)
+
     # Training loop
     student = model.student
     iteration = start_iter
@@ -526,6 +558,8 @@ def do_train(cfg, model, resume=False):
     consecutive_nan_count = 0
     step_start_event = torch.cuda.Event(enable_timing=True)
     step_end_event = torch.cuda.Event(enable_timing=True)
+    if profiler is not None:
+        profiler.start()
     for data in metric_logger.log_every(
         data_loader,
         print_freq=10,
@@ -548,47 +582,51 @@ def do_train(cfg, model, resume=False):
             model.gram_load_ema_teacher()
 
         # Learning rates and other schedules
-        lr = lr_schedule[it]
-        wd = wd_schedule[it]
-        mom = momentum_schedule[it]
-        teacher_temp = teacher_temp_schedule[it]
-        last_layer_lr = last_layer_lr_schedule[it]
-        apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
+        with nvtx("schedule_update"):
+            lr = lr_schedule[it]
+            wd = wd_schedule[it]
+            mom = momentum_schedule[it]
+            teacher_temp = teacher_temp_schedule[it]
+            last_layer_lr = last_layer_lr_schedule[it]
+            apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
 
         # Forward backward
         step_start_event.record()
         optimizer.zero_grad(set_to_none=True)
-        total_loss, metrics_dict = model.forward_backward(data, teacher_temp=teacher_temp, iteration=it)
+        with nvtx("forward_backward"):
+            total_loss, metrics_dict = model.forward_backward(data, teacher_temp=teacher_temp, iteration=it)
 
         # Gradient clipping
-        if cfg.optim.clip_grad:
-            for k, v in student.items():
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    v.parameters(),
-                    max_norm=cfg.optim.clip_grad,
-                )
-                metrics_dict[f"{k}_grad_norm"] = (
-                    grad_norm.full_tensor().item()
-                    if isinstance(grad_norm, torch.distributed.tensor.DTensor)
-                    else grad_norm.item()
-                )
+        with nvtx("grad_clip"):
+            if cfg.optim.clip_grad:
+                for k, v in student.items():
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        v.parameters(),
+                        max_norm=cfg.optim.clip_grad,
+                    )
+                    metrics_dict[f"{k}_grad_norm"] = (
+                        grad_norm.full_tensor().item()
+                        if isinstance(grad_norm, torch.distributed.tensor.DTensor)
+                        else grad_norm.item()
+                    )
 
         # Reduce total_loss to check for NaNs, reduce metrics for logging
-        total_loss_all_ranks = total_loss.new_empty(distributed.get_subgroup_size())
-        torch.distributed.all_gather_into_tensor(
-            total_loss_all_ranks,
-            total_loss.detach(),
-            group=distributed.get_process_subgroup(),
-        )
-        total_loss = total_loss_all_ranks.mean()
-        metrics_values = torch.stack(
-            [torch.as_tensor(v, dtype=torch.float32, device=total_loss.device).detach() for v in metrics_dict.values()]
-        )
-        torch.distributed.all_reduce(
-            metrics_values,
-            op=torch.distributed.ReduceOp.AVG,
-            group=distributed.get_process_subgroup(),
-        )
+        with nvtx("allreduce_metrics"):
+            total_loss_all_ranks = total_loss.new_empty(distributed.get_subgroup_size())
+            torch.distributed.all_gather_into_tensor(
+                total_loss_all_ranks,
+                total_loss.detach(),
+                group=distributed.get_process_subgroup(),
+            )
+            total_loss = total_loss_all_ranks.mean()
+            metrics_values = torch.stack(
+                [torch.as_tensor(v, dtype=torch.float32, device=total_loss.device).detach() for v in metrics_dict.values()]
+            )
+            torch.distributed.all_reduce(
+                metrics_values,
+                op=torch.distributed.ReduceOp.AVG,
+                group=distributed.get_process_subgroup(),
+            )
         metrics_dict = dict(zip(metrics_dict.keys(), metrics_values))
         if total_loss_all_ranks.isnan().any():
             consecutive_nan_count += 1
@@ -600,12 +638,19 @@ def do_train(cfg, model, resume=False):
             if consecutive_nan_count > 2 and not cfg.multidistillation.enabled:
                 msg = "Too many consecutive nans detected in loss, aborting..."
                 logger.error(msg)
+                if profiler is not None:
+                    try:
+                        profiler.stop()
+                    except Exception:
+                        pass
                 raise RuntimeError(msg)
         else:
             consecutive_nan_count = 0
         # Step optimizer
-        optimizer.step()
-        model.update_ema(mom)
+        with nvtx("optimizer_step"):
+            optimizer.step()
+        with nvtx("ema_update"):
+            model.update_ema(mom)
         step_end_event.record()
 
         # Compute step time and MFU using CUDA events (GPU-synchronized timing)
@@ -658,6 +703,15 @@ def do_train(cfg, model, resume=False):
             wandb_metrics["step_time_ms"] = float(step_time_ms)
             wandb_module.log(wandb_metrics, step=iteration)
 
+        # Extended memory metrics (logged every iteration when profiling)
+        if profiling_enabled:
+            mem_stats = get_memory_stats()
+            metric_logger.update(**mem_stats)
+
+        # Profiler step (must be called every iteration when profiler is active)
+        if profiler is not None:
+            profiler.step()
+
         # Submit evaluation jobs
         if (
             cfg.evaluation.eval_period_iterations > 0 and (iteration + 1) % cfg.evaluation.eval_period_iterations == 0
@@ -683,6 +737,12 @@ def do_train(cfg, model, resume=False):
                     keep_checkpoint_copy(ckpt_dir / str(iteration))
 
         iteration = iteration + 1
+    # Always stop profiler, even if loop exits early or raises
+    if profiler is not None:
+        try:
+            profiler.stop()
+        except Exception:
+            logger.warning("Profiler stop failed", exc_info=True)
     metric_logger.synchronize_between_processes()
     if wandb_run is not None:
         wandb_run.finish()
@@ -747,6 +807,17 @@ def main(argv=None):
             + 1
         )
         return do_test(cfg, model, f"manual_{iteration}")
+    # Pass profiling flags through cfg so do_train can use them
+    if args.profiling:
+        from omegaconf import OmegaConf
+
+        OmegaConf.set_struct(cfg, False)
+        cfg.train._profiling = True
+        cfg.train._profiler_warmup = 5
+        cfg.train._profiler_active = 3
+        cfg.train._profiler_repeat = 1
+        cfg.train._graph_break_log = True
+        OmegaConf.set_struct(cfg, True)
     do_train(cfg, model, resume=not args.no_resume)
 
 

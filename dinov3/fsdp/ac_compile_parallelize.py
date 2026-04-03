@@ -134,12 +134,15 @@ def ac_compile_parallelize(
     Order of the wrappers:
     1/ Activation checkpointing on blocks
     2/ Compile blocks
-    3/ FSDP blocks + global model
+    3/ FSDP blocks + global model  (or DDP if cfg.train.distributed_strategy == "ddp")
     """
     assert (
         isinstance(trained_model, nn.ModuleDict) and "backbone" in trained_model.keys()
     ), f"{trained_model} does not contain a backbone?"
-    logger.info("DISTRIBUTED FSDP -- preparing model for distributed training")
+
+    distributed_strategy = str(getattr(cfg.train, "distributed_strategy", "fsdp2")).lower()
+    logger.info("DISTRIBUTED %s -- preparing model for distributed training", distributed_strategy.upper())
+
     if utils.has_batchnorms(trained_model):
         raise NotImplementedError
 
@@ -180,6 +183,41 @@ def ac_compile_parallelize(
                     ARCH_TYPE_MAP[type(model[k])]["compile_fn"](cfg, model[k])
                 else:
                     model[k] = wrap_compile_block(model[k], use_cuda_graphs=False, is_backbone_block=False)
+
+    if distributed_strategy == "ddp":
+        _ac_compile_parallelize_ddp(
+            trained_model=trained_model,
+            inference_only_models=inference_only_models,
+            cfg=cfg,
+            trained_model_process_group=trained_model_process_group,
+            inference_only_models_process_groups=inference_only_models_process_groups,
+        )
+    else:
+        _ac_compile_parallelize_fsdp(
+            trained_model=trained_model,
+            inference_only_models=inference_only_models,
+            cfg=cfg,
+            all_models=all_models,
+            all_pgs=all_pgs,
+        )
+
+
+def _ac_compile_parallelize_fsdp(
+    trained_model: nn.ModuleDict,
+    inference_only_models: List[nn.ModuleDict],
+    cfg: Any,
+    all_models: List[nn.ModuleDict],
+    all_pgs: list,
+) -> None:
+    """FSDP2 distributed wrapping (original path)."""
+    from dinov3.models.convnext import ConvNeXt
+    from dinov3.models.vision_transformer import DinoVisionTransformer
+
+    ARCH_TYPE_MAP = {
+        ConvNeXt: dict(fsdp_fn=fsdp_convnext),
+        DinoVisionTransformer: dict(fsdp_fn=fsdp_transformer),
+    }
+
     DTYPE_MAP = {
         "fp16": torch.float16,
         "bf16": torch.bfloat16,
@@ -205,11 +243,11 @@ def ac_compile_parallelize(
             else:
                 model[k] = fully_shard(model[k], **fsdp_config, reshard_after_forward=True)
 
-    # 4/ Move to `cuda` device
+    # Move to `cuda` device
     for model in all_models:
         model.to_empty(device="cuda")
 
-    # 5/ FSDP2: Reshard immediately after forward for inference-only models
+    # FSDP2: Reshard immediately after forward for inference-only models
     for model in inference_only_models:
         for k in model.keys():
             fsdp_state: FSDPState = model[k]._get_fsdp_state()
@@ -218,3 +256,47 @@ def ac_compile_parallelize(
             mi = fsdp_state._fsdp_param_group.post_forward_mesh_info
             fsdp_state._lazy_init()
             fsdp_state._fsdp_param_group.post_forward_mesh_info = mi
+
+
+def _ac_compile_parallelize_ddp(
+    trained_model: nn.ModuleDict,
+    inference_only_models: List[nn.ModuleDict],
+    cfg: Any,
+    trained_model_process_group: dist.ProcessGroup | None = None,
+    inference_only_models_process_groups: List[dist.ProcessGroup] | None = None,
+) -> None:
+    """DDP distributed wrapping — no sharding, just all-reduce gradients.
+
+    ViT-B is ~172 MB in BF16 and fits trivially on 80 GB H100. DDP avoids the
+    all_gather / reduce_scatter overhead of FSDP2 and replaces it with a single
+    gradient all-reduce per step.
+    """
+    all_models = [trained_model] + inference_only_models
+
+    # Move all models to CUDA first
+    for model in all_models:
+        model.to_empty(device="cuda")
+
+    # Cast parameters to the configured dtype (bf16 by default)
+    DTYPE_MAP = {
+        "fp16": torch.float16,
+        "bf16": torch.bfloat16,
+        "fp32": torch.float32,
+    }
+    param_dtype = DTYPE_MAP[cfg.compute_precision.param_dtype]
+    for model in all_models:
+        model.to(param_dtype)
+
+    # Wrap each student sub-model with DDP
+    pg = trained_model_process_group
+    for k in trained_model.keys():
+        trained_model[k] = nn.parallel.DistributedDataParallel(
+            trained_model[k],
+            process_group=pg,
+            gradient_as_bucket_view=True,
+            static_graph=True,
+        )
+    logger.info("DDP wrapping complete for student sub-models: %s", list(trained_model.keys()))
+
+    # Inference-only models (teacher, EMA, gram) don't need DDP — no gradients
+    # They just need to be on CUDA with correct dtype (already done above)

@@ -43,6 +43,10 @@ class SSLMetaArch(nn.Module):
         assert cfg.compute_precision.sharding_strategy == "SHARD_GRAD_OP"
 
         self.cfg = cfg
+        # Profiling NVTX factory — no-op by default, set via set_nvtx()
+        from dinov3.utils.profiling import make_nvtx
+
+        self._nvtx = make_nvtx(False)
 
         student_model_dict = dict()
         teacher_model_dict = dict()
@@ -296,12 +300,17 @@ class SSLMetaArch(nn.Module):
         )
         self.teacher = nn.ModuleDict(teacher_model_dict)
 
+    @staticmethod
+    def _unwrap(module):
+        """Unwrap DDP/FSDP to access the raw module."""
+        return module.module if hasattr(module, "module") else module
+
     def init_weights(self) -> None:
-        self.student.dino_head.init_weights()
-        self.student.ibot_head.init_weights()
+        self._unwrap(self.student.dino_head).init_weights()
+        self._unwrap(self.student.ibot_head).init_weights()
         self.dino_loss.init_weights()
         self.ibot_patch_loss.init_weights()
-        self.student.backbone.init_weights()
+        self._unwrap(self.student.backbone).init_weights()
         if self.cfg.student.pretrained_weights:
             logger.info(f"Loading pretrained weights from {self.cfg.student.pretrained_weights}")
             init_fsdp_model_from_checkpoint(
@@ -311,7 +320,11 @@ class SSLMetaArch(nn.Module):
                 keys_not_sharded=["backbone.rope_embed.periods", "qkv.bias_mask"],
                 process_group=distributed.get_process_subgroup(),
             )
-        self.model_ema.load_state_dict(self.student.state_dict())
+        # Copy student weights to EMA teacher — strip DDP "module." prefix if present
+        student_sd = self.student.state_dict()
+        if any(k.split(".", 1)[-1].startswith("module.") for k in student_sd):
+            student_sd = {k.replace(".module.", ".", 1) if ".module." in k else k: v for k, v in student_sd.items()}
+        self.model_ema.load_state_dict(student_sd)
         if self.has_gram_teacher:
             if self.gram_ckpt is not None:
                 logger.info(f"Loading pretrained weights from {self.gram_ckpt}")
@@ -359,6 +372,10 @@ class SSLMetaArch(nn.Module):
                 self.teacher.ibot_head.init_weights()
             logger.info(f"Performing distillation from: {self.teacher}")
 
+    def set_nvtx(self, nvtx_factory):
+        """Set the NVTX range factory for profiling instrumentation."""
+        self._nvtx = nvtx_factory
+
     def forward_backward(
         self, data, *, teacher_temp, iteration=0, **ignored_kwargs
     ) -> tuple[Tensor, dict[str, float | Tensor]]:
@@ -373,64 +390,71 @@ class SSLMetaArch(nn.Module):
         metrics_dict["local_batch_size"] = B
         metrics_dict["global_batch_size"] = data["global_batch_size"]
 
-        global_crops = data["collated_global_crops"].cuda(non_blocking=True)
-        local_crops = data["collated_local_crops"].cuda(non_blocking=True)
-        masks = data["collated_masks"].cuda(non_blocking=True)
-        mask_indices_list = data["mask_indices_list"].cuda(non_blocking=True)
-        masks_weight = data["masks_weight"].cuda(non_blocking=True)
-        n_masked_patches_tensor = data["n_masked_patches"].cuda(non_blocking=True)
+        nvtx = self._nvtx
 
-        if self.has_gram_teacher:
-            assert "collated_gram_teacher_crops" in data, (
-                "no gram teacher crops in the data, have you set cfg.crops.gram_teacher_crops_size?"
-            )
-            gram_teacher_crops = data["collated_gram_teacher_crops"].cuda(non_blocking=True)
-        else:
-            gram_teacher_crops = None
+        with nvtx("H2D_transfer"):
+            global_crops = data["collated_global_crops"].cuda(non_blocking=True)
+            local_crops = data["collated_local_crops"].cuda(non_blocking=True)
+            masks = data["collated_masks"].cuda(non_blocking=True)
+            mask_indices_list = data["mask_indices_list"].cuda(non_blocking=True)
+            masks_weight = data["masks_weight"].cuda(non_blocking=True)
+            n_masked_patches_tensor = data["n_masked_patches"].cuda(non_blocking=True)
+
+            if self.has_gram_teacher:
+                assert "collated_gram_teacher_crops" in data, (
+                    "no gram teacher crops in the data, have you set cfg.crops.gram_teacher_crops_size?"
+                )
+                gram_teacher_crops = data["collated_gram_teacher_crops"].cuda(non_blocking=True)
+            else:
+                gram_teacher_crops = None
 
         # Teacher output (will trigger an all-gather to unshard)
-        teacher_global = self.get_teacher_output(
-            global_crops.unflatten(0, (n_global_crops, B)),
-            teacher_temp=teacher_temp,
-            n_masked_patches_tensor=n_masked_patches_tensor,
-            mask_indices_list=mask_indices_list,
-            upperbound=data["upperbound"],
-        )
+        with nvtx("teacher_fwd"):
+            teacher_global = self.get_teacher_output(
+                global_crops.unflatten(0, (n_global_crops, B)),
+                teacher_temp=teacher_temp,
+                n_masked_patches_tensor=n_masked_patches_tensor,
+                mask_indices_list=mask_indices_list,
+                upperbound=data["upperbound"],
+            )
 
         # Student output (will trigger an all-gather to unshard)
-        student_global, student_local = self.get_student_output(
-            global_crops=global_crops.unflatten(0, (n_global_crops, B)),
-            local_crops=local_crops.unflatten(0, (n_local_crops, B)),
-            upperbound=data["upperbound"],
-            masks=masks,
-            mask_indices_list=mask_indices_list,
-        )
+        with nvtx("student_fwd"):
+            student_global, student_local = self.get_student_output(
+                global_crops=global_crops.unflatten(0, (n_global_crops, B)),
+                local_crops=local_crops.unflatten(0, (n_local_crops, B)),
+                upperbound=data["upperbound"],
+                masks=masks,
+                mask_indices_list=mask_indices_list,
+            )
 
         # Gram output
         if self.gram_use_loss:
-            gram_global = self.get_gram_teacher_output(
-                gram_teacher_crops.unflatten(0, (n_global_crops, B)) if gram_teacher_crops is not None else None,
-                masks=masks,
-                teacher_global=teacher_global,
-                student_global=student_global,
-                student_global_crops_size=global_crops.shape[-1],
-            )
+            with nvtx("gram_fwd"):
+                gram_global = self.get_gram_teacher_output(
+                    gram_teacher_crops.unflatten(0, (n_global_crops, B)) if gram_teacher_crops is not None else None,
+                    masks=masks,
+                    teacher_global=teacher_global,
+                    student_global=student_global,
+                    student_global_crops_size=global_crops.shape[-1],
+                )
         else:
             gram_global = {}
 
         # Compute losses and backprop
-        loss_accumulator, loss_dict = self.compute_losses(
-            teacher_global=teacher_global,
-            student_global=student_global,
-            student_local=student_local,
-            gram_global=gram_global,
-            masks=masks,
-            mask_indices_list=mask_indices_list,
-            masks_weight=masks_weight,
-            iteration=iteration,
-        )
+        with nvtx("losses_backward"):
+            loss_accumulator, loss_dict = self.compute_losses(
+                teacher_global=teacher_global,
+                student_global=student_global,
+                student_local=student_local,
+                gram_global=gram_global,
+                masks=masks,
+                mask_indices_list=mask_indices_list,
+                masks_weight=masks_weight,
+                iteration=iteration,
+            )
 
-        self.backprop_loss(loss_accumulator)
+            self.backprop_loss(loss_accumulator)
 
         # Return total weighted loss and a dict of metrics to log
         return loss_accumulator, metrics_dict | loss_dict

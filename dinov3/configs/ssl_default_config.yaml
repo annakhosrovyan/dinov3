@@ -79,6 +79,7 @@ train:
   checkpointing_full: false  # aggressive checkpointing
   compile: true
   cudagraphs: false
+  distributed_strategy: fsdp2  # "fsdp2" or "ddp"
   sharded_eval_checkpoint: false
   cache_dataset: false
   persistent_workers: true
