@@ -169,45 +169,86 @@ At 11% MFU (8×H100, bs=64), if Nsight Systems shows:
 
 ---
 
-## expandable_segments and DDP vs FSDP2 (experimental results 2026-04-03)
+## `expandable_segments` in this repo (experimental results 2026-04-03)
 
-**Result**: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is critical for DDP at large
-batch sizes, and harmful for FSDP2.
+**Result**: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is a targeted win for the compiled
+DDP bs=256 path in this repo, but it should not be treated as a general rule for all training
+strategies or all memory failures.
 
-### DDP bimodal MFU — root cause confirmed
+### What PyTorch means by `expandable_segments`
 
-DDP bs=256 without ES showed bimodal MFU: alternating ~11% and ~18% phases across the run.
-With ES enabled, the bimodal pattern completely disappeared — stable 24.5% MFU.
+PyTorch documents `expandable_segments` as useful when allocation sizes change frequently. The
+common example is changing batch size, but that is not the right mental model for this repo.
 
-**Root cause**: Without ES, PyTorch's CUDA allocator reserves fixed-size memory segments.
-The large gradient tensor from the end-of-backward all-reduce at bs=256 (128 MB per all-reduce
-for DDP) triggers periodic defragmentation of the allocator's segment pool. This stalls
-the forward pass for several iterations after each defrag event, creating the low-MFU phase.
-`expandable_segments` lets the allocator grow segments in-place, eliminating the defrag cycle.
+Our outer training config is mostly fixed:
+- `crops.global_crops_size=224`
+- `crops.local_crops_size=96`
+- `crops.local_crops_number=8`
+
+The relevant variability comes from inside each training step. The student path always feeds both
+global and local crops through the backbone together in
+`dinov3/train/ssl_meta_arch.py:get_student_output()`, and the backbone iterates those two
+resolutions through every block in `dinov3/models/vision_transformer.py:forward_features_list()`.
+That means the allocator still sees a mix of tensor sizes and lifetimes within one step even when
+the user-facing batch size is constant.
+
+### What the logs actually show
+
+DDP bs=256 without ES showed bimodal MFU: alternating roughly `~11%` and `~18%` phases across the
+run. With ES enabled, the bimodal pattern disappeared and the run stabilized at `24.5%` MFU and
+`4229 img/s`.
+
+This is the important repo-specific interpretation:
+- ES helped because the DDP bs=256 compiled multi-crop path was fragmentation-prone.
+- ES removed allocator defrag pauses and the resulting throughput collapse.
+- ES did **not** create more true capacity.
+
+The strongest evidence that this is fragmentation relief rather than a new hard-memory capability
+is that bs=320 still OOMs even with ES. In this repo, ES fixes stalls and allocator pathology at
+bs=256; it does not move the real memory ceiling.
+
+### Working causal model
+
+Without ES, PyTorch's CUDA allocator reserves fixed-size memory segments. In the DDP bs=256 case,
+the compiled multi-crop execution pattern plus large backward/all-reduce allocations appears to
+trigger periodic allocator defragmentation. Those pauses show up as the low-MFU phase.
+
+With ES, the allocator can grow segments in place instead of repeatedly churning the segment pool.
+That fits this specific DDP workload well enough to eliminate the bimodal behavior.
+
+This explanation is still an inference from the experiment log, not a memory-snapshot proof. A
+stricter confirmation pass would compare `memory_reserved`, `memory_summary()`, or
+`memory_snapshot()` for DDP bs=256 with and without ES.
 
 ### FSDP2 + ES regression
 
-FSDP2 allocates and frees many small tensors per transformer block (all_gather buffers, sharded
-weight copies). With ES, the allocator's tendency to expand existing segments causes over-reservation
-— it holds onto memory that FSDP2 would normally return, reducing effective memory bandwidth and
-creating contention. Net effect: 7–12% throughput regression.
+FSDP2 also has a variable allocation pattern, but the results go the other direction here:
+`expandable_segments` hurt FSDP2 by roughly `7-12%` across the tested batch sizes.
 
-### Config rules
+The practical lesson is not "ES is bad." It is:
+- allocator tuning is strategy-specific
+- DDP and FSDP2 interact with the allocator differently
+- a memory tweak that helps one path can hurt the other
+
+### Config guidance for experiments and real training
+
+Use ES selectively based on strategy and objective:
 
 ```python
-# For DDP training — always set this:
+# DDP experiments or real DDP training at the high-batch operating point:
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# For FSDP2 training — do NOT set expandable_segments
-# (the default allocator is better matched to FSDP2's alloc/free pattern)
+# Default FSDP2 training path in this repo:
+# leave PYTORCH_CUDA_ALLOC_CONF unset unless new evidence says otherwise
 ```
 
 In Slurm scripts:
 ```bash
-# DDP script header:
+# DDP screening or real DDP runs at bs=256:
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# FSDP2 script: do not set PYTORCH_CUDA_ALLOC_CONF
+# Default FSDP2 config / real training:
+# do not set PYTORCH_CUDA_ALLOC_CONF just because it helped DDP
 ```
 
 ### Final rankings (8×H100, ViT-B, torch.compile, real data)

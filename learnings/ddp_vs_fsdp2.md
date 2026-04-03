@@ -100,6 +100,12 @@ Two practical implications follow:
 - Allocator tuning is strategy-specific in this repo; `expandable_segments` helped DDP and hurt
   FSDP2, so do not assume a memory tweak transfers cleanly between both strategies.
 
+The important nuance is that the DDP win from `expandable_segments` does not appear to come from
+"variable batch size" in the dataloader. The outer crop config is fixed. The better explanation is
+that the compiled multi-crop DDP path creates a fragmentation-prone intra-step allocation pattern,
+and `expandable_segments` happens to remove the allocator stalls that show up at `bs=256`.
+`bs=320` still OOMs even with ES, so this is a fragmentation fix, not a true capacity increase.
+
 ---
 
 ## Practical Recommendation For DINOv3
