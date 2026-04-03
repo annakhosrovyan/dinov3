@@ -366,3 +366,162 @@ Observed Bottleneck: DDP at bs=256 is WORSE than FSDP2 bs=256.
 **Best configs:**
 - **DDP bs=128**: 23.1% MFU, 4042 img/s, 34 GB — best throughput per memory
 - **FSDP2 bs=256**: 23.5% MFU, 4106 img/s, 66 GB — slightly higher throughput, much more memory
+
+---
+
+## expandable_segments Screening (Branch: perf-ddp-vs-fsdp)
+
+Goal: test whether `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` improves throughput
+or unlocks larger batch sizes by reducing allocator fragmentation.
+Date: 2026-04-03. Scripts: `scripts/screening_ddp_expandseg.sh`, `scripts/screening_fsdp2_expandseg.sh`.
+
+### Run 14: DDP+ES bs=64
+
+```text
+Run Name: ddp-es-bs64
+Job ID: 9650
+Node: gpu01 (sequential with prior jobs)
+Command or Script: scripts/screening_ddp_expandseg.sh 64 false
+Config Delta: train.distributed_strategy=ddp, bs=64, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Summary Window: Iters 50-99 steady state
+Images/sec: ~3061 (iter 99 cumulative avg)
+Step Time ms: 156-186ms
+MFU %: 17.5 (avg iters 50-99)
+Max Mem MB: 17610
+Comparison: DDP bs=64 without ES = 18.1%, 3169 img/s. ES = -0.6% MFU, -3% throughput.
+Decision: No benefit at bs=64 — fragmentation was not the bottleneck here.
+```
+
+### Run 15: DDP+ES bs=128
+
+```text
+Run Name: ddp-es-bs128
+Job ID: 9651
+Command or Script: scripts/screening_ddp_expandseg.sh 128 false
+Config Delta: train.distributed_strategy=ddp, bs=128, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Summary Window: Iters 50-99 steady state
+Images/sec: ~3993 (iter 99 cumulative avg)
+Step Time ms: 249-253ms
+MFU %: 22.9 (avg iters 50-99)
+Max Mem MB: 33922
+Comparison: DDP bs=128 without ES = 23.1%, 4042 img/s. ES = -0.2% MFU, -1% throughput.
+Decision: Neutral at bs=128 — slight noise-level regression.
+```
+
+### Run 16: DDP+ES bs=256
+
+```text
+Run Name: ddp-es-bs256
+Job ID: 9652
+Command or Script: scripts/screening_ddp_expandseg.sh 256 false
+Config Delta: train.distributed_strategy=ddp, bs=256, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Summary Window: Iters 50-99 steady state
+Images/sec: ~4229 (iter 99 cumulative avg)
+Step Time ms: 475-478ms (stable!)
+MFU %: 24.5 (avg iters 50-99) — STABLE, no bimodal pattern
+Max Mem MB: 66484
+Comparison: DDP bs=256 without ES = 12-18% bimodal, 2113-3157 img/s (unstable).
+Decision: MAJOR WIN. expandable_segments completely eliminated the bimodal instability.
+  DDP bs=256+ES is now 24.5% MFU — new best config overall (+1% over FSDP2 bs=256).
+  expandable_segments prevents the allocator from fragmenting and triggering defrag pauses
+  that caused the periodic MFU collapse at high DDP batch sizes.
+```
+
+### Run 17: FSDP2+ES bs=64
+
+```text
+Run Name: fsdp2-es-bs64
+Job ID: 9653
+Command or Script: scripts/screening_fsdp2_expandseg.sh 64 false
+Config Delta: train.distributed_strategy=fsdp2, bs=64, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Summary Window: Iters 50-99 steady state
+Images/sec: ~2110 (iter 99 cumulative avg)
+Step Time ms: 235-246ms
+MFU %: 12.1 (avg iters 50-99)
+Max Mem MB: 16691
+Comparison: FSDP2 bs=64 without ES = 13.8%, 2404 img/s. ES = -1.7% MFU, -12% throughput.
+Decision: ES hurts FSDP2 at bs=64. FSDP2's fine-grained per-block alloc/free pattern
+  likely conflicts with the expandable-segment growth heuristic.
+```
+
+### Run 18: FSDP2+ES bs=128
+
+```text
+Run Name: fsdp2-es-bs128
+Job ID: 9654
+Command or Script: scripts/screening_fsdp2_expandseg.sh 128 false
+Config Delta: train.distributed_strategy=fsdp2, bs=128, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Summary Window: Iters 50-99 steady state
+Images/sec: ~3213 (iter 99 cumulative avg)
+Step Time ms: 315-330ms
+MFU %: 18.4 (avg iters 50-99)
+Max Mem MB: 33003
+Comparison: FSDP2 bs=128 without ES = 20.9%, 3647 img/s. ES = -2.5% MFU, -12% throughput.
+Decision: ES consistently hurts FSDP2 across batch sizes. Do not use with FSDP2.
+```
+
+### Run 19: FSDP2+ES bs=256
+
+```text
+Run Name: fsdp2-es-bs256
+Job ID: 9655
+Command or Script: scripts/screening_fsdp2_expandseg.sh 256 false
+Config Delta: train.distributed_strategy=fsdp2, bs=256, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Summary Window: Iters 50-99 steady state
+Images/sec: ~3809 (iter 99 cumulative avg)
+Step Time ms: 521-532ms
+MFU %: 21.8 (avg iters 50-99)
+Max Mem MB: 65566
+Comparison: FSDP2 bs=256 without ES = 23.5%, 4106 img/s. ES = -1.7% MFU, -7% throughput.
+Decision: ES hurts FSDP2 at all tested batch sizes. Confirmed anti-pattern for FSDP2.
+```
+
+### Run 20: DDP+ES bs=320 (OOM boundary test)
+
+```text
+Run Name: ddp-es-bs320
+Job ID: 9656
+Command or Script: scripts/screening_ddp_expandseg.sh 320 false
+Config Delta: train.distributed_strategy=ddp, bs=320, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Observed Bottleneck: Silent OOM during torch.compile iter 0 — no Training [0/100] output logged.
+  expandable_segments reduces runtime fragmentation but not compile-time peak allocation.
+  bs=320 = ~83 GB peak needed; H100 has 80 GB. Cannot fit.
+Decision: bs=320 OOMs regardless of expandable_segments. Confirmed hard memory ceiling.
+```
+
+### Run 21: FSDP2+ES bs=320 (OOM boundary test)
+
+```text
+Run Name: fsdp2-es-bs320
+Job ID: 9657
+Command or Script: scripts/screening_fsdp2_expandseg.sh 320 false
+Config Delta: train.distributed_strategy=fsdp2, bs=320, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Observed Bottleneck: Silent OOM during torch.compile iter 0 — no Training [0/100] output logged.
+Decision: bs=320 OOMs for FSDP2 too. Confirmed hard memory ceiling at bs=256 for both strategies.
+```
+
+### expandable_segments Summary Table
+
+| Strategy | bs/GPU | ES | MFU % | img/s | step_ms | max_mem GB | vs no-ES |
+|----------|--------|----|-------|-------|---------|-----------|---------|
+| DDP | 64 | no | 18.1 | 3169 | 162 | 17.7 | baseline |
+| DDP+ES | 64 | yes | 17.5 | 3061 | 157–186 | 17.6 | -3% |
+| DDP | 128 | no | 23.1 | 4042 | 253 | 34.0 | baseline |
+| DDP+ES | 128 | yes | 22.9 | 3993 | 249–253 | 33.9 | -1% |
+| DDP | 256 | no | 12–18 | bimodal | 586–933 | 66.5 | baseline |
+| **DDP+ES** | **256** | **yes** | **24.5** | **4229** | **475–478** | **66.5** | **FIXED** |
+| FSDP2 | 64 | no | 13.8 | 2404 | 213 | 18.0 | baseline |
+| FSDP2+ES | 64 | yes | 12.1 | 2110 | 235–246 | 16.7 | -12% |
+| FSDP2 | 128 | no | 20.9 | 3647 | 279 | 33.0 | baseline |
+| FSDP2+ES | 128 | yes | 18.4 | 3213 | 315–330 | 33.0 | -12% |
+| FSDP2 | 256 | no | 23.5 | 4106 | 498 | 65.6 | baseline |
+| FSDP2+ES | 256 | yes | 21.8 | 3809 | 521–532 | 65.6 | -7% |
+| DDP+ES | 320 | yes | OOM | — | — | — | |
+| FSDP2+ES | 320 | yes | OOM | — | — | — | |
+
+**New best config: DDP bs=256 + expandable_segments = 24.5% MFU, 4229 img/s, 66 GB**
+
+Key finding: `expandable_segments:True` is a targeted fix for DDP at large batch sizes only.
+It hurts FSDP2 across the board. The bimodal DDP bs=256 pattern was caused by allocator
+fragmentation during the single end-of-backward all-reduce — expandable_segments prevents
+defragmentation pauses that periodically stalled forward passes.

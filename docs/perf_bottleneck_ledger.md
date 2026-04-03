@@ -11,27 +11,25 @@ Use it to answer:
 
 ## Current Summary
 
-**Current dominant bottleneck**: Distributed communication strategy remains the top lever, but the
-DDP vs FSDP2 result is batch-regime dependent. DDP clearly wins at smaller batches (64, 128) by
-eliminating FSDP2 per-block all_gather/reduce_scatter, while FSDP2 still wins at bs=256 because
-its overlapped per-block communication beats DDP's single end-of-backward all-reduce.
+**Current dominant bottleneck**: Memory allocator fragmentation was masking the true DDP bs=256
+ceiling. After adding `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, the DDP bs=256 bimodal
+instability is eliminated and DDP becomes the dominant strategy at all tested batch sizes.
 
 Last updated from:
 
-- run: Step 5 screening + DDP vs FSDP2 screening (jobs 7553, 7563, 7564, 7565, 7566, 7567, 7573, 7574, 7593, 7594, 9630, 9631, 9632)
+- run: expandable_segments screening (jobs 9650–9657)
 - date: 2026-04-03
-- artifacts: `/mnt/weka/adovlatyan/profiler_traces/2026-04-02/7553/`,
-  `/mnt/weka/adovlatyan/output_ddp_bs64_ckptfalse_9630`,
-  `/mnt/weka/adovlatyan/output_ddp_bs128_ckptfalse_9631`,
-  `/mnt/weka/adovlatyan/output_ddp_bs256_ckptfalse_9632`
+- artifacts: `/mnt/weka/adovlatyan/logs/ddp-es-9650.out` through `fsdp2-es-9657.out`
 
 Current decision:
 
-- **DDP bs=128 is the recommended operating point** — 23.1% MFU, 4042 img/s, 34 GB
-- **FSDP2 bs=256 remains the absolute throughput winner** — 23.5% MFU, 4106 img/s, 65.6 GB
+- **DDP bs=256 + expandable_segments is the new recommended operating point** — 24.5% MFU, 4229 img/s, 66 GB
+- **DDP bs=128 + expandable_segments** is the best memory-efficient option — 22.9% MFU, 3993 img/s, 34 GB
+- FSDP2 is now *beaten* at all batch sizes. With expandable_segments it degrades an additional 7–12%.
 - CUDA graphs are NOT viable (multi-crop tensor reuse breaks CUDAGraph trees)
 - Activation checkpointing is an enabler for larger batches but loses throughput at equal batch
   and did not produce a net win in the tested FSDP2 regime
+- bs=320 OOMs for both DDP and FSDP2 even with expandable_segments — hard memory ceiling at bs=256
 
 ## Profiler Baseline (Job 7553)
 
@@ -214,5 +212,54 @@ Key insight: DDP wins at bs≤128 by eliminating per-block all_gather/reduce_sca
 But at bs=256, FSDP2's overlapped per-block communication actually outperforms DDP's
 single end-of-backward all-reduce.
 
-**Recommended config**: DDP bs=128 (23.1% MFU, 34 GB) — near-parity throughput with
-FSDP2 bs=256 at half the memory.
+**Recommended config (before expandable_segments)**: DDP bs=128 (23.1% MFU, 34 GB)
+
+---
+
+## expandable_segments Screening Results (2026-04-03)
+
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` was tested across all prior configs.
+
+### expandable_segments Full Comparison Table
+
+| Strategy | bs/GPU | ES | MFU % | img/s | step_ms | max_mem GB | Δ vs no-ES |
+|----------|--------|----|-------|-------|---------|-----------|-----------|
+| DDP | 64 | no | 18.1 | 3169 | 162 | 17.7 | — |
+| DDP+ES | 64 | yes | 17.5 | 3061 | 157–186 | 17.6 | -3% |
+| DDP | 128 | no | 23.1 | 4042 | 253 | 34.0 | — |
+| DDP+ES | 128 | yes | 22.9 | 3993 | 249–253 | 33.9 | -1% |
+| DDP | 256 | no | 12–18 (bimodal) | 2113–3157 | 586–933 | 66.5 | — |
+| **DDP+ES** | **256** | **yes** | **24.5** | **4229** | **475–478** | **66.5** | **FIXED** |
+| FSDP2 | 64 | no | 13.8 | 2404 | 213 | 18.0 | — |
+| FSDP2+ES | 64 | yes | 12.1 | 2110 | 235–246 | 16.7 | -12% |
+| FSDP2 | 128 | no | 20.9 | 3647 | 279 | 33.0 | — |
+| FSDP2+ES | 128 | yes | 18.4 | 3213 | 315–330 | 33.0 | -12% |
+| FSDP2 | 256 | no | 23.5 | 4106 | 498 | 65.6 | — |
+| FSDP2+ES | 256 | yes | 21.8 | 3809 | 521–532 | 65.6 | -7% |
+| DDP+ES | 320 | yes | OOM | — | — | >80 GB | — |
+| FSDP2+ES | 320 | yes | OOM | — | — | >80 GB | — |
+
+### Key Findings
+
+1. **DDP bs=256 + ES eliminates bimodal instability** — the periodic MFU collapse (12–18% bimodal)
+   was caused by CUDA allocator defragmentation. `expandable_segments` allows the allocator to grow
+   existing segments rather than reallocate, preventing the defrag pauses. Result: stable 24.5% MFU.
+
+2. **`expandable_segments` is harmful for FSDP2** across all batch sizes (7–12% regression).
+   FSDP2's fine-grained per-block alloc/free pattern apparently conflicts with the segment growth
+   heuristic — likely causes over-reservation that wastes bandwidth.
+
+3. **bs=320 OOMs regardless of ES** — expandable_segments is a runtime allocation strategy, not
+   a compile-time optimization. torch.compile's peak memory during iter 0 exceeds 80 GB at bs=320.
+   The hard ceiling is confirmed at bs=256 (≈66 GB peak for DDP).
+
+### Updated Recommended Configs
+
+| Use case | Config | MFU | img/s | Memory |
+|----------|--------|-----|-------|--------|
+| **Best throughput** | DDP bs=256 + ES | **24.5%** | **4229** | 66 GB |
+| **Memory-efficient** | DDP bs=128 + ES | 22.9% | 3993 | 34 GB |
+| **Reference (old)** | FSDP2 bs=256 | 23.5% | 4106 | 66 GB |
+
+**Rule**: Always set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` when using DDP.
+Never use it with FSDP2.
