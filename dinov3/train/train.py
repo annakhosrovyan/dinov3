@@ -43,7 +43,9 @@ from dinov3.utils.profiling import (
     enable_graph_break_logging,
     get_memory_stats,
     get_run_metadata,
+    log_phase_memory,
     make_nvtx,
+    memory_profile_enabled,
 )
 from dinov3.train.cosine_lr_scheduler import CosineScheduler, WSDLRScheduler, linear_warmup_cosine_decay
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
@@ -421,6 +423,7 @@ def build_multi_resolution_data_loader_from_cfg(
 
 
 def do_train(cfg, model, resume=False):
+    _mem_profile = memory_profile_enabled()
     process_subgroup = distributed.get_process_subgroup()
     ckpt_dir = Path(cfg.train.output_dir, "ckpt").expanduser()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -560,6 +563,8 @@ def do_train(cfg, model, resume=False):
     step_end_event = torch.cuda.Event(enable_timing=True)
     if profiler is not None:
         profiler.start()
+    if _mem_profile:
+        log_phase_memory("pre_training_loop")
     for data in metric_logger.log_every(
         data_loader,
         print_freq=10,
@@ -659,6 +664,13 @@ def do_train(cfg, model, resume=False):
         images_per_sec = global_batch_size / (step_time_ms / 1000.0)
         mfu = compute_mfu(images_per_sec, macs_per_image, num_gpus)
 
+        # Per-phase peak memory markers (only active when DINOV3_MEMORY_PROFILE=1)
+        if _mem_profile:
+            if iteration == start_iter:
+                log_phase_memory("compile_warmup_iter0")
+            elif iteration == start_iter + 10:
+                log_phase_memory("steady_state")
+
         # [GRAM] Update gram teacher when using gram teacher and frequent updates
         if (
             cfg.gram.use_loss
@@ -717,11 +729,17 @@ def do_train(cfg, model, resume=False):
             cfg.evaluation.eval_period_iterations > 0 and (iteration + 1) % cfg.evaluation.eval_period_iterations == 0
             # and iteration != max_iter - 1
         ):
+            if _mem_profile:
+                log_phase_memory("pre_eval")
             do_test(cfg, model, f"training_{iteration}", process_group=process_subgroup)
             torch.cuda.synchronize()
+            if _mem_profile:
+                log_phase_memory("eval_complete")
 
         # Checkpointing
         if (iteration + 1) % cfg.checkpointing.period == 0:
+            if _mem_profile:
+                log_phase_memory("pre_checkpoint")
             torch.cuda.synchronize()
             save_checkpoint(
                 ckpt_dir / str(iteration),
@@ -735,6 +753,8 @@ def do_train(cfg, model, resume=False):
                 keep_last_n_checkpoints(ckpt_dir, cfg.checkpointing.max_to_keep)
                 if "keep_every" in cfg.checkpointing and (iteration + 1) % cfg.checkpointing.keep_every == 0:
                     keep_checkpoint_copy(ckpt_dir / str(iteration))
+            if _mem_profile:
+                log_phase_memory("checkpoint_complete")
 
         iteration = iteration + 1
     # Always stop profiler, even if loop exits early or raises

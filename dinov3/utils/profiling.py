@@ -138,6 +138,35 @@ def get_memory_stats(device=None) -> dict:
     }
 
 
+def memory_profile_enabled() -> bool:
+    """Return True if DINOV3_MEMORY_PROFILE=1 is set in the environment."""
+    return bool(os.environ.get("DINOV3_MEMORY_PROFILE", ""))
+
+
+def log_phase_memory(phase_name: str, device=None):
+    """Log per-phase peak GPU memory and reset peak counters for the next phase.
+
+    Emits a structured [MEMPROFILE] line parseable by grep.
+    Only call when memory_profile_enabled() is True.
+    """
+    if device is None:
+        device = torch.cuda.current_device()
+    torch.cuda.synchronize(device)
+    stats = torch.cuda.memory_stats(device)
+    rank = int(os.environ.get("RANK", 0))
+    logger.info(
+        "[MEMPROFILE] rank=%d phase=%s max_alloc_mb=%.0f max_reserved_mb=%.0f "
+        "current_alloc_mb=%.0f alloc_retries=%d",
+        rank,
+        phase_name,
+        torch.cuda.max_memory_allocated(device) / (1024**2),
+        torch.cuda.max_memory_reserved(device) / (1024**2),
+        torch.cuda.memory_allocated(device) / (1024**2),
+        stats.get("num_alloc_retries", 0),
+    )
+    torch.cuda.reset_peak_memory_stats(device)
+
+
 def get_run_metadata(cfg) -> dict:
     """Return static run metadata for logging."""
     return {

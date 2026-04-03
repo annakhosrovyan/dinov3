@@ -31,6 +31,13 @@ Current decision:
   and did not produce a net win in the tested FSDP2 regime
 - bs=320 OOMs for both DDP and FSDP2 even with expandable_segments — hard memory ceiling at bs=256
 
+Confidence note:
+
+- The expandable-segments screening runs were short-horizon throughput screens (`100` iterations),
+  so the recommendation above should be read as "best measured operating point so far," not as a
+  proof that a multi-thousand-iteration bs=256 DDP run cannot hit a later OOM.
+- A longer soak run is still warranted before treating bs=256 DDP+ES as fully production-safe.
+
 ## Profiler Baseline (Job 7553)
 
 Config: 8×H100, bs=64/GPU, torch.compile=True, FSDP2 SHARD_GRAD_OP, real Weka data, ViT-B.

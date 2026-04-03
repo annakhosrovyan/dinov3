@@ -198,6 +198,10 @@ DDP bs=256 without ES showed bimodal MFU: alternating roughly `~11%` and `~18%` 
 run. With ES enabled, the bimodal pattern disappeared and the run stabilized at `24.5%` MFU and
 `4229 img/s`.
 
+These screening runs were short (`train.OFFICIAL_EPOCH_LENGTH=100`, `optim.epochs=1` in
+`scripts/screening_ddp_expandseg.sh`), so they prove the short-horizon throughput behavior, not
+the absence of any long-horizon memory creep.
+
 This is the important repo-specific interpretation:
 - ES helped because the DDP bs=256 compiled multi-crop path was fragmentation-prone.
 - ES removed allocator defrag pauses and the resulting throughput collapse.
@@ -206,6 +210,10 @@ This is the important repo-specific interpretation:
 The strongest evidence that this is fragmentation relief rather than a new hard-memory capability
 is that bs=320 still OOMs even with ES. In this repo, ES fixes stalls and allocator pathology at
 bs=256; it does not move the real memory ceiling.
+
+The remaining uncertainty is whether a much longer run could still accumulate enough allocator
+fragmentation or retained state to fail later. The current evidence argues against an immediate
+capacity problem at bs=256, but it does not fully rule out a late OOM without a longer soak test.
 
 ### Working causal model
 
@@ -250,6 +258,11 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # Default FSDP2 config / real training:
 # do not set PYTORCH_CUDA_ALLOC_CONF just because it helped DDP
 ```
+
+For real training, treat this as a current best operating hypothesis rather than a final guarantee.
+The next confidence step is a longer bs=256 DDP+ES soak run that logs
+`torch.cuda.max_memory_reserved()`, `torch.cuda.memory_reserved()`, and step time over thousands of
+iterations, especially across checkpoint and eval boundaries.
 
 ### Final rankings (8×H100, ViT-B, torch.compile, real data)
 
