@@ -62,28 +62,43 @@ def activation_checkpoint_transformer(cfg, model: nn.Module):
         model.blocks[block_id] = _checkpointing_wrapper(b)
 
 
-def wrap_compile_block(module: nn.Module, use_cuda_graphs: bool, is_backbone_block: bool) -> nn.Module:
+def wrap_compile_block(
+    module: nn.Module,
+    use_cuda_graphs: bool,
+    is_backbone_block: bool,
+    compile_mode: str | None = None,
+) -> nn.Module:
     if use_cuda_graphs and is_backbone_block:
         module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})
+    elif compile_mode is not None:
+        module.compile(mode=compile_mode)
     else:
         module.compile()
     return module
 
 
+def _get_compile_mode(cfg) -> str | None:
+    """Return the compile mode string, or None for PyTorch default."""
+    mode = getattr(cfg.train, "compile_mode", None)
+    return None if (mode is None or mode == "default") else str(mode)
+
+
 def compile_convnext(cfg, model: nn.Module):
+    compile_mode = _get_compile_mode(cfg)
     assert isinstance(model.stages, nn.ModuleList)
     # Compile at stage level
     for stage_id, stage in enumerate(model.stages):
-        model.stages[stage_id] = wrap_compile_block(stage, cfg.train.cudagraphs, is_backbone_block=False)
+        model.stages[stage_id] = wrap_compile_block(stage, cfg.train.cudagraphs, is_backbone_block=False, compile_mode=compile_mode)
     assert isinstance(model.downsample_layers, nn.ModuleList)
     for dsl_id, dsl in enumerate(model.downsample_layers):
-        model.downsample_layers[dsl_id] = wrap_compile_block(dsl, cfg.train.cudagraphs, is_backbone_block=False)
+        model.downsample_layers[dsl_id] = wrap_compile_block(dsl, cfg.train.cudagraphs, is_backbone_block=False, compile_mode=compile_mode)
 
 
 def compile_transformer(cfg, model: nn.Module):
+    compile_mode = _get_compile_mode(cfg)
     assert isinstance(model.blocks, nn.ModuleList)
     for block_id, block in enumerate(model.blocks):
-        model.blocks[block_id] = wrap_compile_block(block, cfg.train.cudagraphs, is_backbone_block=True)
+        model.blocks[block_id] = wrap_compile_block(block, cfg.train.cudagraphs, is_backbone_block=True, compile_mode=compile_mode)
 
 
 def fsdp_convnext(fsdp_config: Dict[str, Any], model: nn.Module):
@@ -177,12 +192,13 @@ def ac_compile_parallelize(
     else:
         all_pgs = [trained_model_process_group] + inference_only_models_process_groups
     if cfg.train.compile:
+        compile_mode = _get_compile_mode(cfg)
         for model in all_models:
             for k in model.keys():
                 if k == "backbone":
                     ARCH_TYPE_MAP[type(model[k])]["compile_fn"](cfg, model[k])
                 else:
-                    model[k] = wrap_compile_block(model[k], use_cuda_graphs=False, is_backbone_block=False)
+                    model[k] = wrap_compile_block(model[k], use_cuda_graphs=False, is_backbone_block=False, compile_mode=compile_mode)
 
     if distributed_strategy == "ddp":
         _ac_compile_parallelize_ddp(

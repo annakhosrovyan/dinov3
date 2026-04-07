@@ -78,6 +78,7 @@ train:
   checkpointing: false
   checkpointing_full: false  # aggressive checkpointing
   compile: true
+  compile_mode: null  # null = torch default; "max-autotune-no-cudagraphs" enables Triton autotuning without CUDA graph capture
   cudagraphs: false
   distributed_strategy: fsdp2  # "fsdp2" or "ddp"
   sharded_eval_checkpoint: false
