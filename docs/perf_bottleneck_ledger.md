@@ -270,3 +270,69 @@ single end-of-backward all-reduce.
 
 **Rule**: Always set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` when using DDP.
 Never use it with FSDP2.
+
+---
+
+## Memory Safety: Two Distinct Failure Modes (2026-04-07)
+
+Short screening runs (100 iters, checkpoint disabled) answer "does one step fit in memory?"
+They do NOT answer "does a full production run survive?" Those are different questions.
+
+### Failure Mode 1 — Single-step peak OOM
+
+The step itself (forward + backward + optimizer) temporarily exceeds 80 GB.
+**Measured by**: `memprofile_*.sh` scripts using `[MEMPROFILE]` phase markers.
+
+Results (2026-04-04, jobs 9677/9678):
+
+| Strategy | bs | ES | Worst-case phase | max_reserved_mb | Headroom |
+|----------|----|----|-----------------|----------------|---------|
+| FSDP2 | 128 | no | checkpoint_complete | **36,340 MB (35.5 GB)** | +44 GB |
+| DDP | 256 | yes | compile_warmup / steady_state | **67,240 MB (65.7 GB)** | +14 GB |
+
+Key finding: **eval (`do_test`) is NOT a memory spike** for either strategy. The default
+non-sharded eval path calls `full_tensor()` on all EMA DTensors, but the allocator reuses
+already-reserved pages — `eval_complete` max_alloc was only 891 MB (FSDP2) / 1325 MB (DDP).
+
+**DDP bs=256+ES passes worst-case single-step profiling with 14 GB headroom.**
+
+### Failure Mode 2 — Long-run fragmentation OOM
+
+The allocator's reserved pool becomes so fragmented that even a 112 MB all_gather
+allocation fails — not because 80 GB is exceeded in total, but because no contiguous
+free block of the right size exists. This can happen even when single-step peak is only 36 GB.
+
+**Root cause**: FSDP2 executes ~24 alloc/free cycles per step (12 blocks × forward+backward).
+Without ES, each cycle may leave fragments in the caching allocator. Over thousands of steps,
+`inactive_split_bytes` accumulates. Eventually an allocation that would succeed on a fresh
+allocator fails on a fragmented one.
+
+**Measured by**: `memfrag_fsdp2.sh` — 500-iter run, `[MEMFRAG]` logged every 10 iters.
+
+**Result (2026-04-08, jobs 16750/16751) — fragmentation hypothesis is a null result:**
+
+| Metric | FSDP2 bs=128 no ES | FSDP2 bs=128 + ES |
+|--------|-------------------|-------------------|
+| `alloc_retries` (iter 9→499) | **0 throughout** | 0 throughout |
+| `inactive_split_mb` | **290–294 MB constant** | 0 MB (perfect) |
+| `fragmentation_ratio` | **0.008 flat** | 0.000 flat |
+| `current_reserved_mb` | 34,464 MB | 34,050 MB |
+
+FSDP2's per-block allocations are highly uniform in size (~112 MB per all_gather per block).
+The caching allocator reuses these identically-sized freed blocks efficiently — no accumulation
+over 500 iterations. The 290 MB `inactive_split_mb` in no-ES is a static compile-time artifact,
+not a growing problem.
+
+**The colleague's FSDP2 bs=128 OOM is NOT explained by allocator fragmentation** (at least not
+within 500 iters). Likely causes: (a) Gram loss enabled (third teacher forward adds ~172 MB),
+(b) pretrained weight load temporarily double-buffers the model at init, (c) shared GPU resources,
+(d) fragmentation at >3750 iterations — cannot rule out but 500-iter trend is fully flat.
+
+### Mitigation Options
+
+| Problem | Fix | Cost |
+|---------|-----|------|
+| Fragmentation OOM (FSDP2, no ES) | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` | 7–12% throughput regression |
+| Fragmentation OOM (FSDP2, no ES) | Switch to DDP+ES | +1-4% MFU, fully solves fragmentation |
+| Fragmentation OOM (FSDP2 + AC) | Use ES despite regression (safety > speed) | Regression acceptable |
+| Single-step peak OOM | Activation checkpointing | ~30% recompute overhead |

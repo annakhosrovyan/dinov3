@@ -167,6 +167,50 @@ def log_phase_memory(phase_name: str, device=None):
     torch.cuda.reset_peak_memory_stats(device)
 
 
+def log_fragmentation_stats(iteration: int, device=None):
+    """Log allocator fragmentation metrics WITHOUT resetting peak counters.
+
+    Unlike log_phase_memory, this is called periodically throughout training
+    to track fragmentation accumulation over time. It does NOT call
+    reset_peak_memory_stats() so it never interferes with phase-based measurements.
+
+    Key metrics:
+    - alloc_retries: cumulative count of times the allocator had to retry due to
+      fragmentation. If this number grows between log intervals, fragmentation is
+      actively building. In a healthy run it should stay near 0.
+    - inactive_split_mb: bytes currently held in split blocks that are free but
+      too small (or wrong size) to satisfy the next pending allocation. This is
+      the direct measure of wasted fragmented memory.
+    - fragmentation_ratio: inactive_split_mb / current_reserved_mb. Values above
+      0.1 indicate meaningful fragmentation; above 0.3 is dangerous for long runs.
+    - num_ooms: should always be 0. A non-zero value means the allocator hit an
+      OOM internally but recovered (temporary; fatal OOM would crash the process).
+
+    Emits [MEMFRAG] lines for easy grep separation from [MEMPROFILE] lines.
+    All ranks log so per-device variance is visible (grep for 'rank=0' for summary).
+    """
+    if device is None:
+        device = torch.cuda.current_device()
+    # Allocator stats are CPU-side bookkeeping — no GPU sync needed.
+    stats = torch.cuda.memory_stats(device)
+    rank = int(os.environ.get("RANK", 0))
+    current_reserved_mb = stats.get("reserved_bytes.all.current", 0) / (1024**2)
+    inactive_split_mb = stats.get("inactive_split_bytes.all.current", 0) / (1024**2)
+    logger.info(
+        "[MEMFRAG] rank=%d iter=%d alloc_retries=%d num_ooms=%d "
+        "current_alloc_mb=%.0f current_reserved_mb=%.0f "
+        "inactive_split_mb=%.0f fragmentation_ratio=%.3f",
+        rank,
+        iteration,
+        stats.get("num_alloc_retries", 0),
+        stats.get("num_ooms", 0),
+        stats.get("allocated_bytes.all.current", 0) / (1024**2),
+        current_reserved_mb,
+        inactive_split_mb,
+        inactive_split_mb / max(current_reserved_mb, 1.0),
+    )
+
+
 def get_run_metadata(cfg) -> dict:
     """Return static run metadata for logging."""
     return {

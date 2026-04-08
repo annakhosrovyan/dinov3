@@ -274,3 +274,75 @@ iterations, especially across checkpoint and eval boundaries.
 | DDP bs=128 | 23.1% | 4042 | 34 GB | Without ES — still good |
 | DDP bs=64 + ES | 17.5% | 3061 | 18 GB | No benefit from ES at bs=64 |
 | FSDP2 bs=256 + ES | 21.8% | 3809 | 66 GB | ES actively hurts FSDP2 |
+
+---
+
+## FSDP2 Allocator Fragmentation Study (2026-04-07/08)
+
+### Hypothesis
+
+Our 70-iter worst-case profiling correctly measures the single-step peak (FSDP2 bs=128 = 36.3 GB).
+A colleague hit OOM at FSDP2 bs=128 without ES in a real training run. The hypothesis: FSDP2's
+~24 alloc/free cycles per step (12 blocks × forward+backward, each all_gather ~112 MB) fragment
+the caching allocator over thousands of steps, growing `reserved_mb` beyond 80 GB despite a
+single-step peak of only 36 GB.
+
+### Experiment (jobs 16750/16751): 500-iter fragmentation tracking
+
+```bash
+sbatch scripts/memfrag_fsdp2.sh 128 false 500 10   # FSDP2 no ES — expect fragmentation
+sbatch scripts/memfrag_fsdp2.sh 128 true  500 10   # FSDP2 + ES  — control
+```
+
+Results — `[MEMFRAG]` logged every 10 iters, rank=0:
+
+| Metric | FSDP2 bs=128 no ES | FSDP2 bs=128 + ES |
+|--------|-------------------|-------------------|
+| `alloc_retries` (iter 9→499) | **0 throughout** | 0 throughout |
+| `inactive_split_mb` range | **290–294 MB (flat)** | 0 MB (flat) |
+| `fragmentation_ratio` | **0.008 flat** | 0.000 flat |
+| `current_reserved_mb` | 34,464 MB | 34,050 MB |
+
+### Result: hypothesis is a **null result**
+
+FSDP2's per-block allocations are highly uniform in size. The caching allocator reuses
+identically-sized freed blocks efficiently — zero `alloc_retries` at any point across
+500 iterations. The 290 MB `inactive_split_mb` in no-ES is a static compile-time artifact
+(blocks split during warmup), not a growing problem.
+
+The colleague's OOM is NOT explained by allocator fragmentation within 500 iters.
+Remaining hypotheses: (a) Gram loss enabled — adds a third teacher forward, ~172 MB extra,
+(b) pretrained weight load temporarily double-buffers model at init (our runs use `pretrained_weights=""`),
+(c) shared GPU resources, (d) fragmentation at >3750 iters — 500-iter trend is flat but
+we cannot exclude accumulation starting later.
+
+### What ES actually contributes
+
+- `inactive_split_mb = 0` (vs 290 MB) — cleaner allocator state, but the 290 MB is harmless
+- `current_reserved_mb` 414 MB lower — slightly tighter packing
+- Zero `alloc_retries` in both cases — the benefit is insurance, not a fix for an observed problem
+
+For FSDP2 single-node single-run, **ES provides allocator cleanliness at 7–12% throughput cost,
+but is not currently needed to prevent OOM** at bs=128, at least through 500 iters.
+Use DDP+ES instead — it gains throughput AND keeps the allocator clean.
+
+### Diagnostic tooling (for future investigations)
+
+```python
+# Key memory_stats() fields:
+stats = torch.cuda.memory_stats()
+stats["num_alloc_retries"]                  # cumulative retries — growing = bad
+stats["inactive_split_bytes.all.current"]   # bytes in unusable fragments
+stats["reserved_bytes.all.current"]         # total reserved (active + fragmented + free)
+stats["allocated_bytes.all.current"]        # currently in use
+```
+
+To run: `DINOV3_MEMORY_PROFILE=1 DINOV3_MEMORY_PROFILE_PERIOD=10 sbatch ...`
+Parse: `grep '\[MEMFRAG\]' <log> | grep 'rank=0'`
+
+### Short version
+
+FSDP2 without ES does NOT fragment meaningfully at ViT-B bs=128 over 500 iterations.
+The OOM that prompted this investigation is explained by something else (different config,
+shared GPU, or very long run fragmentation beyond 3750 iters). DDP+ES remains the recommended
+single-node operating point: better throughput, cleaner allocator, no fragmentation risk.

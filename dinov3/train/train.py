@@ -43,6 +43,7 @@ from dinov3.utils.profiling import (
     enable_graph_break_logging,
     get_memory_stats,
     get_run_metadata,
+    log_fragmentation_stats,
     log_phase_memory,
     make_nvtx,
     memory_profile_enabled,
@@ -424,6 +425,8 @@ def build_multi_resolution_data_loader_from_cfg(
 
 def do_train(cfg, model, resume=False):
     _mem_profile = memory_profile_enabled()
+    # Period for fragmentation tracking (every N iters). Default 25; override via env.
+    _mem_profile_period = int(os.environ.get("DINOV3_MEMORY_PROFILE_PERIOD", "25"))
     process_subgroup = distributed.get_process_subgroup()
     ckpt_dir = Path(cfg.train.output_dir, "ckpt").expanduser()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -670,6 +673,11 @@ def do_train(cfg, model, resume=False):
                 log_phase_memory("compile_warmup_iter0")
             elif iteration == start_iter + 10:
                 log_phase_memory("steady_state")
+            # Periodic fragmentation tracking: logs [MEMFRAG] every N iters.
+            # Does NOT reset peak stats — tracks cumulative allocator fragmentation.
+            # Key metric: alloc_retries + inactive_split_mb growing = fragmentation building.
+            if (iteration + 1) % _mem_profile_period == 0:
+                log_fragmentation_stats(iteration)
 
         # [GRAM] Update gram teacher when using gram teacher and frequent updates
         if (
