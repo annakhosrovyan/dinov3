@@ -14,7 +14,8 @@ High-signal optimization notes distilled from local measurements and `~/knowledg
 ## Topic Notes
 
 - `gpu_performance.md`: realistic H100 ceilings, tensor-shape alignment, GC stragglers, FFN-vs-attention cost, memory headroom, thermal drift.
-- `cuda_graphs.md`: what CUDA graphs means in this repo, what a backbone block is, why upstream left the flag off by default, and why the current ViT-B satellite recipe is still a plausible candidate.
+- `cuda_graphs.md`: what CUDA graphs means in this repo, what a backbone block is, why upstream left the flag off by default, and why the current multi-crop architecture breaks CUDAGraph trees.
+- `compile_modes.md`: torch.compile mode options, default vs max-autotune-no-cudagraphs results, the multi-rank Triton OOM hazard, and the single-rank cache warmup fix.
 - `ddp_vs_fsdp2.md`: focused single-node guidance for when DDP should beat FSDP2, when FSDP2 still matters, and how the local ViT-B results should be interpreted.
 - `terminology.md`: ongoing glossary of repo-specific terms and recurring performance jargon with code-grounded examples.
 - `distributed_training.md`: communication overlap, NCCL pitfalls, DDP vs ZeRO/FSDP trade-offs, why ViT-B may not want FSDP2 on one node, and when `expandable_segments` helps or hurts.
