@@ -336,3 +336,74 @@ within 500 iters). Likely causes: (a) Gram loss enabled (third teacher forward a
 | Fragmentation OOM (FSDP2, no ES) | Switch to DDP+ES | +1-4% MFU, fully solves fragmentation |
 | Fragmentation OOM (FSDP2 + AC) | Use ES despite regression (safety > speed) | Regression acceptable |
 | Single-step peak OOM | Activation checkpointing | ~30% recompute overhead |
+
+---
+
+## Colleague OOM Investigation — Status & Open Questions (2026-04-08)
+
+**Setup**: `ssl_default_config.yaml`, FSDP2, bs=128, no ES, 8×H100 on 1 DGX H100 node.
+**Symptom**: OOM during a real training run.
+
+### What our profiling tests and what it doesn't
+
+All profiling runs deviate from real `ssl_default` in these ways:
+
+| Parameter | Our profiling | Real ssl_default | Risk |
+|-----------|--------------|-----------------|------|
+| `pretrained_weights` | `""` (skipped) | `dinov3_vitb16_pretrain.pth` | **High** — see below |
+| `gram.use_loss` | default (`false`) | default (`false`) | None — gram is off by default |
+| `checkpointing.period` | 50 or 99999 (forced) | 3750 | Medium — DCP at 3750 untested |
+| `evaluation.eval_period_iterations` | 40 or 12500 | 12500 | Low — eval shown not to spike |
+| `train.cache_dataset` | `true` | unknown | Low |
+| Run length | 70–500 iters | 125,000+ iters | Medium — fragmentation at >500 untested |
+
+### Hypothesis status
+
+| Hypothesis | Status | Evidence |
+|-----------|--------|----------|
+| Eval `do_test` / `full_tensor()` spike | ❌ Ruled out | eval_complete max_alloc = 891 MB (job 9677) |
+| Checkpoint DCP serialization spike | ❌ Small | +1.9 GB reserved at iter 49 (job 9677) |
+| Allocator fragmentation (FSDP2, no ES) | ❌ Null result (0–500 iters) | alloc_retries=0, inactive_split=290 MB flat (jobs 16750/16751) |
+| Gram loss enabled | ❌ Ruled out | `gram.use_loss: false` in ssl_default_config.yaml |
+| **Pretrained weight loading** | ⚠️ **Untested** | See below |
+| Shared GPU (other processes) | ⚠️ Cannot verify | Cluster-level investigation needed |
+| Fragmentation at iter 3750+ | ⚠️ Untested | 500-iter study is flat; 3750+ unknown |
+
+### Pretrained weight loading — most likely untested cause
+
+`ssl_default` loads `dinov3_vitb16_pretrain.pth` at init. In `ssl_meta_arch.py`,
+`load_pretrained_weights()` loads the checkpoint file → copies the state_dict into the model.
+Under FSDP2, the pretrained weights may be loaded as full tensors on every GPU before FSDP2
+shards them. This transiently materializes the full BF16 model (~172 MB) on top of the
+already-initialized sharded model — effectively double-buffering the model state at startup.
+
+More importantly, loading a `.pth` file with `torch.load()` on CPU and then `copy_` to GPU
+keeps both the CPU copy and GPU copy alive simultaneously during the copy. At 172 MB this is
+small, but if the load happens after CUDA context setup (i.e., after training memory is already
+allocated), the allocator may not have a contiguous region for it even if total free GB is high.
+
+**To test**: Run `memprofile_fsdp2.sh 128` with `student.pretrained_weights` pointing to the
+actual checkpoint instead of `""`. Compare `pre_training_loop` max_reserved_mb.
+
+### What to do next (ranked by effort and likelihood)
+
+1. **Ask the colleague**: exact job script, SLURM node, `nvidia-smi` output at failure time.
+   Was another job sharing the GPU? Was `gram.use_loss=true`? Were pretrained weights loaded?
+
+2. **Run memprofile_fsdp2 with real pretrained weights** (medium effort):
+   ```bash
+   sbatch scripts/memprofile_fsdp2.sh 128 false false
+   # But override pretrained_weights to the real path:
+   # student.pretrained_weights=/auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
+   ```
+   Compare `pre_training_loop` max_reserved_mb — if higher than 156 MB, weight loading is the cause.
+
+3. **Run memfrag_fsdp2 for 4000+ iters** (expensive, ~2–3 hrs):
+   To verify fragmentation truly stays flat past the first checkpoint at iter 3750.
+   ```bash
+   sbatch scripts/memfrag_fsdp2.sh 128 false 4500 50
+   ```
+
+4. **Accept and move on**: For our own training (DDP bs=256+ES), the OOM risk is fully
+   characterized. The colleague's OOM is on a config (FSDP2 bs=128 no ES) we don't recommend.
+   The safe resolution is: use DDP+ES for single-node, or use FSDP2+ES if FSDP2 is required.
