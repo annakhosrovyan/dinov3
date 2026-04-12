@@ -82,23 +82,62 @@ outside the compiled regions (in the DDP wrapper), so it doesn't affect the cach
 
 ---
 
-## Current status (2026-04-08)
+## Root cause: iBOT dynamic masked token shapes (2026-04-08, jobs 16720 + 17824)
 
-- Default mode: **measured** — ~23.1% MFU at bs=128
-- max-autotune-no-cudagraphs: **pending rerun** with single-rank warmup fix
-- Comparison delta (default vs max-autotune): **unknown until rerun completes**
+Two runs, same SIGABRT. The crash is architectural, not a configuration issue.
 
-Expected: if max-autotune finds better tile configs, a 5–15% improvement in kernel throughput
-would raise MFU from ~23.1% to ~24–26% at bs=128, or from 23.9% to ~25–27% at bs=256.
-If the backbone's matmul shapes (seq_len=197, hidden=768) already happen to align well with
-PyTorch's default Triton config, the gain may be smaller (2–5%).
+**The last autotuned op before crash:**
+```
+AUTOTUNE mm(2048x7503, 7503x768)   ← non-power-of-2, dynamic size
+SingleProcess AUTOTUNE benchmarking takes 6.8508 seconds for 20 choices
+[SIGABRT on rank 0]
+```
+
+**What `2048x7503` is**: iBOT loss operates on masked patch tokens gathered across the global
+batch. With 8 GPUs × bs=128 = 1024 images × 2 global crops = 2048 crops. The `7503` is the
+total number of masked patches across those 2048 crops — determined dynamically each iteration
+by the stochastic masking process (mask_ratio_min_max=[0.1, 0.5]).
+
+**Why this breaks max-autotune**: `max-autotune-no-cudagraphs` benchmarks every Triton kernel
+variant for a specific shape (7503), selects the best tile config, and compiles that config.
+The next iteration produces a different masked token count (e.g., 7489 or 7621). The compiled
+kernel either:
+1. Crashes on the shape mismatch (no guard — `dynamic=False` was assumed during tuning)
+2. Triggers a CUDA assertion from the Triton kernel's tile config on the non-aligned dimension
+
+The default compile mode handles this correctly by treating shapes symbolically (`dynamic=True`
+implicitly), generating guards and recompilation as needed. `max-autotune` cannot be combined
+with dynamic shapes through the simple `mode=` string API.
+
+**Why the single-rank warmup fix also failed (job 17824)**:
+Phase 1 (nproc=1, global_batch=128) caches backbone matmuls (fixed shapes — correctly cached),
+but the iBOT global-batch op has size proportional to global batch size: nproc=1 gives ~939
+masked tokens per 256 global crops; nproc=8 gives ~7503 per 2048 crops. **Different shape →
+cache miss → fresh benchmarking in Phase 2 → same crash.**
+
+**Conclusion: max-autotune-no-cudagraphs is fundamentally incompatible with iBOT's dynamic
+masked token count.** This is not fixable by configuration — the mode requires static shapes,
+but iBOT produces variable shapes at a global-batch granularity that changes with world size
+AND with the stochastic masking per iteration.
 
 ---
 
-## Operating rule for max-autotune in this repo
+## Current status (confirmed 2026-04-08)
 
-1. Always run the single-rank warmup before launching the 8-rank job.
-2. The warmup takes ~18–25 min (once per hardware/PyTorch version combo).
-3. Subsequent runs on the same node reuse the cache — warmup not needed again.
-4. If PyTorch version changes, clear `~/.cache/torch/inductor/` and re-warm.
-5. Never set `train.compile_mode=max-autotune` (with graphs) — CUDA graphs are broken here.
+| Mode | Result | MFU at bs=128 |
+|------|--------|--------------|
+| `default` (null) | ✓ Complete | **~23.1%** steady-state |
+| `max-autotune-no-cudagraphs` | ✗ Incompatible — dynamic iBOT shapes | N/A |
+
+**max-autotune-no-cudagraphs is deprioritized.** The default compile mode is the correct
+and only viable torch.compile path for this model. Do not attempt further max-autotune runs.
+
+---
+
+## Operating rule for compile modes in this repo
+
+1. Use `train.compile_mode=null` (default). It is stable, correct, and already contributing
+   to the 23.9% MFU at DDP bs=256+ES (production config).
+2. Never set `max-autotune` (with graphs) — CUDA graphs are broken here (see cuda_graphs.md).
+3. Never set `max-autotune-no-cudagraphs` — iBOT dynamic shapes cause SIGABRT at iter-0.
+4. If PyTorch adds a `dynamic=True` + `max-autotune` combination in a future version, retest.
