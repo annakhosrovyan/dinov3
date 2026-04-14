@@ -447,6 +447,8 @@ def do_train(cfg, model, resume=False):
             dont_save=[k for k, _ in model.state_dict().items() if k.startswith("teacher")],
         )
     model.init_weights()
+    if _mem_profile:
+        log_phase_memory("post_init_weights")
     start_iter = 0
     if resume and (last_checkpoint_dir := find_latest_checkpoint(ckpt_dir)):
         logger.info(f"Checkpoint found {last_checkpoint_dir}")

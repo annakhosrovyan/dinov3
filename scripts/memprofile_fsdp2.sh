@@ -6,8 +6,19 @@
 # Note: Do NOT set expandable_segments with FSDP2 — it causes 7-12% throughput
 # regression due to FSDP2's fine-grained alloc/free pattern conflicting with ES.
 #
-# Usage: sbatch scripts/memprofile_fsdp2.sh <batch_size> [checkpointing] [expand_segments]
-# Example: sbatch scripts/memprofile_fsdp2.sh 128 false false
+# Profiled phases (in order):
+#   post_init_weights   — peak after model NaN-fill + optimizer + pretrained load
+#   pre_training_loop   — peak from post_init_weights through data loader construction
+#   compile_warmup_iter0 — torch.compile first-pass peak
+#   steady_state        — iter 10 steady-state peak
+#   pre_eval / eval_complete — eval phase (do_test + full_tensor() on EMA DTensors)
+#   pre_checkpoint / checkpoint_complete — DCP sharded save
+#
+# Usage: sbatch scripts/memprofile_fsdp2.sh <batch_size> [checkpointing] [expand_segments] [pretrained_weights]
+# Example (no pretrained, matches prior profiling):
+#   sbatch scripts/memprofile_fsdp2.sh 128 false false ""
+# Example (with real ssl_default pretrained weights — closest to colleague's config):
+#   sbatch scripts/memprofile_fsdp2.sh 128 false false /auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
 #
 # Output: grep '[MEMPROFILE]' <logfile> | grep 'rank=0' for per-phase peaks.
 #
@@ -38,6 +49,7 @@ export DINOV3_MEMORY_PROFILE=1
 BATCH_SIZE="${1:-128}"
 CHECKPOINTING="${2:-false}"
 EXPAND_SEG="${3:-false}"
+PRETRAINED="${4:-}"  # empty = no pretrained weights (fast smoke test); pass path for ssl_default parity
 
 if [ "${EXPAND_SEG}" = "true" ]; then
     export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -54,11 +66,23 @@ echo "Node: ${SLURM_NODELIST}"
 echo "Batch size: ${BATCH_SIZE}"
 echo "Checkpointing: ${CHECKPOINTING}"
 echo "Expand segments: ${EXPAND_SEG}"
+echo "Pretrained weights: ${PRETRAINED:-<none>}"
 echo "PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-not set}"
 echo "Output: ${OUTPUT_DIR}"
 echo "Date: $(date)"
 echo ""
+
+# GPU baseline — verify all GPUs are clean before training starts.
+# Non-zero 'used' memory before torchrun starts = other processes sharing the node.
+# That would explain OOM at a batch size that normally fits.
+echo "=== GPU memory baseline (before torchrun) ==="
+nvidia-smi --query-gpu=index,memory.used,memory.free,memory.total --format=csv,noheader,nounits \
+    | awk -F',' '{printf "  GPU %s: used=%s MB  free=%s MB  total=%s MB\n", $1, $2, $3, $4}'
+echo ""
+
 echo "Phase schedule:"
+echo "  Init:       post_init_weights = optimizer + model NaN-fill + pretrained load (if any)"
+echo "  Init:       pre_training_loop = data loader construction overhead"
 echo "  Iters 0-9:  torch.compile warmup + early steady state"
 echo "  Iter  10:   steady_state memory marker logged"
 echo "  Iter  39:   eval phase fires (do_test + full_tensor() on all EMA DTensors)"
@@ -75,7 +99,7 @@ torchrun --nproc_per_node=8 dinov3/train/train.py \
   student.arch=vit_base \
   student.in_chans=5 \
   teacher.in_chans=5 \
-  student.pretrained_weights="" \
+  student.pretrained_weights="${PRETRAINED}" \
   "train.dataset_path=MixedSatelliteDataset:\
 intelinair_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/intelinair/intelinair.h5:\
 maid_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/maid:\
@@ -90,7 +114,7 @@ naip_weight=1.0" \
   optim.epochs=1 \
   train.persistent_workers=true \
   train.prefetch_factor=8 \
-  train.cache_dataset=true \
+  train.cache_dataset=false \
   train.compile=true \
   train.distributed_strategy=fsdp2 \
   train.checkpointing="${CHECKPOINTING}" \

@@ -11,32 +11,56 @@ Use it to answer:
 
 ## Current Summary
 
-**Current dominant bottleneck**: Memory allocator fragmentation was masking the true DDP bs=256
-ceiling. After adding `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, the DDP bs=256 bimodal
-instability is eliminated and DDP becomes the dominant strategy at all tested batch sizes.
+**Status as of 2026-04-08: optimization phase complete. Production config is shipped.**
 
 Last updated from:
+- Worst-case memprofile jobs (runs 22–23), soak test job 16718 (run 24), compile mode jobs 16719/16720/17824 (run 25)
 
-- run: expandable_segments screening (jobs 9650–9657)
-- date: 2026-04-03
-- artifacts: `/mnt/weka/adovlatyan/logs/ddp-es-9650.out` through `fsdp2-es-9657.out`
+### Shipped production config (`run.sh` as of 2026-04-07)
 
-Current decision:
+```
+train.distributed_strategy=ddp
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+train.batch_size_per_gpu=256
+train.sharded_eval_checkpoint=true
+train.compile_mode=null   (default — only viable torch.compile path)
+```
 
-- **DDP bs=256 + expandable_segments is the new recommended operating point** — 24.5% MFU, 4229 img/s, 66 GB
-- **DDP bs=128 + expandable_segments** is the best memory-efficient option — 22.9% MFU, 3993 img/s, 34 GB
-- FSDP2 is now *beaten* at all batch sizes. With expandable_segments it degrades an additional 7–12%.
-- CUDA graphs are NOT viable (multi-crop tensor reuse breaks CUDAGraph trees)
-- Activation checkpointing is an enabler for larger batches but loses throughput at equal batch
-  and did not produce a net win in the tested FSDP2 regime
-- bs=320 OOMs for both DDP and FSDP2 even with expandable_segments — hard memory ceiling at bs=256
+**Confirmed numbers (DDP bs=256+ES, 8×H100, ViT-B, real Weka data):**
 
-Confidence note:
+| Metric | Value | Evidence |
+|--------|-------|----------|
+| Steady-state MFU | **23.92% avg** (range 23.4–24.1%) | 500-iter soak test, iters 50–490 |
+| Images/sec | ~4180–4210 | Same |
+| Worst-case GPU memory | **67,260 MB** (12.8 GB headroom) | 17 MEMPROFILE events, all flat |
+| Memory creep | **None** | max_reserved flat across 5 eval + 2 ckpt cycles |
+| alloc_retries | **0** | All 17 checkpoints |
+| Baseline (FSDP2 bs=64) | 11.3% MFU, ~1970 img/s | Job 6770 |
+| **Improvement** | **+2.1× MFU, +2.1× throughput** | |
 
-- The expandable-segments screening runs were short-horizon throughput screens (`100` iterations),
-  so the recommendation above should be read as "best measured operating point so far," not as a
-  proof that a multi-thousand-iteration bs=256 DDP run cannot hit a later OOM.
-- A longer soak run is still warranted before treating bs=256 DDP+ES as fully production-safe.
+### What was tried and closed
+
+| Optimization | Outcome |
+|---|---|
+| DDP vs FSDP2 | ✓ DDP wins — removes 50% excess communication for model that fits in VRAM |
+| expandable_segments (DDP) | ✓ Fixes allocator fragmentation stalls at bs=256 |
+| expandable_segments (FSDP2) | ✗ Hurts FSDP2 7–12% — strategy-specific, do not apply |
+| Batch size 64→256 | ✓ Dominant throughput knob, confirmed memory-safe |
+| sharded_eval_checkpoint | ✓ Avoids full_tensor() materialization, no accuracy effect |
+| Default torch.compile | ✓ Already on, contributing to steady-state MFU |
+| CUDA graphs | ✗ Multi-crop forward_features_list breaks CUDAGraph trees |
+| max-autotune-no-cudagraphs | ✗ iBOT dynamic masked-token count produces variable shapes; static kernel crashes |
+| Activation checkpointing | ✗ Saves memory but loses throughput at equal batch size |
+| Async eval | Not attempted — medium stability benefit, low MFU benefit; deprioritized |
+
+### Remaining open questions
+
+- **Why did FSDP2 bs=128 OOM in a colleague's run?** Memprofile shows only 36.3 GB — unexplained.
+  Likely other GPU load, pretrained weight loading, or long-run fragmentation. Not our active config.
+- **Longer soak beyond 500 iters?** 500 iters with 5 eval + 2 checkpoint cycles shows zero creep.
+  For multi-epoch production runs (234k iters), additional evidence from real training runs
+  is the natural next confirmation step.
+- **Multi-node scaling?** Not explored. Current work is all single-node.
 
 ## Profiler Baseline (Job 7553)
 
@@ -339,10 +363,11 @@ within 500 iters). Likely causes: (a) Gram loss enabled (third teacher forward a
 
 ---
 
-## Colleague OOM Investigation — Status & Open Questions (2026-04-08)
+## Colleague OOM Investigation — Status & Open Questions (updated 2026-04-14)
 
 **Setup**: `ssl_default_config.yaml`, FSDP2, bs=128, no ES, 8×H100 on 1 DGX H100 node.
 **Symptom**: OOM during a real training run.
+**Our measured peak**: 36.3 GB (44 GB below H100 limit). Root cause still unresolved.
 
 ### What our profiling tests and what it doesn't
 
@@ -350,12 +375,13 @@ All profiling runs deviate from real `ssl_default` in these ways:
 
 | Parameter | Our profiling | Real ssl_default | Risk |
 |-----------|--------------|-----------------|------|
-| `pretrained_weights` | `""` (skipped) | `dinov3_vitb16_pretrain.pth` | **High** — see below |
+| `pretrained_weights` | `""` (skipped) | `dinov3_vitb16_pretrain.pth` | **Medium** — untested; loading is FSDP-aware (shards only, no full-tensor on GPU) |
 | `gram.use_loss` | default (`false`) | default (`false`) | None — gram is off by default |
 | `checkpointing.period` | 50 or 99999 (forced) | 3750 | Medium — DCP at 3750 untested |
 | `evaluation.eval_period_iterations` | 40 or 12500 | 12500 | Low — eval shown not to spike |
-| `train.cache_dataset` | `true` | unknown | Low |
+| `train.cache_dataset` | `false` *(fixed 2026-04-14)* | `false` | None |
 | Run length | 70–500 iters | 125,000+ iters | Medium — fragmentation at >500 untested |
+| GPU baseline | unknown | unknown | **High** — if another job occupied the GPU, any peak would OOM |
 
 ### Hypothesis status
 
@@ -366,37 +392,61 @@ All profiling runs deviate from real `ssl_default` in these ways:
 | Allocator fragmentation (FSDP2, no ES) | ❌ Null result (0–500 iters) | alloc_retries=0, inactive_split=290 MB flat (jobs 16750/16751) |
 | Gram loss enabled | ❌ Ruled out | `gram.use_loss: false` in ssl_default_config.yaml |
 | **Pretrained weight loading** | ⚠️ **Untested** | See below |
-| Shared GPU (other processes) | ⚠️ Cannot verify | Cluster-level investigation needed |
+| **Shared GPU (other processes)** | ⚠️ **Most likely** | 44 GB headroom means training alone can't OOM; something else must have consumed it |
 | Fragmentation at iter 3750+ | ⚠️ Untested | 500-iter study is flat; 3750+ unknown |
 
-### Pretrained weight loading — most likely untested cause
+### Pretrained weight loading — how it actually works
 
-`ssl_default` loads `dinov3_vitb16_pretrain.pth` at init. In `ssl_meta_arch.py`,
-`load_pretrained_weights()` loads the checkpoint file → copies the state_dict into the model.
-Under FSDP2, the pretrained weights may be loaded as full tensors on every GPU before FSDP2
-shards them. This transiently materializes the full BF16 model (~172 MB) on top of the
-already-initialized sharded model — effectively double-buffering the model state at startup.
+`ssl_default` loads `dinov3_vitb16_pretrain.pth` in `init_weights()` via `init_fsdp_model_from_checkpoint`
+(confirmed from `ssl_meta_arch.py:316` and `checkpointer.py:384`).
 
-More importantly, loading a `.pth` file with `torch.load()` on CPU and then `copy_` to GPU
-keeps both the CPU copy and GPU copy alive simultaneously during the copy. At 172 MB this is
-small, but if the load happens after CUDA context setup (i.e., after training memory is already
-allocated), the allocator may not have a contiguous region for it even if total free GB is high.
+The loading sequence:
+1. `torch.load(map_location="cpu")` — full checkpoint (~344 MB FP32) to CPU RAM on each rank
+2. `distribute_tensor(tensor, world_mesh, src_data_rank=None)` for each param — each rank independently
+   slices its shard (~21.5 MB BF16) and copies to GPU. No full-tensor GPU materialization.
+3. `model.load_state_dict(filtered_state, strict=False)` — assigns DTensor shards to model params.
 
-**To test**: Run `memprofile_fsdp2.sh 128` with `student.pretrained_weights` pointing to the
-actual checkpoint instead of `""`. Compare `pre_training_loop` max_reserved_mb.
+**GPU memory impact: ~21–43 MB transient** (shard-sized DTensors before assignment).
+Not an OOM cause for bs=128 with 44 GB headroom. The loading is fully FSDP2-aware; no
+"double-buffering" of the full model occurs on GPU.
+
+However, the `post_init_weights` phase marker (added 2026-04-14 to `do_train()`) now captures the
+precise peak through optimizer construction + pretrained loading. Run the script with real weights
+to close this measurement gap conclusively.
+
+### Profiling infrastructure improvements (2026-04-14)
+
+1. **`post_init_weights` phase marker** added to `do_train()` after `model.init_weights()`:
+   - Captures cumulative GPU peak from program start through: model NaN-fill + optimizer + pretrained load
+   - `pre_training_loop` then captures the delta from data loader construction onward
+   - Previously both were bundled into `pre_training_loop` (making it impossible to isolate init spikes)
+
+2. **`nvidia-smi` baseline** added to both `memprofile_fsdp2.sh` and `memprofile_ddp.sh`:
+   - Logs GPU memory used/free/total on all 8 GPUs **before** `torchrun` starts
+   - Non-zero `used` memory = another process sharing the node = likely OOM cause
+
+3. **Pretrained weights parameter** added to `memprofile_fsdp2.sh` (4th argument):
+   ```bash
+   # Closest to colleague's config (adds real pretrained loading path):
+   sbatch scripts/memprofile_fsdp2.sh 128 false false \
+     /auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
+   ```
+   Compare `post_init_weights` max_reserved_mb with and without pretrained weights.
+
+4. **`cache_dataset=false`** corrected in both memprofile scripts (was incorrectly `true`; ssl_default has `false`).
 
 ### What to do next (ranked by effort and likelihood)
 
 1. **Ask the colleague**: exact job script, SLURM node, `nvidia-smi` output at failure time.
    Was another job sharing the GPU? Was `gram.use_loss=true`? Were pretrained weights loaded?
+   A 44 GB gap between measured peak and OOM threshold almost certainly means GPU not clean.
 
-2. **Run memprofile_fsdp2 with real pretrained weights** (medium effort):
+2. **Run memprofile_fsdp2 with real pretrained weights** (15-min job):
    ```bash
-   sbatch scripts/memprofile_fsdp2.sh 128 false false
-   # But override pretrained_weights to the real path:
-   # student.pretrained_weights=/auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
+   sbatch scripts/memprofile_fsdp2.sh 128 false false \
+     /auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
    ```
-   Compare `pre_training_loop` max_reserved_mb — if higher than 156 MB, weight loading is the cause.
+   Check `post_init_weights` max_reserved_mb vs baseline. Definitively closes the pretrained path.
 
 3. **Run memfrag_fsdp2 for 4000+ iters** (expensive, ~2–3 hrs):
    To verify fragmentation truly stays flat past the first checkpoint at iter 3750.

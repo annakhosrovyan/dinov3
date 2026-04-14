@@ -55,6 +55,13 @@ echo "PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-not set}"
 echo "Output: ${OUTPUT_DIR}"
 echo "Date: $(date)"
 echo ""
+
+# GPU baseline — verify all GPUs are clean before training starts.
+echo "=== GPU memory baseline (before torchrun) ==="
+nvidia-smi --query-gpu=index,memory.used,memory.free,memory.total --format=csv,noheader,nounits \
+    | awk -F',' '{printf "  GPU %s: used=%s MB  free=%s MB  total=%s MB\n", $1, $2, $3, $4}'
+echo ""
+
 echo "Phase schedule:"
 echo "  Iters 0-9:  torch.compile warmup + early steady state"
 echo "  Iter  10:   steady_state memory marker logged"
@@ -84,7 +91,7 @@ naip_weight=1.0" \
   optim.epochs=1 \
   train.persistent_workers=true \
   train.prefetch_factor=8 \
-  train.cache_dataset=true \
+  train.cache_dataset=false \
   train.compile=true \
   train.distributed_strategy=ddp \
   train.checkpointing="${CHECKPOINTING}" \
