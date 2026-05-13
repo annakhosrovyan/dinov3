@@ -81,6 +81,7 @@ train:
   compile_mode: null  # null = torch default; "max-autotune-no-cudagraphs" enables Triton autotuning without CUDA graph capture
   cudagraphs: false
   distributed_strategy: fsdp2  # "fsdp2" or "ddp"
+  fsdp_reshard_after_forward: true  # true=ZeRO-3 per-block (default); false=no-release/DDP-like comm
   sharded_eval_checkpoint: false
   cache_dataset: false
   persistent_workers: true

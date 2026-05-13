@@ -1,7 +1,7 @@
 # Distributed Training Learnings — AI Systems Perf Eng Ch04
 
 Notes distilled from `~/knowledge-base/ai_systems_perf_engineering/ai_systems_perf_eng_ch04.md`.
-Tailored to DINOv3 8×H100 / FSDP2 setup.
+Tailored to DINOv3 8×H100 DDP/FSDP2 experiments.
 
 ---
 
@@ -14,7 +14,13 @@ The goal is `time_iter ≈ max(time_compute, time_comm)`, not `time_compute + ti
 | Manual all-reduce (no overlap) | 10 ms | 12 ms | 22 ms | 0% |
 | DDP (overlap) | 10 ms | 12 ms | ~12 ms | ~50%+ |
 
-**DINOv3 uses FSDP2 (`SHARD_GRAD_OP`)** — should overlap AllGather with forward compute between blocks. Verify with Nsight Systems timeline (compute kernels and NCCL ops should interleave, not run sequentially).
+The repo supports both DDP and FSDP2. The current production script uses DDP+expandable-segments;
+the FSDP2 path uses composable FSDP2 (`fully_shard` from `torch.distributed._composable.fsdp`),
+not the legacy `FSDP` class with `ShardingStrategy`.
+
+For FSDP2 with `FULL_SHARD` / ZeRO-3 (`reshard_after_forward=True` per block), AllGather can overlap
+with forward compute between blocks. Verify with Nsight Systems timeline: compute kernels and NCCL
+ops should interleave, not run sequentially.
 
 ---
 
@@ -88,27 +94,25 @@ model = DistributedDataParallel(model, bucket_cap_mb=50)  # default 25 MB
 # 50 MB is a good starting point for large models
 ```
 
-**Note:** DINOv3 uses FSDP2, not DDP. FSDP2 has its own prefetch/overlap tuning via `BackwardPrefetch.BACKWARD_PRE`.
+**Note:** DINOv3 supports both DDP and FSDP2. DDP bucket tuning only applies to the DDP path.
+FSDP2 has its own prefetch/overlap behavior around shard materialization.
 
 ---
 
 ## FSDP2 with torch.compile
 
 ```python
-# Compile first, then wrap FSDP at transformer block granularity:
-model = torch.compile(model, mode="max-autotune")
-fsdp_model = FSDP(
-    model,
-    auto_wrap_policy=transformer_auto_wrap_policy(...),
-    sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,  # what DINOv3 uses
-    use_orig_params=True,
-    mixed_precision=MixedPrecision(
-        param_dtype=torch.bfloat16,
-        reduce_dtype=torch.float32,   # DINOv3 config: fp32 reduction
-        buffer_dtype=torch.bfloat16,
-    ),
-    backward_prefetch=BackwardPrefetch.BACKWARD_PRE,  # overlaps AllGather with backward
-)
+# DINOv3 actual API: composable FSDP2 (per-block, reshard_after_forward=True = FULL_SHARD / ZeRO-3)
+from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
+
+mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
+fsdp_config = {"mesh": device_mesh, "mp_policy": mp_policy}
+for block in model.blocks:
+    fully_shard(block, **fsdp_config, reshard_after_forward=True)  # ZeRO-3 per block
+fully_shard(model, **fsdp_config, reshard_after_forward=True)
+
+# Legacy FSDP1 API (NOT what DINOv3 uses, shown for reference):
+# fsdp_model = FSDP(model, sharding_strategy=ShardingStrategy.FULL_SHARD, ...)
 ```
 
 Graph breaks at FSDP block boundaries are **expected and correct behavior** — one block's params materialized at a time via AllGather.
@@ -148,15 +152,19 @@ nvidia-smi --query-gpu=pcie.link.gen.current,pcie.link.width.current --format=cs
 
 For ViT-B: 86M params × 2 bytes (BF16) = 172 MB. DDP needs 344 MB per iter; FSDP2 needs 516 MB per iter.
 
-**Critical question**: ViT-B fits entirely in one 80GB H100 (172 MB << 80 GB). FSDP is designed for models that don't fit. Using FSDP2 on ViT-B adds 50% communication overhead for zero memory benefit.
+**Critical question**: ViT-B fits entirely in one 80GB H100 (172 MB << 80 GB). FSDP is designed for models that don't fit. Using FSDP2 on ViT-B adds 50% communication overhead for modest memory savings (~1.3 GB/GPU from sharded params+grads+optimizer).
 
 From the book: *"If a model fits on a single GPU: DDP is preferred over ZeRO"*
 
-On a single NVLink node, the 172 MB extra communication is fast (~microseconds on NVLink) so this may not be the dominant bottleneck — but it's unnecessary overhead. **Test DDP vs FSDP2 experimentally** to measure the actual delta.
+**Actual measured delta**: at matched bs=256, FSDP2 (23.5% MFU) vs DDP+ES (23.9% MFU) — 0.4 pp
+gap. The communication overhead is not the dominant bottleneck at this scale. On NVLink, 516 MB per
+step at 450 GB/s = ~1.1 ms, which is <0.5% of a 220 ms step. The overhead shows up as graph-break
+launch cost and allocation churn, not raw bandwidth.
 
-**Why non-trivial**: FSDP2 is the "modern default" in many PyTorch training setups. It's the right tool for large models (>10B params) but actively harmful for small models that fit in GPU memory.
-
-**Decision implication**: Benchmark DDP vs FSDP2 on single node. If step time drops significantly, switch run.sh to DDP. ViT-B (86M) has no reason to use FSDP2 on 80GB H100s.
+**Conclusion (2026-04-25)**: At matched bs=256, DDP and FSDP2 are essentially tied (0.4 pp gap
+from ZeRO-3 overhead). The DDP vs FSDP2 question is closed — both are fine per Tim Darcet
+directly. `run.sh` uses DDP+ES because it is production-validated, not because DDP is
+architecturally superior. See the "Authoritative Conclusion" section at the end of this file.
 
 ---
 
@@ -296,11 +304,17 @@ Checkpoint adds ~1.9 GB for FSDP2 (DCP write + optimizer extraction); zero addit
 | Config | MFU | img/s | Mem | Notes |
 |--------|-----|-------|-----|-------|
 | DDP bs=256 + ES | **23.9%** | **4180** | 67.3 GB | Production-confirmed (500-iter soak) |
+| **FSDP2 bs=256** | **23.5%** | **4106** | **66 GB** | **0.4 pp behind DDP+ES at matched bs** |
 | DDP bs=128 + ES | ~23.1% | ~4050 | 33.9 GB | Conservative fallback |
-| FSDP2 bs=256 | 23.5% | 4106 | 66 GB | Old best — beaten by DDP+ES |
 | DDP bs=128 | 23.1% | 4042 | 34 GB | Without ES |
 | DDP bs=64 + ES | 17.5% | 3061 | 18 GB | No benefit from ES at bs=64 |
 | FSDP2 bs=256 + ES | 21.8% | 3809 | 66 GB | ES actively hurts FSDP2 |
+
+> **Key revision (2026-04-25)**: FSDP2 bs=256 is only 0.4 pp behind DDP+ES at the same batch size.
+> The "2× MFU" narrative compared FSDP2 bs=64 (original) vs DDP+ES bs=256 — the difference is
+> almost entirely from batch-size scaling. DDP and FSDP2 are both fine at this scale (confirmed
+> by Tim Darcet). `run.sh` uses DDP+ES as the production-validated config. The DDP vs FSDP2
+> question is closed — see the "Authoritative Conclusion" section at the end of this file.
 
 Note: earlier short-run screening reported 24.5% for DDP bs=256+ES; the soak test average of
 23.92% is the more reliable number — it averages across thermal ramp and minor step-time variance.
@@ -374,5 +388,68 @@ Parse: `grep '\[MEMFRAG\]' <log> | grep 'rank=0'`
 
 FSDP2 without ES does NOT fragment meaningfully at ViT-B bs=128 over 500 iterations.
 The OOM that prompted this investigation is explained by something else (different config,
-shared GPU, or very long run fragmentation beyond 3750 iters). DDP+ES remains the recommended
-single-node operating point: better throughput, cleaner allocator, no fragmentation risk.
+shared GPU, or very long run fragmentation beyond 3750 iters). Job 29703 (5000-iter long soak)
+is running to test beyond the 500-iter window.
+
+---
+
+## Authoritative Conclusion: DDP vs FSDP2 for ViT-B on single node (2026-04-25)
+
+Tim Darcet (DINOv2/v3 co-author) on this exact question, April 2026:
+
+> *"I have not used DDP once since 2022 haha*  
+> *In fsdp you have the option to not release shards, in which case it's basically equivalent*  
+> *to DDP, with the gather moved before the fwd instead of after the bwd*  
+> *I think both are fine if both fit"*
+
+### Key insight
+
+> **FSDP2 with `reshard_after_forward=False` is DDP-like in communication volume, but with
+> FSDP2's sharded gradient/optimizer-state machinery.**
+
+FSDP2 is not a single mode. It has two important operating points:
+
+| FSDP2 mode | `reshard_after_forward` | Communication | Memory behavior | Best use |
+|-----------|------------------------|-------------|--------|---------------|
+| No-release / DDP-like | `False` | DDP-like volume; all-gather before forward, reduce-scatter after backward | unsharded params stay resident after forward; gradients/optimizer state remain sharded | default FSDP2 path when the model fits |
+| ZeRO-3 / full-shard | `True` | extra per-layer all-gather in backward | lower parameter residency, more communication | use when memory/headroom matters |
+
+Our 0.4 pp MFU gap (FSDP2 23.5% vs DDP+ES 23.9%) comes specifically from `reshard_after_forward=True`
+(per-block all-gather overhead). Switching to `reshard_after_forward=False` should close most or all
+of that gap while staying in the FSDP2 API. Darcet's workflow points in this direction.
+
+This changes the prior:
+- DDP remains a valid simple baseline.
+- FSDP2 no-release is likely the better long-run default if it matches DDP+ES throughput, because it
+  keeps sharded optimizer/gradient state and stays inside the FSDP2 runtime/compiler ecosystem.
+- FSDP2 ZeRO-3 remains the mode to test when extra batch size, sequence length, or model scale needs
+  lower parameter residency.
+
+### Practical guidance for this codebase
+
+1. **`run.sh` DDP+ES is production-validated and correct today.**
+2. **Add a FSDP2 no-release config before changing production.** The current repo hard-codes
+   `reshard_after_forward=True`, so `train.distributed_strategy=fsdp2` today still means ZeRO-3.
+3. **If FSDP2 no-release ties DDP+ES, prefer FSDP2 for future work.** That makes later PyTorch
+   compiler/runtime experiments easier without giving up the current throughput.
+4. **Do not restart DDP-vs-ZeRO-3 bake-offs.** The old debate is closed; the useful next comparison
+   is DDP+ES vs FSDP2 no-release.
+5. **Next non-distributed priority remains local crop count (8->4)** because it has larger potential
+   upside than sub-1 pp runtime choices.
+
+### Automatic overlap and bucketing implications
+
+The PyTorch Inductor overlap/bucketing work is relevant to FSDP2, but the FSDP2 mode matters:
+
+- `reshard_after_forward=False`: fewer all-gather opportunities in backward because unsharded params
+  are kept after forward. This is the best candidate for DDP-like production throughput.
+- `reshard_after_forward=True`: more per-layer collectives to schedule and bucket. This is the more
+  interesting candidate for automatic overlap/bucketing research.
+
+For a newer-PyTorch experiment, test both:
+
+1. FSDP2 no-release (`reshard_after_forward=False`) as the production-style FSDP2 baseline.
+2. FSDP2 ZeRO-3 (`reshard_after_forward=True`) with Inductor distributed overlap/bucketing enabled.
+
+The win condition for the overlap/bucketing branch should be a clear gain over FSDP2 no-release and
+DDP+ES after warmup, not just parity with the current ZeRO-3 baseline.

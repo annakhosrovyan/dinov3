@@ -9,11 +9,13 @@
 #SBATCH --output=/mnt/weka/adovlatyan/logs/dinov3-%j.out
 #SBATCH --error=/mnt/weka/adovlatyan/logs/dinov3-%j.err
 
-# Best validated config (2026-04-07):
-#   DDP + expandable_segments + bs=256 → 24.5% MFU, 4229 img/s (vs 11.3% FSDP2/bs=64 baseline)
+# Validated config (2026-04-07 soak test):
+#   DDP + expandable_segments + bs=256 → 23.9% MFU avg, ~4180 img/s (500-iter soak, zero memory creep)
+#   NOTE: FSDP2 bs=256 (no ES) = 23.5% MFU — essentially tied at matched batch size.
+#   The ~2× vs original baseline (FSDP2 bs=64) came from batch-size scaling, not DDP vs FSDP2.
 #   expandable_segments eliminates allocator fragmentation stalls in the compiled DDP path.
 #   sharded_eval_checkpoint avoids full_tensor() materialization during eval phases.
-#   Soak-test (long-run memory stability) is in progress — treat this as a validated candidate.
+#   FSDP2 bs=272 being tested (job 29695) — if it fits, FSDP2 may become the preferred strategy.
 
 export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
 export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"

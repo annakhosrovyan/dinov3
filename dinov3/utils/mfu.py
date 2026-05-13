@@ -13,8 +13,8 @@ Bidirectional attention (no causal mask saving), backward ≈ 2× forward.
 H100_BF16_TFLOPS = 989.0
 
 # A100 SXM4 BF16 peak TFLOPS — dense (no structured sparsity).
-# NVIDIA publishes 312 TFLOPS for A100 BF16, which is also the sparsity number; dense = 156.
-A100_BF16_TFLOPS = 156.0
+# Per Stas Bekman ML Engineering Book - 312 for fp/bf16 and 156.0 for fp32
+A100_BF16_TFLOPS = 312.0
 
 
 def vit_forward_flops(
@@ -45,7 +45,7 @@ def vit_forward_flops(
     # FFN: up [D→ffn_dim] + down [ffn_dim→D] each seq_len × D × ffn_dim MACs → 2× total.
     attn_linear = 4 * seq_len * hidden_dim * hidden_dim   # QKV + O projections
     attn_scores = 2 * seq_len * seq_len * hidden_dim       # QKᵀ + AV (bidirectional, full sq)
-    ffn = 2 * seq_len * hidden_dim * ffn_dim               # FFN up + down
+    ffn = 2 * seq_len * hidden_dim * ffn_dim               # FFN up + down / MLP layer
     return num_layers * (attn_linear + attn_scores + ffn)
 
 
@@ -84,11 +84,14 @@ def compute_dino_flops_per_image(
         ffn_ratio: FFN hidden dim ratio (default 4.0 for standard MLP, not SwiGLU).
         n_registers: Number of register tokens (default 0; satellite fork drops them).
         gram_enabled: Whether gram teacher is enabled (default False).
-        head_overhead_pct: Fraction added for DINO/iBOT heads (default 0.05 = 5%).
+        head_overhead_pct: Fraction added for DINO/iBOT heads (default 0.05 = 5%). (overhead estimate)
 
     Returns:
         Total MACs per image as an integer.
     """
+    # fitting patch sizes into X crop sizes to determine # of tokens
+    # + 1 for the class token (CLS) token
+    # + n_registers for the register tokens (usually 0 in default config)
     global_seq = (global_crop_size // patch_size) ** 2 + 1 + n_registers
     local_seq = (local_crop_size // patch_size) ** 2 + 1 + n_registers
 
@@ -101,7 +104,8 @@ def compute_dino_flops_per_image(
     gram_fwd = n_global_crops * global_fwd if gram_enabled else 0
 
     backbone_flops = student_fwd + student_bwd + teacher_fwd + gram_fwd
-    return int(backbone_flops * (1.0 + head_overhead_pct))
+    # NOTE: + head_overhead_pct for the DINO/iBOT loss functions (default 0.05 = 5%)
+    return int(backbone_flops * (1.0 + head_overhead_pct)) # (returning MACs, not FLOPs technically)
 
 
 def compute_mfu(

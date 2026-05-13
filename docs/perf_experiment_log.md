@@ -525,3 +525,249 @@ Key finding: `expandable_segments:True` is a targeted fix for DDP at large batch
 It hurts FSDP2 across the board. The bimodal DDP bs=256 pattern was caused by allocator
 fragmentation during the single end-of-backward all-reduce — expandable_segments prevents
 defragmentation pauses that periodically stalled forward passes.
+
+---
+
+## Phase 3: Memory Validation + Compile Mode Screening (2026-04-07/08)
+
+### Run 22: Worst-case memory profile — DDP bs=256+ES
+
+```text
+Run Name: memprof-ddp-bs256-es
+Job ID: (memprofile_ddp.sh run, exact ID not logged here)
+Command: sbatch scripts/memprofile_ddp.sh 256 false true
+Config Delta: DDP, bs=256, expandable_segments:True, DINOV3_MEMORY_PROFILE=1
+  eval_period_iterations=40, checkpointing.period=50 (70 iters total)
+Purpose: Confirm worst-case per-phase peak memory for production config.
+
+[MEMPROFILE] results (rank=0):
+  pre_training_loop:      max_reserved=1,028 MB,  alloc_retries=0
+  compile_warmup_iter0:   max_reserved=67,156 MB, alloc_retries=0
+  steady_state (iter 10): max_reserved=67,260 MB, alloc_retries=0
+  eval_complete:          max_reserved=67,260 MB, alloc_retries=0  (eval adds 0 reserved)
+  checkpoint_complete:    max_reserved=67,260 MB, alloc_retries=0  (ckpt adds 0 reserved)
+
+Worst-case: 67.2 GB — 12.8 GB headroom on 80 GB H100. Zero fragmentation pressure.
+Eval: max_alloc during eval only 1,326 MB (allocator reuses reserved pages — not a spike).
+Decision: DDP bs=256+ES is confirmed safe at per-phase granularity.
+```
+
+### Run 23: Worst-case memory profile — FSDP2 bs=128 (no ES)
+
+```text
+Run Name: memprof-fsdp2-bs128
+Job ID: (memprofile_fsdp2.sh run)
+Command: sbatch scripts/memprofile_fsdp2.sh 128 false false
+Config Delta: FSDP2, bs=128, no expandable_segments, DINOV3_MEMORY_PROFILE=1
+
+[MEMPROFILE] results (rank=0):
+  pre_training_loop:      max_reserved=156 MB,    alloc_retries=0
+  compile_warmup_iter0:   max_reserved=34,090 MB, alloc_retries=0
+  steady_state (iter 10): max_reserved=34,464 MB, alloc_retries=0
+  eval_complete:          max_reserved=34,464 MB, alloc_retries=0  (eval: max_alloc 891 MB)
+  checkpoint_complete:    max_reserved=36,340 MB, alloc_retries=0  (+1.9 GB for DCP write)
+
+Worst-case: 36.3 GB — 43.7 GB headroom. Zero alloc_retries.
+Note: FSDP2 bs=128 reportedly OOMed in a colleague's run. This profiling does not reproduce
+that OOM. The colleague's failure likely involved additional GPU load, pretrained weight loading,
+or a long-run fragmentation accumulation not captured by 70 iters. Not explained by this data.
+Decision: FSDP2 bs=128 is safe per this profiling, but it is not the recommended production config.
+```
+
+### Run 24: DDP+ES bs=256 — 500-iter soak test (long-run memory stability)
+
+```text
+Run Name: soak-ddp-bs256-es
+Job ID: 16718
+Command: sbatch scripts/soak_test_ddp.sh 256 true
+Config Delta: DDP, bs=256, expandable_segments:True, DINOV3_MEMORY_PROFILE=1
+  OFFICIAL_EPOCH_LENGTH=500, eval_period=100 (5 eval cycles), checkpoint_period=200 (2 ckpt cycles)
+Purpose: Validate no memory creep across hundreds of iterations and multiple eval+checkpoint phases.
+
+[MEMPROFILE] — all 17 events (rank=0):
+  compile_warmup_iter0:   max_reserved=67,156 MB
+  steady_state:           max_reserved=67,260 MB
+  pre_eval (×5):          max_reserved=67,260 MB  ← FLAT
+  eval_complete (×5):     max_reserved=67,260 MB  ← FLAT
+  checkpoint_complete (×2): max_reserved=67,260 MB ← FLAT
+  alloc_retries=0 at every checkpoint.
+
+max_reserved_mb is perfectly stable across all 17 MEMPROFILE events. Zero memory creep.
+
+MFU (steady state, iters 50–490, n=46): avg=23.92%, range=23.4–24.1%
+Images/sec: ~4170–4210 sustained.
+No bimodal behavior. No step-time spikes at eval or checkpoint boundaries.
+
+Decision: DDP bs=256+ES is CONFIRMED PRODUCTION-SAFE. Promoted to run.sh default.
+Also enabled train.sharded_eval_checkpoint=true and train.compile_mode config key in run.sh.
+```
+
+### Run 25: Compile mode screening — default vs max-autotune-no-cudagraphs
+
+```text
+Run Name: compile-mode-default-bs128
+Job ID: 16719
+Command: sbatch scripts/screening_compile_modes.sh default 128
+Config Delta: DDP, bs=128, expandable_segments:True, train.compile_mode=null
+
+Steady-state MFU (iters 20–199): avg ~23.1%, range 22.9–23.5%
+Images/sec: ~4000–4100
+Step time: ~249–256ms
+Decision: Default compile mode baseline confirmed. Consistent with prior DDP bs=128 data.
+```
+
+```text
+Run Name: compile-mode-max-autotune-attempt-1
+Job ID: 16720
+Command: sbatch scripts/screening_compile_modes.sh max-autotune-no-cudagraphs 128
+Config Delta: DDP, bs=128, expandable_segments:True, train.compile_mode=max-autotune-no-cudagraphs
+Result: SIGABRT on rank 2 after 18 min. Training never started (0 log lines produced).
+Cause: All 8 ranks benchmarked Triton kernel variants concurrently during iter-0 compile,
+  each holding model weights + benchmark temp allocs → OOM per GPU.
+```
+
+```text
+Run Name: compile-mode-max-autotune-attempt-2 (with single-rank warmup)
+Job ID: 17824
+Command: sbatch scripts/screening_compile_modes.sh max-autotune-no-cudagraphs 128
+  (updated script with Phase 1: single-rank cache warmup)
+
+Phase 1 (nproc=1, GPU 0): completed successfully in ~27s. Cache written to ~/.cache/torch/inductor.
+Phase 2 (nproc=8): SIGABRT on rank 0 after 26 min.
+
+Root cause (definitive): The last autotuned op before crash:
+  AUTOTUNE mm(2048x7503, 7503x768)  ← iBOT masked-patch global-batch matmul
+  2048 = 1024 images × 2 global crops; 7503 = total masked patches (stochastic, changes each iter)
+
+This shape is world-size-dependent (scales with global batch) and changes every iteration due to
+stochastic iBOT masking. Phase 1 warmup (nproc=1, global_batch=128) cached different shapes
+→ cache miss in Phase 2 for this op → re-benchmarked → crash.
+
+Even if the crash were prevented: the compiled kernel for shape 7503 would fail on the next
+iteration's 7489 (dynamic shape + static kernel = mismatch). max-autotune requires static shapes;
+iBOT produces dynamic shapes at global-batch granularity.
+
+Decision: max-autotune-no-cudagraphs is FUNDAMENTALLY INCOMPATIBLE with this model.
+  Deprioritized permanently. Default compile mode is the correct and only viable path.
+  See learnings/compile_modes.md for full analysis.
+```
+
+---
+
+## Phase 4: FSDP2 no-release screening (2026-04-27)
+
+Hypothesis: `reshard_after_forward=False` eliminates per-block all-gather overhead, closing the
+0.4 pp gap between ZeRO-3 FSDP2 (23.5%) and DDP+ES (23.9%). Two variants: with and without ES.
+
+### Bug found and fixed: DTensor/Tensor mixing in update_ema
+
+**Root cause**: First two job attempts (31010, 31011) crashed on all 8 ranks at iter 1 during
+`update_ema()`:
+
+```
+RuntimeError: aten._foreach_add_.List: got mixed torch.Tensor and DTensor
+  ssl_meta_arch.py:757 → torch._foreach_add_(teacher_param_list, student_param_list, alpha=1-m)
+```
+
+With `reshard_after_forward=False`, FSDP2 all-gathers each block's params before its forward and
+leaves them as plain (non-DTensor) tensors for the duration of the forward. The teacher model
+(inference-only, no backward) never triggers a reshard — its params stay as plain tensors after
+forward. The student's params ARE resharded during its backward pass (reduce-scatter always reshards).
+After optimizer.step(), student params = sharded DTensors, teacher params = plain tensors → mixed
+type in `_foreach_add_`.
+
+**Fix** (`ac_compile_parallelize.py:244,259`): inference-only models always use `reshard_after_forward=True`
+regardless of the global setting. They get no benefit from no-release (no per-block overhead), and
+always resharding keeps their params as sharded DTensors — consistent with student state post-backward.
+
+```python
+inference_only_set = set(id(m) for m in inference_only_models)
+...
+effective_reshard = reshard if id(model) not in inference_only_set else True
+```
+
+### Run 26: FSDP2 no-release bs=256 (no ES)
+
+```text
+Run Name: fsdp2-norelease-bs256
+Date: 2026-04-27
+Branch: perf-ddp-vs-fsdp
+Job ID: 31102 (first attempt 31010 crashed — DTensor bug)
+Node: gpu07
+Command or Script: scripts/screening_fsdp2_norelease.sh
+Config Delta: fsdp2, reshard_after_forward=false, bs=256, no expandable_segments
+Compile warmup: ~90 iters to stabilize (much longer than ZeRO-3's ~30-40 iters)
+Stable window: iters 90-99 (2 data points — noisy)
+Images/sec: ~4057 (iter 99)
+Step Time ms: 502 (avg iters 90-99)
+MFU %: 23.20 (avg iters 90-99)
+Max Mem MB: 65,766 (64.2 GB)
+Comparison:
+  vs DDP+ES bs=256: 23.9% MFU → no-release 23.2% — 0.7 pp below (not a win)
+  vs ZeRO-3 FSDP2 bs=256: 23.5% MFU → no-release 23.2% — 0.3 pp below; memory virtually identical
+    (ZeRO-3 at bs=256 uses ~65.6 GB per Run 5; no-release uses 64.2 GB — no memory advantage)
+  NOTE: ZeRO-3's 36.3 GB figure is for bs=128, not bs=256. At equal batch size,
+    no-release and ZeRO-3 have the same memory footprint.
+Caveats:
+  - bs=256 is NOT the right production operating point for FSDP2. At 64–66 GB it leaves only
+    ~14–16 GB headroom — same as DDP+ES. FSDP2's memory advantage materializes at bs=128 (36.3 GB).
+  - 100 steps does not represent a real training memory profile: no eval cycle (adds ~1 GB peak
+    for checkpoint writes), no long-run fragmentation accumulation, no pretrained-weight init
+    double-buffer. A 100-step result is a lower bound on peak memory, not an upper bound.
+  - Only 2 stable data points post-warmup; MFU estimate unreliable.
+Decision: No-release shows no throughput improvement over ZeRO-3 at matched batch size, with
+  identical memory footprint. Not a viable alternative at any bs.
+```
+
+### Run 27: FSDP2 no-release+ES bs=256
+
+```text
+Run Name: fsdp2-norelease-es-bs256
+Date: 2026-04-27
+Branch: perf-ddp-vs-fsdp
+Job ID: 31103 (first attempt 31011 crashed — same DTensor bug)
+Node: gpu07
+Command or Script: scripts/screening_fsdp2_norelease_es.sh
+Config Delta: fsdp2, reshard_after_forward=false, bs=256, expandable_segments:True
+Compile warmup: ~50 iters to stabilize
+Stable window: iters 50-99 (6 data points)
+Images/sec: ~3950 (iter 99)
+Step Time ms: 510 (avg iters 50-99)
+MFU %: 22.87 (avg iters 50-99)
+Max Mem MB: 65,728 (64.2 GB)
+Comparison: no-release without ES = 23.2% → with ES = 22.9% — marginal -0.3 pp
+Caveats: Same as Run 26 — bs=256 is not a valid production bs for FSDP2 (same memory as DDP+ES),
+  and 100 steps does not cover eval/checkpoint peaks or long-run fragmentation.
+Decision: ES slightly negative with no-release (consistent with DDP+ES pattern where ES
+  adds minor allocator overhead). Not worth using with no-release.
+```
+
+### FSDP2 no-release summary table
+
+| Config | MFU % | step_ms | max_mem GB | stable iters | Notes |
+|--------|-------|---------|-----------|-------------|-------|
+| DDP+ES bs=256 (production, 500 iters) | 23.9 | ~501 | 67.2 | 450+ | Soak-tested; memory tight |
+| ZeRO-3 FSDP2 bs=256 (100-iter screen) | 23.5 | ~508 | ~65.6 | ~50 | Run 5; NOT soak-tested; same memory as DDP |
+| ZeRO-3 FSDP2 bs=128 (1300-iter soak) | ~17–18% | ~325 | 36.3 | 1300+ | 43 GB headroom; production-viable |
+| No-release FSDP2 bs=256 | 23.2 | 502 | 64.2 | 2 (noisy) | Run 26; 100 steps; bs=256 not production-viable for FSDP2 |
+| No-release FSDP2+ES bs=256 | 22.9 | 510 | 64.2 | 6 | Run 27; same caveats |
+
+**Memory context**: FSDP2 ZeRO-3's memory advantage over DDP is only visible at bs=128 (36.3 GB,
+43 GB headroom) not at bs=256 (~65.6 GB, same as DDP). Running FSDP2 at bs=256 negates its
+primary advantage — the right production operating point for FSDP2 is bs=128 or bs=192 (untested,
+estimated ~50 GB).
+
+**100-step caveat**: None of the FSDP2 no-release results cover a real training memory profile.
+100 steps without eval or checkpoint cycles cannot expose fragmentation accumulation, eval-phase
+allocation peaks, or checkpoint write spikes. DDP+ES bs=256 is soak-tested; no-release and
+ZeRO-3 bs=256 are not.
+
+**Conclusion**: `reshard_after_forward=False` does not improve throughput or reduce memory vs
+ZeRO-3 at matched batch size. At bs=256 no-release (64.2 GB) ≈ ZeRO-3 (65.6 GB) — no memory
+benefit. MFU 23.2% vs ZeRO-3 23.5% — no throughput benefit. Prolonged compile warmup (~90 iters
+vs ~30-40 for ZeRO-3) is an additional downside. **No-release is closed.**
+
+**Strategy going forward**: DDP+ES bs=256 remains the benchmarked production config. For full
+training run safety and multi-node readiness, FSDP2 ZeRO-3 bs=128 (36.3 GB, 43 GB headroom) is
+the correct reference point — not FSDP2 at bs=256. An untested bs=192 probe (~50 GB estimated)
+would determine whether FSDP2 can approach DDP+ES MFU while preserving meaningful memory margin.

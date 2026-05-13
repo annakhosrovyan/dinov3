@@ -101,40 +101,37 @@ def compile_transformer(cfg, model: nn.Module):
         model.blocks[block_id] = wrap_compile_block(block, cfg.train.cudagraphs, is_backbone_block=True, compile_mode=compile_mode)
 
 
-def fsdp_convnext(fsdp_config: Dict[str, Any], model: nn.Module):
+def fsdp_convnext(fsdp_config: Dict[str, Any], model: nn.Module, reshard_after_forward: bool = True):
     stages = model.stages
     assert isinstance(stages, nn.ModuleList)
     # FSDP wrap at stage level
     for stage_id, stage in enumerate(stages):
-        stage_reshard: int | bool = True
-        stages[stage_id] = fully_shard(stage, **fsdp_config, reshard_after_forward=stage_reshard)
+        stages[stage_id] = fully_shard(stage, **fsdp_config, reshard_after_forward=reshard_after_forward)
     downsample_layers = model.downsample_layers
     assert isinstance(downsample_layers, nn.ModuleList)
     for dsl_id, dsl in enumerate(downsample_layers):
-        dsl_reshard: int | bool = True
-        downsample_layers[dsl_id] = fully_shard(dsl, **fsdp_config, reshard_after_forward=dsl_reshard)
+        downsample_layers[dsl_id] = fully_shard(dsl, **fsdp_config, reshard_after_forward=reshard_after_forward)
     dsl: FSDPState
     stage: FSDPState
     for dsl, stage in zip(downsample_layers, stages):
         dsl.set_modules_to_forward_prefetch([stage])
         stage.set_modules_to_backward_prefetch([dsl])
-    fully_shard(model, **fsdp_config, reshard_after_forward=True)
+    fully_shard(model, **fsdp_config, reshard_after_forward=reshard_after_forward)
     register_fsdp_forward_method(model, "get_intermediate_layers")
 
 
-def fsdp_transformer(fsdp_config: Dict[str, Any], model: nn.Module):
+def fsdp_transformer(fsdp_config: Dict[str, Any], model: nn.Module, reshard_after_forward: bool = True):
     # Backbone - FSDP every block
     blocks = model.blocks
     assert isinstance(blocks, nn.ModuleList)
     for block_id, block in enumerate(blocks):
-        block_reshard: int | bool = True
-        blocks[block_id] = fully_shard(block, **fsdp_config, reshard_after_forward=block_reshard)
+        blocks[block_id] = fully_shard(block, **fsdp_config, reshard_after_forward=reshard_after_forward)
     prev_block: FSDPState
     next_block: FSDPState
     for prev_block, next_block in zip(blocks, blocks[1:]):
         prev_block.set_modules_to_forward_prefetch([next_block])
         next_block.set_modules_to_backward_prefetch([prev_block])
-    fully_shard(model, **fsdp_config, reshard_after_forward=True)
+    fully_shard(model, **fsdp_config, reshard_after_forward=reshard_after_forward)
     register_fsdp_forward_method(model, "get_intermediate_layers")
 
 
@@ -243,6 +240,8 @@ def _ac_compile_parallelize_fsdp(
         param_dtype=DTYPE_MAP[cfg.compute_precision.param_dtype],
         reduce_dtype=DTYPE_MAP[cfg.compute_precision.reduce_dtype],
     )
+    reshard = bool(getattr(cfg.train, "fsdp_reshard_after_forward", True))
+    inference_only_set = set(id(m) for m in inference_only_models)
     for model, pg in zip(all_models, all_pgs):
         if pg is None:
             world_mesh = init_device_mesh(
@@ -253,11 +252,16 @@ def _ac_compile_parallelize_fsdp(
         else:
             world_mesh = DeviceMesh.from_group(pg, "cuda")
         fsdp_config = {"mesh": world_mesh, "mp_policy": mp_policy}
+        # Inference-only models (teacher, EMA) always reshard after forward: they get no
+        # throughput benefit from no-release mode, and always resharding keeps their params
+        # as sharded DTensors — required so update_ema sees consistent types with the student
+        # (which reshards during its backward pass regardless of reshard_after_forward).
+        effective_reshard = reshard if id(model) not in inference_only_set else True
         for k in model.keys():
             if k == "backbone":
-                ARCH_TYPE_MAP[type(model[k])]["fsdp_fn"](fsdp_config, model[k])
+                ARCH_TYPE_MAP[type(model[k])]["fsdp_fn"](fsdp_config, model[k], effective_reshard)
             else:
-                model[k] = fully_shard(model[k], **fsdp_config, reshard_after_forward=True)
+                model[k] = fully_shard(model[k], **fsdp_config, reshard_after_forward=effective_reshard)
 
     # Move to `cuda` device
     for model in all_models:

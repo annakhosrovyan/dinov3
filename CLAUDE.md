@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Satellite-specialized fork of Meta's DINOv3 self-supervised vision foundation model. Trains ViT models on multi-sensor satellite imagery (Sentinel-1, Sentinel-2, NAIP) using DINO + iBOT objectives with FSDP2 distributed training on H100 GPUs.
+Satellite-specialized fork of Meta's DINOv3 self-supervised vision foundation model. Trains ViT models on multi-sensor satellite imagery (Sentinel-1, Sentinel-2, NAIP) using DINO + iBOT objectives with configurable DDP/FSDP2 distributed training on H100 GPUs.
 
 ## Environment Setup
 
@@ -98,7 +98,7 @@ Keep it concise; do not force the format when the answer is already naturally sh
 - `SSLMetaArch`: student ViT + EMA teacher + DINO head + iBOT head + optional Gram head
 - Default: `vit_base`, patch 16, **5 input channels** (satellite), RoPE positional embeddings
 - `forward_backward()` computes DINO loss (CLS token distillation) + iBOT loss (masked patch prediction) + KoLeo (collapse prevention)
-- FSDP2 with `SHARD_GRAD_OP` strategy, bf16 params / fp32 reduction
+- Distributed strategy is configurable. `run.sh` currently uses DDP+expandable-segments; the FSDP2 path uses `FULL_SHARD` / ZeRO-3 (`reshard_after_forward=True` per block) with bf16 params / fp32 reduction.
 
 ### LR Schedulers (`dinov3/train/cosine_lr_scheduler.py`)
 - **`WSDLRScheduler`** (primary): Warmup → Stable → Decay (10% of steps). Set via `cfg.optim.lr_scheduler = "wsd"`
@@ -113,7 +113,7 @@ Keep it concise; do not force the format when the answer is already naturally sh
 - Multi-crop collation: 2 global (224px) + 8 local (96px) crops with iBOT masks applied in `collate.py`
 
 ### Distributed Infra
-- **`dinov3/fsdp/ac_compile_parallelize.py`**: wraps model with FSDP2, optional `torch.compile`
+- **`dinov3/fsdp/ac_compile_parallelize.py`**: wraps model with DDP or FSDP2, optional `torch.compile`
 - **`dinov3/checkpointer/`**: DCP (Distributed Checkpoint Protocol) for sharded/consolidated saves
 - Sharded checkpoints in `{output_dir}/ckpt/`; last 3 kept by default
 
@@ -216,6 +216,8 @@ train.compile: true             # torch.compile per transformer block (already e
 train.cudagraphs: false         # CUDA graph capture (disabled by default)
 train.checkpointing: false      # selective activation checkpointing (off by default)
 train.checkpointing_full: false # full recompute checkpointing
+train.distributed_strategy: fsdp2   # "fsdp2" or "ddp"
+train.fsdp_reshard_after_forward: true   # true=ZeRO-3/default; false=no-release (DDP-like comm, FSDP2 state)
 train.num_workers: 20           # DataLoader workers (run.sh override)
 train.prefetch_factor: 8        # Prefetch batches per worker (run.sh override)
 train.persistent_workers: true  # Keep workers alive between epochs
@@ -255,13 +257,32 @@ At 8 GPUs, **steady-state MFU already exceeds 10%** (dense). Overall avg ~11.3% 
 
 **Note**: First iteration is ~35 seconds (torch.compile warmup). Skip first 1–2 logged points (iters 1–10) for any steady-state analysis.
 
-### Current Performance Priors (2026-04-02)
-- **Use two ceilings in your head**: keep `989 TFLOPS` for standard MFU reporting/comparisons, but use `~794.5 TFLOPS` H100 BF16 MAMF as the realistic matmul ceiling. `11% MFU ~= 109 TFLOPS`, which is only `~13.7%` of MAMF.
+**Current production config** (2026-04-08, confirmed via 500-iter soak test):
+
+| Config | MFU avg | img/s | Notes |
+|---|---|---|---|
+| FSDP2 bs=64 (original) | ~11.3% | ~1970 | Baseline — 8×H100 |
+| DDP bs=128 | ~22.5% | ~4040 | |
+| FSDP2 bs=256 | ~23.5% | ~4106 | Matched-bs comparison point |
+| **DDP+ES bs=256** | **~23.9%** | **~4190** | **Production — `run.sh`** |
+
+> **Note on the DDP vs FSDP2 comparison**: at matched bs=256, FSDP2 (23.5%) and DDP+ES (23.9%)
+> differ by only 0.4 pp — the ~2× figure compared FSDP2 bs=64 against DDP+ES bs=256, conflating
+> batch-size scaling with strategy. DDP and FSDP2 are both fine at this scale (confirmed by Tim
+> Darcet, DINOv2/v3 co-author). The 0.4 pp gap is from `reshard_after_forward=True` (ZeRO-3)
+> overhead; `reshard_after_forward=False` should be DDP-like in communication while preserving FSDP2's sharded gradient/optimizer-state machinery.
+
+`run.sh` uses: `distributed_strategy=ddp`, `batch_size_per_gpu=256`, `expandable_segments:True`, `sharded_eval_checkpoint=true`. Soak test (500 iters, 5 eval + 2 checkpoint cycles) confirms zero memory creep and zero alloc_retries.
+
+### Current Performance Priors (2026-04-25)
+- **Use two ceilings in your head**: keep `989 TFLOPS` for standard MFU reporting/comparisons, but use `~794.5 TFLOPS` H100 BF16 MAMF as the realistic matmul ceiling. `23.9% MFU ~= 237 TFLOPS`, which is `~29.8%` of MAMF.
 - **MFU is a relative metric, not an absolute truth**: BF16-mixed training still includes FP32 work, and activation checkpointing raises HFU but not MFU. Cross-check FLOP math once with `torch.utils.flop_counter.FlopCounterMode`, then cache the result.
 - **The current data pipeline is probably not the first bottleneck**: this repo already uses the high-value loader settings from the local knowledge-base (`num_workers>0`, `pin_memory=True`, `non_blocking=True`, `persistent_workers=True`, elevated `prefetch_factor`). Reference benchmarks show `num_workers=0` is disastrous, but gains usually plateau quickly after 2-3 workers.
 - **Batch-size alignment is mostly a red herring**: Tensor Core efficiency depends much more on sequence length and hidden dimension than batch size. ViT-B has `hidden_dim=768` (good) and `seq_len=197` (slightly unaligned), but this is not worth architectural churn.
 - **Periodic multi-GPU MFU dips can be Python GC, not kernels**: desynchronized automatic GC can create rank stragglers. If long runs show periodic step spikes, try `gc.disable()` at startup and manual `gc.collect()` every ~100 iterations.
-- **Benchmark DDP against current FSDP2 on single-node ViT-B**: ViT-B is only ~172 MB in BF16 and fits trivially on 80GB H100. ZeRO-3/FSDP2 moves `3x` model params per iteration versus DDP's `2x`, so DDP vs FSDP2 is the highest-value distributed benchmark.
+- **DDP vs FSDP2: closed — FSDP2 is the better long-run platform if no-release ties DDP+ES.** Confirmed directly by Tim Darcet (DINOv2/v3 co-author, 2026-04-25): *"I have not used DDP once since 2022 … In FSDP you have the option to not release shards, in which case it's basically equivalent to DDP, with the gather moved before the fwd instead of after the bwd … I think both are fine if both fit."* Our measured 0.4 pp gap (FSDP2 23.5% vs DDP+ES 23.9%) is specifically from using `reshard_after_forward=True` (ZeRO-3 per block). Add and test `reshard_after_forward=False` before changing `run.sh`; if it ties throughput/stability, prefer FSDP2 for future compiler/runtime work.
+- **compile_mode: null is the only viable torch.compile path**: `max-autotune-no-cudagraphs` is incompatible with iBOT's dynamic masked-token count (stochastic shape per iter, world-size-dependent). `max-autotune` (with CUDA graphs) was already broken. See `learnings/compile_modes.md`.
+- **expandable_segments:True is required at bs=256**: eliminates allocator fragmentation stalls in the compiled DDP path. Must be set in `PYTORCH_CUDA_ALLOC_CONF`. Causes minor throughput loss at bs=64 (pre-allocated pool churns), so enable only when batch size is large.
 - See `learnings/README.md` and the topic notes under `learnings/` for the longer-form rationale and references to `~/knowledge-base`.
 
 ### Known Performance Considerations
