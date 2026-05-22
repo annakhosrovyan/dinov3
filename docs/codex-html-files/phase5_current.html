@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 5 Current State</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">DINOv3 Phase 5</div>
+      <nav class="nav" aria-label="Phase 5 pages">
+        <a href="phase5_current.html" aria-current="page">Current</a>
+        <a href="phase5_experiments.html">Experiments</a>
+        <a href="phase5_mental_model.html">Mental Model</a>
+        <a href="phase5_archive.html">Archive</a>
+      </nav>
+      <p class="source-note">Readable companion to <a href="../phase5_perf_plan.md">phase5_perf_plan.md</a>. Keep this page short; put old detail in the archive.</p>
+    </aside>
+
+    <main class="content">
+      <p class="eyebrow">Current truth first</p>
+      <h1>Phase 5 is a communication-bound FSDP2 tuning effort, not an endless knob sweep.</h1>
+      <p class="lede">The useful summary is: keep the safe bs=96 operating point, prefer selective AC for throughput, keep full AC as the memory fallback, park bs=128 for production, and treat LL128 as promising but not a whole strategy.</p>
+
+      <section class="grid three" aria-label="headline metrics">
+        <article class="card">
+          <div class="label">Safe target</div>
+          <div class="metric">bs=96</div>
+          <p>FSDP2 ZeRO-3 with <code>reshard_after_forward=true</code>. This is the current production-safe batch size.</p>
+        </article>
+        <article class="card">
+          <div class="label">Best measured matrix cell</div>
+          <div class="metric">1351 img/s</div>
+          <p>bs=96, selective AC, reshard true, steady window on gpu07 before LL128.</p>
+        </article>
+        <article class="card">
+          <div class="label">Dominant trace signal</div>
+          <div class="metric">70-80%</div>
+          <p>NCCL share of kernel time in earlier nsys traces, with weak compute overlap.</p>
+        </article>
+      </section>
+
+      <section class="callout">
+        <h2>Operating Verdict</h2>
+        <p><strong>Use bs=96 + selective AC as the throughput candidate.</strong> Keep bs=96 + full AC as the memory fallback. Do not promote bs=128. Do not add NORS by default. LL128 remains the only NCCL knob with a clean positive reading, but its exact production magnitude is uncertain because Stage C did not reproduce Stage A cleanly.</p>
+        <div class="pill-row">
+          <span class="pill good">Selective AC: default candidate</span>
+          <span class="pill info">Full AC: memory fallback</span>
+          <span class="pill warn">LL128: promising</span>
+          <span class="pill bad">bs=128: parked</span>
+          <span class="pill bad">NORS: omit</span>
+        </div>
+      </section>
+
+      <h2>Decision Board</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Topic</th>
+              <th>Decision</th>
+              <th>Confidence</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>FSDP2 platform</td>
+              <td>Stay on FSDP2 ZeRO-3</td>
+              <td><span class="pill good">High</span></td>
+              <td>DDP path is closed for this phase; FSDP2 is the long-run platform.</td>
+            </tr>
+            <tr>
+              <td>Batch size</td>
+              <td>Use bs=96; park bs=128</td>
+              <td><span class="pill good">High</span></td>
+              <td>bs=128 has local compute upside on 1 GPU, but no demonstrated 8-GPU mean-throughput upside.</td>
+            </tr>
+            <tr>
+              <td>Activation checkpointing</td>
+              <td>Selective first, full as fallback</td>
+              <td><span class="pill good">High</span></td>
+              <td>Selective is the throughput candidate. Full saves much more memory at small measured throughput cost.</td>
+            </tr>
+            <tr>
+              <td><code>NCCL_PROTO=LL128</code></td>
+              <td>Promising; use as candidate knob</td>
+              <td><span class="pill warn">Medium</span></td>
+              <td>Stage A was a clean +12% win, but Stage C exposed regime variance and did not cleanly anchor production throughput.</td>
+            </tr>
+            <tr>
+              <td><code>TORCH_NCCL_AVOID_RECORD_STREAMS=1</code></td>
+              <td>Do not add by default</td>
+              <td><span class="pill warn">Medium</span></td>
+              <td>Standalone win did not survive cleanly when stacked with LL128. Simpler default is easier to defend.</td>
+            </tr>
+            <tr>
+              <td>More NCCL knob sweeps</td>
+              <td>Stop unless a specific hypothesis appears</td>
+              <td><span class="pill good">High</span></td>
+              <td>NCCL env knobs can move a few percent. They are not the path from 7-8% MFU to the lab target.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Next Lever</h2>
+      <div class="grid two">
+        <article class="card">
+          <h3>Highest-level question</h3>
+          <p>Where does the missing MFU come from? The strongest existing answer is poor multi-GPU scaling: the single-GPU selective-AC run is around 20-22% MFU, while 8-GPU runs are around 7-8%.</p>
+        </article>
+        <article class="card">
+          <h3>Candidate next work</h3>
+          <p>Focus on levers that change communication frequency, overlap, or model-side work structure. Examples: gradient accumulation if it actually reduces useful syncs, FSDP2 grouping/prefetch behavior, per-rank straggler analysis, or compile/CUDA graph blockers.</p>
+        </article>
+      </div>
+
+      <h2>Do Not Re-litigate By Default</h2>
+      <div class="grid three">
+        <article class="card">
+          <h3>NVLS</h3>
+          <p>Explicit NVLS did not show a useful signal. Park unless a new trace points there.</p>
+        </article>
+        <article class="card">
+          <h3>NTHREADS / BUFFSIZE</h3>
+          <p>Both regressed in Stage A. Do not keep tuning them without a new reason.</p>
+        </article>
+        <article class="card">
+          <h3>bs=128 production</h3>
+          <p>Interesting diagnostically, not better operationally. Its lower CV in one window is a clue, not a production case.</p>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

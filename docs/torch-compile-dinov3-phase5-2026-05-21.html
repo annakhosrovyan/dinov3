@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Torch Compile in DINOv3 - Phase 5 to Phase 6</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --surface: #ffffff;
+      --ink: #172033;
+      --muted: #5f6b7a;
+      --line: #d9dee8;
+      --blue: #2563eb;
+      --green: #17803d;
+      --amber: #a16207;
+      --red: #b42318;
+      --code: #0f172a;
+      --soft-blue: #eef4ff;
+      --soft-green: #ecfdf3;
+      --soft-amber: #fff7e6;
+      --soft-red: #fff1f0;
+      --shadow: 0 1px 2px rgba(15, 23, 42, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    }
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 28px 18px 64px; }
+    header {
+      border-left: 5px solid var(--blue);
+      background: var(--surface);
+      padding: 18px 20px;
+      box-shadow: var(--shadow);
+      margin-bottom: 18px;
+    }
+    h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.15; letter-spacing: 0; }
+    h2 { margin: 0; font-size: 18px; line-height: 1.25; letter-spacing: 0; }
+    h3 { margin: 18px 0 8px; font-size: 15px; letter-spacing: 0; }
+    p { margin: 8px 0; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      background: #eef1f6;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    pre {
+      margin: 10px 0 0;
+      padding: 12px 14px;
+      overflow-x: auto;
+      color: #e5e7eb;
+      background: var(--code);
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    pre code { background: transparent; padding: 0; color: inherit; }
+    .muted { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+    .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 { margin-bottom: 8px; }
+    .band {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 14px 0;
+      box-shadow: var(--shadow);
+    }
+    .verdict { background: var(--soft-blue); border-color: #bfdbfe; }
+    .warn { background: var(--soft-amber); border-color: #fde68a; }
+    .risk { background: var(--soft-red); border-color: #fecaca; }
+    .ok { background: var(--soft-green); border-color: #bbf7d0; }
+    .pill {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-right: 5px;
+      white-space: nowrap;
+    }
+    .pill-blue { color: #1e40af; background: #dbeafe; }
+    .pill-green { color: #166534; background: #dcfce7; }
+    .pill-amber { color: #92400e; background: #fef3c7; }
+    .pill-red { color: #991b1b; background: #fee2e2; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; background: var(--surface); }
+    th, td { border: 1px solid var(--line); padding: 8px 9px; text-align: left; vertical-align: top; }
+    th { background: #f1f5f9; font-size: 12px; text-transform: uppercase; color: var(--muted); }
+    ul { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 4px 0; }
+    .flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .step { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #fbfcff; }
+    .step strong { display: block; margin-bottom: 4px; }
+    .small { font-size: 12px; }
+    .refs { columns: 2; column-gap: 24px; }
+    .note {
+      border-left: 4px solid var(--blue);
+      background: #f8fbff;
+      padding: 10px 12px;
+      margin: 10px 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .note strong { display: block; margin-bottom: 3px; }
+    @media (max-width: 900px) {
+      .grid, .two, .flow { grid-template-columns: 1fr; }
+      .refs { columns: 1; }
+      h1 { font-size: 23px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Torch Compile in DINOv3 - Phase 5 to Phase 6</h1>
+      <p class="muted">A code-anchored explainer for what <code>train.compile=true</code> actually does, what Phase 5 tested, and what Phase 6 changes in response to Armen's fullgraph/static-shape recommendation.</p>
+      <p class="small"><strong>Updated:</strong> 2026-05-22</p>
+    </header>
+
+    <section class="band verdict">
+      <h2>Bottom Line</h2>
+      <p><strong>We have been using PyTorch compile.</strong> In this repo, <code>train.compile=true</code> routes DINOv3 modules through <code>nn.Module.compile()</code>, which is PyTorch's module wrapper for <code>torch.compile</code>.</p>
+      <p><strong>But Phase 5 did not validate Armen's stronger proposal.</strong> The default path is <code>compile_mode: null</code> plus <code>cudagraphs: false</code>, so most runs used plain <code>module.compile()</code>, not <code>fullgraph=True</code>, <code>dynamic=False</code>, or CUDA graph capture.</p>
+      <p><strong>Phase 6 is the direct answer to Armen:</strong> use DDP as the main path, test backbone-only CUDA graphs first, then make the iBOT masked-token path static enough for end-to-end fullgraph/CUDA graph testing.</p>
+    </section>
+
+    <section class="band">
+      <h2>Phase 6 At A Glance</h2>
+      <p>Phase 5 answered many FSDP2 questions, but it left the most important compile question only partially tested. Phase 6 reframes the project around a simpler distributed setup and a stricter compiler target.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Phase</th>
+            <th>Question</th>
+            <th>Why it exists</th>
+            <th>Success signal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>6.1</strong><br>Compile diagnostics</td>
+            <td>What is PyTorch compile doing today?</td>
+            <td>Before changing code, we need to know whether the current default path is recompiling, graph-breaking, or falling back to dynamic-shape handling.</td>
+            <td>Logs from <code>TORCH_LOGS=recompiles,graph_breaks,dynamic</code> tied to the job 48312 recipe.</td>
+          </tr>
+          <tr>
+            <td><strong>6.2</strong><br>Backbone-only CUDA graphs</td>
+            <td>Can we flip <code>train.cudagraphs=true</code> for backbone blocks without changing iBOT?</td>
+            <td>The ViT backbone sees fixed token shapes for global/local crops. The dynamic iBOT path is separately gated, so this is the cheapest test.</td>
+            <td>1000-iter DDP run completes; iter 400-999 MFU/step time improves without new instability.</td>
+          </tr>
+          <tr>
+            <td><strong>6.3</strong><br>Static iBOT shapes</td>
+            <td>Can we pad/bucket the stochastic masked-token tensors so downstream shapes stop changing?</td>
+            <td>Image resizing alone does not make <code>mask_indices_list</code> static. The number of masked patches still varies.</td>
+            <td>Padding overhead is measured in isolation; correctness and loss semantics remain unchanged.</td>
+          </tr>
+          <tr>
+            <td><strong>6.4</strong><br>End-to-end H6 test</td>
+            <td>Do DDP + fullgraph + CUDA graphs + static iBOT shapes materially raise MFU?</td>
+            <td>This is Armen's recommendation tested in the actual DINOv3 training path, not assumed from general compiler guidance.</td>
+            <td>Target: clear movement toward or past ~15% MFU, roughly 2x the 48312 baseline, with clean attribution if it fails.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="small">Source: <a href="phase6_perf_plan.md">docs/phase6_perf_plan.md</a>; relevant anchors: H6 hypothesis around lines 101-105, 6.1 at line 199, 6.2 at line 220, 6.3 at line 247, 6.4 at line 271.</p>
+    </section>
+
+    <section class="band">
+      <h2>Abstraction Dictionary</h2>
+      <p>These words are easy to collapse into one vague idea called "compile." They are different layers.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Term</th>
+            <th>Plain meaning</th>
+            <th>In this repo</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>train.compile=true</code></td>
+            <td>Turn on the repo's compile wrapper.</td>
+            <td>Eventually calls <code>module.compile()</code> on transformer blocks, ConvNeXt stages, heads, and teacher/student modules.</td>
+          </tr>
+          <tr>
+            <td><code>torch.compile</code> / <code>module.compile()</code></td>
+            <td>Ask PyTorch Dynamo/Inductor to capture Python/PyTorch code into compiled graphs and generate faster kernels or launch patterns.</td>
+            <td>Used by default, but without strict fullgraph enforcement unless <code>train.cudagraphs=true</code> hits the special branch.</td>
+          </tr>
+          <tr>
+            <td><code>fullgraph=True</code></td>
+            <td>Require the whole region to compile as one graph. If something cannot be captured, fail instead of quietly breaking the graph.</td>
+            <td>Useful as both an optimization attempt and a diagnostic. Failure tells us exactly which operation or dynamic shape blocks capture.</td>
+          </tr>
+          <tr>
+            <td><code>dynamic=False</code></td>
+            <td>Tell compile to specialize to fixed shapes instead of accepting shape variation.</td>
+            <td>Potentially faster, but only if the tensors passed through the compiled region really have stable shapes.</td>
+          </tr>
+          <tr>
+            <td>CUDA graphs</td>
+            <td>Record a repeated sequence of GPU kernel launches and replay it with much lower CPU launch overhead.</td>
+            <td>Wired for backbone blocks through <code>options={"triton.cudagraphs": True}</code>, but disabled by default.</td>
+          </tr>
+          <tr>
+            <td>Graph break</td>
+            <td>A point where PyTorch cannot keep tracing and must return to Python eager execution.</td>
+            <td>Bad for launch overhead and fusion. Phase 6.1 should identify whether we are paying this cost today.</td>
+          </tr>
+          <tr>
+            <td>Recompile</td>
+            <td>PyTorch builds a new compiled graph because inputs or guards changed.</td>
+            <td>Expected if masked-token counts keep changing. Too many recompiles can erase compile benefits.</td>
+          </tr>
+          <tr>
+            <td>Static shape</td>
+            <td>The tensor dimensions seen by compiled code stay the same across iterations.</td>
+            <td>Global/local crop image shapes can be fixed while iBOT masked-token tensors remain dynamic.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Current Default</h2>
+        <p><span class="pill pill-green">enabled</span><code>train.compile: true</code></p>
+        <p><span class="pill pill-amber">default</span><code>train.compile_mode: null</code></p>
+        <p><span class="pill pill-red">off</span><code>train.cudagraphs: false</code></p>
+        <p class="small">Source: <a href="../dinov3/configs/ssl_default_config.yaml">ssl_default_config.yaml:80-82</a></p>
+      </div>
+      <div class="card">
+        <h2>What Runs</h2>
+        <p>ViT backbones compile each transformer block in <code>model.blocks</code>.</p>
+        <p>Heads and other top-level modules are wrapped as whole modules.</p>
+        <p class="small">Source: <a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:97-101,198</a></p>
+      </div>
+      <div class="card">
+        <h2>What Did Not Run</h2>
+        <p>The default path does not call:</p>
+        <pre><code>module.compile(fullgraph=True,
+               dynamic=False,
+               options={"triton.cudagraphs": True})</code></pre>
+      </div>
+    </div>
+
+    <section class="band">
+      <h2>The Wrapper Stack</h2>
+      <p>The compile behavior is hidden behind a project wrapper. That is why <code>train.compile=true</code> can look different from a direct <code>torch.compile(...)</code> call.</p>
+      <div class="flow">
+        <div class="step">
+          <strong>1. Config</strong>
+          <code>ssl_default_config.yaml</code><br>
+          <span class="small">sets compile flags</span>
+        </div>
+        <div class="step">
+          <strong>2. Gate</strong>
+          <code>if cfg.train.compile</code><br>
+          <span class="small">turns wrapping on</span>
+        </div>
+        <div class="step">
+          <strong>3. Mode Map</strong>
+          <code>_get_compile_mode()</code><br>
+          <span class="small">null/default -> None</span>
+        </div>
+        <div class="step">
+          <strong>4. Wrap</strong>
+          <code>wrap_compile_block()</code><br>
+          <span class="small">chooses fullgraph, mode, or default</span>
+        </div>
+      </div>
+      <pre><code>if use_cuda_graphs and is_backbone_block:
+    module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})
+elif compile_mode is not None:
+    module.compile(mode=compile_mode)
+else:
+    module.compile()</code></pre>
+      <p class="small">Source: <a href="../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py:65-76</a></p>
+    </section>
+
+    <section class="band">
+      <h2>Which Modules Are Compiled?</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Model area</th>
+            <th>Granularity</th>
+            <th>Code reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Transformer / ViT backbone</td>
+            <td>Each block in <code>model.blocks</code></td>
+            <td><a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:97-101</a></td>
+          </tr>
+          <tr>
+            <td>ConvNeXt backbone</td>
+            <td>Each <code>stage</code> and each <code>downsample_layer</code></td>
+            <td><a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:86-94</a></td>
+          </tr>
+          <tr>
+            <td><code>dino_head</code>, <code>ibot_head</code>, other top-level modules</td>
+            <td>Whole module wrapper</td>
+            <td><a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:198</a></td>
+          </tr>
+          <tr>
+            <td>Teacher / EMA / optional gram teacher</td>
+            <td>Passed as inference-only models through the same helper</td>
+            <td><a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:845-852</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band warn">
+      <h2>Default Compile Mode vs CUDA Graphs</h2>
+      <p><strong>Default compile mode</strong> means <code>compile_mode: null</code>, which the helper maps to plain <code>module.compile()</code>. It lets PyTorch/Dynamo/Inductor decide how much of the function to capture and where to tolerate graph breaks.</p>
+      <p><strong>CUDA graph/fullgraph mode</strong> in this repo means the explicit branch:</p>
+      <pre><code>module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})</code></pre>
+      <p>This is stricter. It asks PyTorch to capture the whole block and use static assumptions. If Python code, unsupported ops, or dynamic tensor shapes violate those assumptions, it should fail loudly or recompile rather than silently acting like the default path.</p>
+      <div class="note">
+        <strong>Why Armen asked about <code>fullgraph=True</code></strong>
+        The point is not only speed. It is also a debugging tool. If fullgraph fails, the error is valuable: it tells us the exact operation, control flow, mutation, or shape dependency that prevents graph capture.
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>Why Fixed Images Are Not Enough</h2>
+      <p>Armen's question, "why are the shapes not static if you resize into fixed shape?", is the right question. The answer is that DINOv3 has more shapes than image height and width.</p>
+      <div class="two">
+        <div class="card">
+          <h2>Static-looking part</h2>
+          <p>The global and local crops can have fixed image sizes. For ViT, those translate into fixed token counts such as global crop tokens and local crop tokens.</p>
+          <p>This is why Phase 6.2 tests backbone-only CUDA graphs first: the backbone may already be static enough.</p>
+        </div>
+        <div class="card">
+          <h2>Dynamic part</h2>
+          <p>iBOT chooses a stochastic mask. The tensor <code>mask_indices_list</code> is built with <code>.nonzero()</code>, so its length depends on how many patches were masked in that batch.</p>
+          <p>That dynamic length then affects tensors such as <code>student_patch_tokens_masked</code> and <code>teacher_patch_tokens_masked</code>.</p>
+        </div>
+      </div>
+      <p class="small">Code references: <a href="../dinov3/data/collate.py">dinov3/data/collate.py:63,71,74</a>; <a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:399,585,676</a>.</p>
+      <div class="note">
+        <strong>Practical translation</strong>
+        Fixed resize can make the image tensor static, but the masked-token tensor can still be dynamic. Phase 6.3 is about making that masked-token side static, most likely by padding to a fixed maximum and masking out the padding in the loss.
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>Phase 5 Evidence</h2>
+      <p>Recent matched DDP run:</p>
+      <ul>
+        <li>Job 48312: <code>DDP bs=96, no AC, compile=true, no expandable_segments</code>.</li>
+        <li>Result: iter 400-999 mean <code>1,387 img/s</code>, median <code>1,379</code>, MFU mean <code>7.94%</code>, <code>step_ms 545</code>, peak alloc <code>25.8 GB</code>.</li>
+        <li>References: <a href="phase5_perf_plan.md">phase5_perf_plan.md:391,407-436</a> and <a href="claude-html-files/status.html">status.html:546,574</a>.</li>
+      </ul>
+      <p>Archived DDP short-run caveat:</p>
+      <ul>
+        <li>Job 9631 was also <code>DDP bs=128 no AC, compile=true</code>, but only a 100-iter screening row.</li>
+        <li>The status page explicitly says archived DDP rows are not current performance targets and should be rerun on the current codebase.</li>
+        <li>References: <a href="claude-html-files/status.html">status.html:623-627</a>, <a href="phase5_perf_plan.md">phase5_perf_plan.md:380</a>.</li>
+      </ul>
+    </section>
+
+    <section class="band risk">
+      <h2>The Dynamic Shape Problem</h2>
+      <p>The documented blocker is not image resize alone. The specific issue is the stochastic iBOT masked-token count, which changes tensor shapes at training time.</p>
+      <p>Prior compile-mode screening says a compiled kernel for one masked-token shape, such as shape <code>7503</code>, would fail on the next iteration's different shape. The same section concludes <code>max-autotune-no-cudagraphs</code> was fundamentally incompatible with the current model setup.</p>
+      <p class="small">Source: <a href="perf_experiment_log.md">docs/perf_experiment_log.md:646-650</a>; summary reminder in <a href="../CLAUDE.md">CLAUDE.md:286</a>.</p>
+    </section>
+
+    <section class="band">
+      <h2>Open Questions for Phase 6</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Question</th>
+            <th>Why it matters</th>
+            <th>How Phase 6 answers it</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Is current <code>module.compile()</code> repeatedly recompiling?</td>
+            <td>If yes, current compile is spending time adapting to changing shapes instead of delivering stable optimized execution.</td>
+            <td>Phase 6.1 logs recompiles, graph breaks, and dynamic guards.</td>
+          </tr>
+          <tr>
+            <td>Can backbone blocks use CUDA graphs before fixing iBOT?</td>
+            <td>If yes, we can capture a major compute region without solving the hardest dynamic-shape problem first.</td>
+            <td>Phase 6.2 flips <code>train.cudagraphs=true</code> for the existing backbone-only branch.</td>
+          </tr>
+          <tr>
+            <td>How expensive is padding iBOT masked tokens?</td>
+            <td>Padding buys static shapes, but it may add wasted compute. The win depends on whether graph/cuda launch savings exceed padding overhead.</td>
+            <td>Phase 6.3 measures padded vs real masked-token counts and performance before fullgraph is layered on.</td>
+          </tr>
+          <tr>
+            <td>Does DDP remove enough complexity compared with FSDP2?</td>
+            <td>DDP keeps full parameters resident and has simpler communication and wrapping. That makes compiler behavior easier to reason about.</td>
+            <td>Phase 6 treats DDP as the operating path for this 85M-100M parameter model.</td>
+          </tr>
+          <tr>
+            <td>Can fullgraph fail usefully?</td>
+            <td>A failure is still progress if it identifies the exact code path preventing capture.</td>
+            <td>Phase 6.4 should preserve full errors and map them back to source lines.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band">
+      <h2>Trade-Offs</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Choice</th>
+            <th>Upside</th>
+            <th>Risk / cost</th>
+            <th>Current stance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>DDP instead of FSDP2</td>
+            <td>Much simpler wrapping; easier compiler and CUDA graph path; no FSDP reshard state machine.</td>
+            <td>Higher parameter memory than sharded FSDP, but ViT-B scale should fit comfortably on H100.</td>
+            <td>Phase 6 default.</td>
+          </tr>
+          <tr>
+            <td>Backbone-only CUDA graphs</td>
+            <td>Low-code-change test of Armen's idea; avoids iBOT dynamic heads initially.</td>
+            <td>May not cover enough of the step to move MFU by itself.</td>
+            <td>Phase 6.2.</td>
+          </tr>
+          <tr>
+            <td>Padding iBOT tensors</td>
+            <td>Makes downstream shapes static and potentially unlocks fullgraph/CUDA graph replay.</td>
+            <td>Extra padded tokens can waste head/loss compute and must preserve loss normalization.</td>
+            <td>Phase 6.3 pilot before end-to-end fullgraph.</td>
+          </tr>
+          <tr>
+            <td><code>fullgraph=True</code></td>
+            <td>Strong diagnostic; can eliminate silent graph breaks and force a cleaner optimized path.</td>
+            <td>May fail hard on unsupported Python/control-flow/mutation patterns.</td>
+            <td>Use deliberately, preserve errors.</td>
+          </tr>
+          <tr>
+            <td>Relying on archived 100-iter DDP numbers</td>
+            <td>Suggests DDP may have a high ceiling.</td>
+            <td>Short-run numbers can be compile-warmup or measurement-window artifacts.</td>
+            <td>Historical context only; do not promote without 1000-iter replication.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band ok">
+      <h2>How To Read Phase 6 Results</h2>
+      <p>A good Phase 6 result is not just "it ran faster once." It needs to distinguish compiler warmup, steady state, shape recompiles, and communication overhead.</p>
+      <ul>
+        <li><strong>Use iter 400-999</strong> for the main steady-state comparison, matching the current Phase 5 convention.</li>
+        <li><strong>Track median and CV</strong>, not only mean. High CV means the average may be dominated by bursty stalls.</li>
+        <li><strong>Preserve compile logs</strong>. Recompile and graph-break counts explain why a run is fast or slow.</li>
+        <li><strong>Keep padding telemetry</strong>. If static iBOT padding is added, log real masked-token count, padded count, and padding ratio.</li>
+        <li><strong>Separate backbone and iBOT effects</strong>. Phase 6.2 can win without proving full-step static shape; Phase 6.4 is the full test.</li>
+      </ul>
+    </section>
+
+    <section class="band">
+      <h2>Armen's Advice Mapped to This Repo</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Recommendation</th>
+            <th>Current state</th>
+            <th>Clean test</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Use <code>fullgraph=True</code></td>
+            <td>Not the default. Only available through <code>train.cudagraphs=true</code> for backbone blocks.</td>
+            <td>Add/run a targeted DDP fullgraph variant and preserve the first failure if it breaks.</td>
+          </tr>
+          <tr>
+            <td>Make shapes static</td>
+            <td>Image sizes may be fixed, but iBOT mask counts are stochastic.</td>
+            <td>Pad or bucket masked-token tensors, then log real vs padded counts and overhead.</td>
+          </tr>
+          <tr>
+            <td>Remove FSDP for 85M-100M params</td>
+            <td>Phase 5 has FSDP2 and DDP comparisons; 48312 is the key long DDP calibration.</td>
+            <td>Use DDP as Phase 6 default; only return to FSDP2 if DDP memory becomes a real blocker.</td>
+          </tr>
+          <tr>
+            <td>Turn off reshard after forward</td>
+            <td>Relevant only under FSDP2. DDP does not have this knob.</td>
+            <td>If DDP wins, remove FSDP knobs from the production path. If FSDP2 stays, keep the matrix.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band ok">
+      <h2>Precise Wording to Use</h2>
+      <p><strong>We used DINOv3's <code>train.compile=true</code>, which compiles transformer blocks and other modules through <code>nn.Module.compile()</code>. In Phase 5, that generally meant PyTorch's default compile path with <code>compile_mode: null</code> and <code>cudagraphs: false</code>. Phase 6 is the test of the stronger proposal: DDP plus backbone CUDA graphs, then static iBOT shapes, then end-to-end <code>fullgraph=True</code> / CUDA-graph-style compilation.</strong></p>
+    </section>
+
+    <section class="band">
+      <h2>Evidence Index</h2>
+      <ul class="refs">
+        <li><a href="phase6_perf_plan.md">docs/phase6_perf_plan.md</a> - Phase 6 plan: DDP + fullgraph + CUDA graphs.</li>
+        <li><a href="../dinov3/configs/ssl_default_config.yaml">dinov3/configs/ssl_default_config.yaml:80-82</a> - default compile flags.</li>
+        <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py:65-76</a> - compile branch selection.</li>
+        <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py:80-83</a> - compile mode mapping.</li>
+        <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py:86-94</a> - ConvNeXt compile path.</li>
+        <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py:97-101</a> - transformer block compile path.</li>
+        <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py:191-198</a> - top-level module compile gate.</li>
+        <li><a href="../dinov3/data/collate.py">dinov3/data/collate.py:63,71,74</a> - dynamic <code>mask_indices_list</code> source.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:83,127,132</a> - student heads and ModuleDict.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:399,585,676</a> - masked-token tensors used in training.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:845-852</a> - inference-only teacher/EMA models.</li>
+        <li><a href="phase5_perf_plan.md">docs/phase5_perf_plan.md:391</a> - job 48312 recipe.</li>
+        <li><a href="claude-html-files/status.html">docs/claude-html-files/status.html:546</a> - job 48312 result.</li>
+        <li><a href="claude-html-files/status.html">docs/claude-html-files/status.html:623-627</a> - archived DDP short-run caveat.</li>
+        <li><a href="perf_experiment_log.md">docs/perf_experiment_log.md:646-650</a> - dynamic iBOT mask shape vs compile mode screening.</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 5 — Status Dashboard</title>
+  <style>
+    :root {
+      --bg: #f0f4f8;
+      --surface: #fff;
+      --border: #d1dce6;
+      --text: #1a2433;
+      --text-2: #4a5568;
+      --text-3: #94a3b8;
+      --mono: 'SFMono-Regular','SF Mono',Consolas,'Liberation Mono',Menlo,monospace;
+      --sans: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      --r: 8px;
+      --sh: 0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.04);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--sans);font-size:14px;line-height:1.6;color:var(--text);background:var(--bg)}
+    a{color:#2563eb;text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    /* --- layout --- */
+    .wrap{max-width:1180px;margin:0 auto;padding:24px 18px 60px}
+
+    /* --- page header --- */
+    .ph{border-left:4px solid #2563eb;padding:12px 16px;background:var(--surface);border-radius:0 var(--r) var(--r) 0;box-shadow:var(--sh);margin-bottom:22px}
+    .ph h1{font-size:19px;font-weight:700}
+    .ph .meta{display:flex;gap:18px;margin-top:5px;flex-wrap:wrap}
+    .mi{font-size:12px;color:var(--text-2)}
+    .mi code{font-family:var(--mono);font-size:11px;background:#f1f5f9;padding:1px 5px;border-radius:3px}
+
+    /* --- cards --- */
+    .card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);margin-bottom:18px;overflow:hidden}
+    .ch{padding:10px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);display:flex;align-items:center;gap:8px}
+    .cb{padding:16px}
+
+    /* --- verdict card --- */
+    .vc{border-left:4px solid #16a34a;background:#f0fdf4}
+    .vc .ch{background:transparent;border-bottom-color:#bbf7d0;color:#166534}
+    .vc .cb{display:flex;gap:20px;flex-wrap:wrap}
+    .vi{flex:1;min-width:200px}
+    .vi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#6b7280;margin-bottom:3px}
+    .vi-val{font-size:13px}
+    .good{color:#15803d;font-weight:600}
+    .warn{color:#b45309}
+    .muted{color:#6b7280}
+    .purple{color:#7c3aed;font-weight:600}
+
+    /* --- progress checklist --- */
+    .prog-outer{background:#e2e8f0;border-radius:4px;height:7px;margin:10px 0 14px}
+    .prog-inner{background:#16a34a;border-radius:4px;height:7px}
+    .cklist{display:flex;flex-wrap:wrap;gap:7px 20px}
+    .ci{display:flex;align-items:center;gap:6px;font-size:13px;min-width:250px}
+    .ck-done{color:#16a34a;font-size:15px;line-height:1}
+    .ck-todo{color:#d1d5db;font-size:15px;line-height:1}
+    .ct-done{color:var(--text-2)}
+    .ct-todo{color:var(--text-3)}
+
+    /* --- batch × AC matrix --- */
+    .mat-wrap{overflow-x:auto}
+    .mat{display:grid;grid-template-columns:76px repeat(3,1fr);gap:7px;min-width:620px}
+    .mhdr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);padding:5px 8px;text-align:center}
+    .mrow-lbl{font-weight:700;font-size:12px;color:var(--text);display:flex;align-items:center;justify-content:center;flex-direction:column;font-family:var(--mono);line-height:1.3}
+    .mrow-lbl small{font-size:10px;color:var(--text-3);font-family:var(--sans);font-weight:400;margin-top:1px}
+
+    .cell{border-radius:var(--r);padding:11px 13px;border:2px solid transparent;position:relative}
+    .ct{font-size:20px;font-weight:800;line-height:1}
+    .ctu{font-size:11px;font-weight:400;color:var(--text-2)}
+    .cm{font-size:11px;color:var(--text-2);margin-top:2px}
+    .cf{display:flex;align-items:center;justify-content:space-between;margin-top:7px;gap:5px;flex-wrap:wrap}
+    .cn{font-size:10px;color:#9ca3af;margin-top:3px}
+
+    /* cell themes */
+    .cell-best{background:#bbf7d0;border-color:#16a34a}
+    .cell-best .ct{color:#14532d}
+    .cell-good{background:#dcfce7}
+    .cell-good .ct{color:#166534}
+    .cell-neutral{background:#f8fafc}
+    .cell-neutral .ct{color:#374151}
+    .cell-inv{background:#f8fafc;opacity:.82}
+    .cell-inv .ct{color:#6b7280}
+
+    /* memory badges */
+    .mb{font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px}
+    .mg{background:#bbf7d0;color:#14532d}
+    .mlg{background:#dcfce7;color:#166534}
+    .ma{background:#fef3c7;color:#92400e}
+    .mr{background:#fee2e2;color:#991b1b}
+
+    /* status badges */
+    .sb{font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+    .sb-blue{background:#2563eb;color:#fff}
+    .sb-purple{background:#7c3aed;color:#fff}
+    .sb-gray{background:#9ca3af;color:#fff}
+    .sb-amber{background:#f59e0b;color:#fff}
+
+    /* --- NCCL chart --- */
+    .nccl-chart{padding:2px 0}
+    .nr{display:flex;align-items:center;height:34px;margin-bottom:1px}
+    .nl{width:240px;flex-shrink:0;text-align:right;padding-right:12px;font-family:var(--mono);font-size:11px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .nl.ref{font-family:var(--sans);font-style:italic;color:var(--text-3)}
+    .nc{width:340px;flex-shrink:0;display:flex}
+    .nneg{width:170px;display:flex;justify-content:flex-end;align-items:center}
+    .npos{width:170px;display:flex;justify-content:flex-start;align-items:center}
+    .bw{height:18px;background:#15803d;border-radius:0 3px 3px 0}
+    .bwp{height:18px;background:#92400e;border-radius:0 3px 3px 0;opacity:.45}
+    .bl{height:18px;background:#dc2626;border-radius:3px 0 0 3px}
+    .nd{width:58px;flex-shrink:0;font-size:12px;font-weight:700;padding-left:9px}
+    .dp{color:#15803d}
+    .dn{color:#dc2626}
+    .dr{color:var(--text-3);font-weight:400}
+    .nv{flex:1;font-size:11px;color:var(--text-3);padding-left:8px}
+    .nccl-sep{height:1px;background:#e2e8f0;margin:3px 0 3px 240px;width:340px}
+
+    /* --- open questions --- */
+    .ql{list-style:none}
+    .qi{padding:9px 13px;border-radius:6px;margin-bottom:7px;border-left:3px solid;display:flex;align-items:flex-start;gap:9px}
+    .qn{font-weight:700;font-size:12px;flex-shrink:0;margin-top:1px}
+    .qt .qh{font-weight:600;margin-bottom:2px;font-size:13px}
+    .qt .qd{color:var(--text-2);font-size:12px}
+    .qi.amber{background:#fef3c7;border-color:#f59e0b}
+    .qi.amber .qn{color:#92400e}
+    .qi.red{background:#fee2e2;border-color:#ef4444}
+    .qi.red .qn{color:#991b1b}
+
+    /* --- ledger --- */
+    details summary{cursor:pointer;padding:10px 16px;font-weight:600;font-size:13px;color:var(--text-2);list-style:none;user-select:none;display:flex;align-items:center;gap:6px}
+    details summary::-webkit-details-marker{display:none}
+    details[open] summary{border-bottom:1px solid var(--border)}
+    .tog{transition:transform .18s;font-size:10px;display:inline-block}
+    details[open] .tog{transform:rotate(90deg)}
+    .lt{width:100%;border-collapse:collapse;font-size:12px}
+    .lt th{padding:7px 9px;text-align:left;background:#f8fafc;font-weight:600;color:var(--text-2);border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+    .lt td{padding:6px 9px;border-bottom:1px solid #f1f5f9;color:var(--text-2);vertical-align:middle}
+    .lt tr:hover td{background:#f8fafc}
+    .lt code{font-family:var(--mono);font-size:11px;background:#f1f5f9;padding:1px 4px;border-radius:2px}
+    .rh td{background:#f0fdf4}
+    .ra td{background:#fffbeb}
+    .rf td{background:#fef2f2}
+    .sp{font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;text-transform:uppercase;white-space:nowrap}
+    .sp-g{background:#dcfce7;color:#166534}
+    .sp-r{background:#fee2e2;color:#991b1b}
+    .sp-a{background:#fef3c7;color:#92400e}
+    .sp-b{background:#e0e7ff;color:#3730a3}
+    .grp-hdr td{background:#1e293b!important;color:#94a3b8;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:4px 9px;border-bottom:1px solid #334155}
+    .grp-hdr:hover td{background:#1e293b!important}
+    .lt td .cfg-note{display:block;font-size:10px;color:#94a3b8;margin-top:2px;font-family:var(--sans)}
+
+    /* --- responsive & utils --- */
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    @media(max-width:900px){.two-col{grid-template-columns:1fr}}
+    @media(max-width:700px){.nl{width:160px}.nc{width:260px}.nneg,.npos{width:130px}}
+    .insight{margin-top:14px;padding:10px 14px;border-radius:6px;font-size:12px}
+    .ins-green{background:#f0fdf4;border-left:3px solid #16a34a;color:#15803d}
+    .ins-gray{background:#f8fafc;border-left:3px solid #94a3b8;color:#4b5563}
+    .ins-amber{background:#fffbeb;border-left:3px solid #f59e0b;color:#92400e}
+
+    /* --- site nav --- */
+    .top-nav{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);padding:7px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    .top-nav .inner{max-width:1180px;margin:0 auto;padding:0 18px;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+    .top-nav a{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;color:var(--text-2);transition:all .15s}
+    .top-nav a:hover,.top-nav a[aria-current=page]{background:#eff6ff;color:#1d4ed8;text-decoration:none}
+  </style>
+</head>
+<body>
+<nav class="top-nav"><div class="inner"><a href="status.html" aria-current="page">Status</a><a href="concepts.html">Concepts</a><a href="upstream_pr_findings_v2.html">Upstream PRs</a></div></nav>
+<div class="wrap">
+
+  <!-- ── PAGE HEADER ── -->
+  <div class="ph">
+    <h1>Phase 5 — FSDP2 + Pipeline Optimization &nbsp;<span style="font-weight:400;font-size:15px;color:#6b7280">Status Dashboard</span></h1>
+    <div class="meta">
+      <span class="mi">Branch <code>perf-fsdp2-pipeline</code></span>
+      <span class="mi">Opened 2026-05-07 · Updated 2026-05-21</span>
+      <span class="mi">Operating point <code>FSDP2 ZeRO-3 bs=96 sel-AC reshT</code></span>
+      <span class="mi">MFU: current <strong>~7–8%</strong> · lab target <strong>30%</strong></span>
+      <span class="mi"><a href="concepts.html">→ Concepts &amp; Glossary</a></span>
+    </div>
+  </div>
+
+  <!-- ── CURRENT VERDICT ── -->
+  <div class="card vc">
+    <div class="ch">Current Verdict <span style="font-weight:400;font-size:11px;color:#6b7280;margin-left:4px">authoritative as of 2026-05-21 — older sections below are history</span></div>
+    <div class="cb">
+      <div class="vi">
+        <div class="vi-lbl">Production default</div>
+        <div class="vi-val good">FSDP2 ZeRO-3, bs=96, selective AC, reshT</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">Memory fallback</div>
+        <div class="vi-val purple">bs=96 + full AC — saves 5.4 GB, &lt;1.5% throughput cost</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">NCCL knob (LL128)</div>
+        <div class="vi-val warn">Promising (+12% Stage A). Stage C didn't replicate. Not shipped yet.</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">bs=128 status</div>
+        <div class="vi-val warn">REOPENED for investigation — bs=128 reshF sel AC = 1,341 mean / 1,312 median on gpu05 (job 47554, 05-20). Cross-node vs gpu07 anchor; NOT promoted. Needs paired same-node A/B + OOM-history check.</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">Next action</div>
+        <div class="vi-val warn">Paired same-node A/B: bs=128 reshT vs reshF (1000 i each, eval+ckpt off). Resolve original bs=128 OOM (reshT or reshF?) with researcher. LL128 stacking is later.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PROGRESS GATES ── -->
+  <div class="card">
+    <div class="ch">Phase 5 Progress Gates</div>
+    <div class="cb">
+      <div class="prog-outer"><div class="prog-inner" style="width:62.5%"></div></div>
+      <div style="font-size:11px;color:var(--text-3);margin-bottom:13px">5 of 8 gates complete (62.5%)</div>
+      <div class="cklist">
+        <div class="ci"><span class="ck-done">✓</span><span class="ct-done">nsys traces captured — jobs 39140 (bs=128) and 39141 (bs=96)</span></div>
+        <div class="ci"><span class="ck-done">✓</span><span class="ct-done">Bottleneck identified: NCCL at 70–80% kernel time, 11–16% overlap</span></div>
+        <div class="ci"><span class="ck-done">✓</span><span class="ct-done">AC verified at bs=96 — both selective and full modes stable</span></div>
+        <div class="ci"><span class="ck-done">✓</span><span class="ct-done">Short soak with eval + checkpoint pressure (forced at iter 400/800)</span></div>
+        <div class="ci"><span class="ck-done">✓</span><span class="ct-done">Full bs×AC matrix measured — all 6 cells (reshT row)</span></div>
+        <div class="ci"><span class="ck-todo">○</span><span class="ct-todo">Choose production candidate + longer validation run</span></div>
+        <div class="ci"><span class="ck-todo">○</span><span class="ct-todo">Phase 5 row added to archive_decisions.md</span></div>
+        <div class="ci"><span class="ck-todo">○</span><span class="ct-todo">run.sh updated with rollback note</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── NSys PROFILE RUNS — JOB DETAILS ── -->
+  <div class="card">
+    <div class="ch">nsys Profile Runs — Job Details
+      <span style="font-weight:400;font-size:11px;color:#94a3b8;margin-left:4px">Gate 1 &amp; 2 source — jobs 39140 (bs=128) and 39141 (bs=96) · 2026-05-08 · gpu07</span>
+    </div>
+    <div class="cb">
+      <div class="two-col">
+        <!-- job 39141 -->
+        <div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:8px">Job 39141 — bs=96 (bottleneck baseline) <span class="sb sb-blue" style="margin-left:6px">PRIMARY</span></div>
+          <table class="lt" style="font-size:12px">
+            <tr><td style="font-weight:600;width:130px">Script</td><td><code>scripts/nsys_profile.sh</code> — invoked via <code>BATCH_SIZE=96 sbatch scripts/nsys_profile.sh</code></td></tr>
+            <tr><td style="font-weight:600">Node / GPUs</td><td>gpu07 · 8×H100 · single node (<code>--nodes=1</code>)</td></tr>
+            <tr><td style="font-weight:600">Date</td><td>2026-05-08 20:54 +04</td></tr>
+            <tr><td style="font-weight:600">Batch</td><td>96/GPU · 768 global (8 ranks)</td></tr>
+            <tr><td style="font-weight:600">Iters</td><td>2000 total · nsys captures after 360 s delay (covers compile + pinned-pool warmup) for 120 s</td></tr>
+            <tr><td style="font-weight:600">Model</td><td>ViT-B, 86 M params, 5-channel satellite, RoPE, DINO+iBOT+KoLeo</td></tr>
+            <tr><td style="font-weight:600">Dist. strategy</td><td>FSDP2 ZeRO-3 (<code>reshard_after_forward=True</code>)</td></tr>
+            <tr><td style="font-weight:600">AC / compile</td><td>no AC · <code>train.compile=true</code></td></tr>
+            <tr><td style="font-weight:600">Precision</td><td>BF16 param · FP32 reduce</td></tr>
+            <tr><td style="font-weight:600">Dataset</td><td>MixedSatelliteDataset: Intelinair + MAID + Sentinel-1 + NAIP (real Weka data)</td></tr>
+            <tr><td style="font-weight:600">nsys flags</td><td><code>--trace=cuda,nvtx,osrt,cudnn,cublas,nccl --sample=cpu --python-sampling=true --delay=360 --duration=120 --trace-fork-before-exec=true</code></td></tr>
+            <tr><td style="font-weight:600">Output</td><td><code>/mnt/weka/adovlatyan/nsys_profiles/2026-05-08/39141/</code></td></tr>
+            <tr><td style="font-weight:600">DataLoader</td><td><code>num_workers=20</code> · <code>prefetch_factor=8</code> · <code>persistent_workers=true</code> · <code>pin_memory=True</code> (hardcoded in loaders.py)</td></tr>
+            <tr><td style="font-weight:600">Git SHA</td><td><code>a281fc8</code> (branch: perf-fsdp2-pipeline, uncommitted changes)</td></tr>
+          </table>
+
+          <div style="font-weight:700;font-size:13px;margin:14px 0 8px">Key nsys findings (job 39141)</div>
+          <table class="lt" style="font-size:12px">
+            <tr><td style="font-weight:600;width:200px">GPU utilization</td><td>~65% on 7 ranks; GPU4 = <strong>12.4%</strong> (collector-rank straggler)</td></tr>
+            <tr><td style="font-weight:600">NCCL kernel share</td><td><strong>80.4% of all kernel time</strong> (41,845 ms of 52,024 ms total, all ranks)</td></tr>
+            <tr><td style="font-weight:600">#1 kernel</td><td><code>ncclDevKernel_AllGather_RING_LL</code> — 36,161 ms (69.5% of all kernel time!), avg 12.7 ms/call</td></tr>
+            <tr><td style="font-weight:600">#2 kernel</td><td><code>ncclDevKernel_AllReduce_Sum_f32_RING_LL</code> — 5,629 ms, avg 4.5 ms/call</td></tr>
+            <tr><td style="font-weight:600">ReduceScatter</td><td>only 54 ms total — expected: all-gathers dominate ZeRO-3 forward/backward shard gather</td></tr>
+            <tr><td style="font-weight:600">Matmul share</td><td>6.8% (3,547 ms) — NCCL is 11× more time than compute</td></tr>
+            <tr><td style="font-weight:600">NCCL↔compute overlap</td><td><strong>11%</strong> — 89% of NCCL time serializes against compute (bad; &lt;60% is the warning threshold)</td></tr>
+            <tr><td style="font-weight:600">H2D↔compute overlap</td><td><strong>0%</strong> — batch transfer entirely serialized, 56 ms/rank/step</td></tr>
+            <tr><td style="font-weight:600">NCCL protocol used</td><td>RING_LL (default; LL128 tested in Stage A and gave +12%, not yet shipped)</td></tr>
+            <tr><td style="font-weight:600">Top union gap</td><td>876 ms (global stall when <em>no rank</em> has any GPU work) — but p50 gap = 0.14 ms, so not periodic</td></tr>
+            <tr><td style="font-weight:600">Attn bimodality</td><td>min/max ratio = 1.7× (global 197 tokens vs local 37 tokens) — less bimodal than expected; crops may fuse in SDPA dispatch</td></tr>
+            <tr><td style="font-weight:600">steady-state MFU (training log)</td><td>~7–8% at iters 100–200 (run still has data pipeline / LR warmup noise at this point)</td></tr>
+          </table>
+
+          <div class="insight ins-amber" style="margin-top:10px">
+            <strong>Why AllGather dominates at 69.5%:</strong> FSDP2 ZeRO-3 (<code>reshard_after_forward=True</code>) issues one AllGather per transformer block on the forward pass AND on the backward pass — 12 blocks × 2 = 24 AllGathers per step. Each costs ~12.7 ms average on the 8-GPU ring, and they largely serialize against compute because the ViT-B GEMM workload is too small to provide enough compute work to hide a 12 ms collective.
+          </div>
+        </div>
+
+        <!-- job 39140 summary -->
+        <div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:8px">Job 39140 — bs=128 (paired profile run)</div>
+          <table class="lt" style="font-size:12px">
+            <tr><td style="font-weight:600;width:130px">Script</td><td><code>scripts/nsys_profile.sh</code> — default <code>BATCH_SIZE=128</code></td></tr>
+            <tr><td style="font-weight:600">Node / GPUs</td><td>gpu07 · 8×H100 (same node as 39141 — sequential runs)</td></tr>
+            <tr><td style="font-weight:600">Date</td><td>2026-05-08 (immediately before 39141)</td></tr>
+            <tr><td style="font-weight:600">Batch</td><td>128/GPU · 1024 global</td></tr>
+            <tr><td style="font-weight:600">Dist. strategy</td><td>FSDP2 ZeRO-3 (<code>reshard_after_forward=True</code>), no AC</td></tr>
+            <tr><td style="font-weight:600">Role</td><td>Baseline profile at higher batch to check whether bigger compute tiles change NCCL overlap fraction</td></tr>
+            <tr><td style="font-weight:600">Finding</td><td>NCCL still ~70% of kernel time at bs=128; overlap fraction slightly better but same structural problem. Confirmed bottleneck is architectural (too many fine-grained collectives) not batch-size-specific.</td></tr>
+          </table>
+
+          <div style="font-weight:700;font-size:13px;margin:14px 0 8px">How to read the trace</div>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.6">
+            <strong>File:</strong> <code>/mnt/weka/adovlatyan/nsys_profiles/2026-05-08/39141/dinov3-fsdp2-bs96-39141.nsys-rep</code><br>
+            Open in Nsight Systems GUI on Mac. Key views:<br>
+            · <em>CUDA HW row</em> — each GPU row shows the ~65% duty cycle gaps (NCCL stalls)<br>
+            · <em>NVTX row</em> — train_step, forward_backward, optimizer_step annotated<br>
+            · <em>NIC/IB row</em> — InfiniBand traffic confirms ring allgather pattern<br><br>
+            Summary script: <code>python scripts/nsys_dinov3_summary.py &lt;sqlite-path&gt;</code><br>
+            SQLite DB: <code>…/dinov3-fsdp2-bs96-39141.sqlite</code><br>
+            Pre-generated summary: <code>…/dinov3-fsdp2-bs96-39141.summary.md</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MISSING-CELL FINDING (2026-05-20) ── -->
+  <div class="card">
+    <div class="ch">Missing-Cell Probe — bs=128 × reshF × sel AC <span style="font-weight:400;font-size:11px;color:#6b7280;margin-left:4px">job 47554 · gpu05 · 1000 iters · 2026-05-20</span></div>
+    <div class="cb">
+      <div class="insight ins-amber">
+        <strong>Finding (Codex-tightened):</strong> The previously-untested cell <code>bs=128 + reshF + sel AC</code> hit <strong>mean 1,341 / median 1,312 img/s</strong> at iter [500,999], MFU 7.67%, CV 10.6%. The +5.1% delta vs bs=128 reshT (1,276 on gpu07) crosses both node and date, so it is <em>consistent with</em> reshF being the mechanism but does not prove it from one run. Mean is partly spike-inflated (bursts to 1851 and 1680); median is the defensible point. The <code>[100,299]</code> ≈ <code>[500,999]</code> equality (1340 vs 1341) is the strongest internal-validity signal — the run did not drift over 1000 iters. The Stage C "park bs=128" verdict is <strong>reopened, not revised to "viable candidate."</strong>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;font-size:12px">
+        <div>
+          <strong style="color:#15803d">What this run does establish:</strong>
+          <ul style="margin:4px 0 0 14px;padding:0">
+            <li>bs=128 reshF sel AC ran 1000 iters cleanly — no late-stage degradation, no OOM, no retries</li>
+            <li>Throughput band is at least competitive with bs=96 reshF cells on other nodes</li>
+            <li>Within-run jitter is in the same CV band as bs=96 1000-iter runs (~10%)</li>
+            <li>Memory peak 18.6 GiB rank-0 in this recipe — well below cap, but eval+ckpt cycles not exercised</li>
+          </ul>
+        </div>
+        <div>
+          <strong style="color:#b45309">What it does NOT establish:</strong>
+          <ul style="margin:4px 0 0 14px;padding:0">
+            <li>That the +5.1% is a reshF effect rather than gpu05-vs-gpu07 noise</li>
+            <li>That bs=128 actually beats bs=96 in production conditions (1,341 vs bs=96 reshT sel = 1,351 on gpu07; right comparator missing)</li>
+            <li>That long-soak memory is OK (eval + sharded ckpt cycles weren't in 47554; original real-run OOM researcher 05-12, reshT/reshF unknown)</li>
+            <li>That LL128 stacks — bs=128 reshT + LL128 (46030 C2) lost 6.4%, so LL128 on reshF is not a known-good knob</li>
+          </ul>
+        </div>
+      </div>
+      <div style="margin-top:12px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f">
+        <strong>Right next experiment (Codex):</strong> paired same-node A/B — <code>bs=128 reshT sel</code> vs <code>bs=128 reshF sel</code>, 1000 iters each, sequential on the same node, no NCCL knobs, eval+ckpt off. If reshF beats reshT by ≥3–5% on median in both windows, the effect is real and LL128 stacking is the test after. If within ~2%, lock in "bs=128 parked." Also: ask the researcher whether the 05-12 OOM was reshT or reshF.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── BATCH × AC MATRIX ── -->
+  <div class="card">
+    <div class="ch">Batch × AC Matrix
+      <span style="font-weight:400;font-size:11px;color:#94a3b8">steady-state iter 400–999 · all gpu07 runs · reshard_after_forward=True · for reshF cells see Missing-Cell card above</span>
+    </div>
+    <div class="cb">
+      <div class="mat-wrap">
+        <div class="mat">
+          <!-- column headers -->
+          <div></div>
+          <div class="mhdr">No AC</div>
+          <div class="mhdr">Selective AC <small style="display:block;font-weight:400;text-transform:none;letter-spacing:0">← preferred</small></div>
+          <div class="mhdr">Full AC <small style="display:block;font-weight:400;text-transform:none;letter-spacing:0">← memory fallback</small></div>
+
+          <!-- bs=96 row -->
+          <div class="mrow-lbl">bs=96<small>✓ safe</small></div>
+
+          <div class="cell cell-neutral">
+            <div class="ct">1,279 <span class="ctu">img/s</span></div>
+            <div class="cm">7.32% MFU · 600 ms/step</div>
+            <div class="cf">
+              <span class="mb ma">24.9 GB</span>
+              <span class="sb sb-gray">dominated</span>
+            </div>
+            <div class="cn">Job 45367 · gpu07</div>
+          </div>
+
+          <div class="cell cell-best">
+            <div class="ct">1,351 <span class="ctu">img/s</span></div>
+            <div class="cm">7.73% MFU · 562 ms/step</div>
+            <div class="cf">
+              <span class="mb mlg">14.3 GB</span>
+              <span class="sb sb-blue">★ Default</span>
+            </div>
+            <div class="cn">Job 45280 · gpu07</div>
+          </div>
+
+          <div class="cell cell-good">
+            <div class="ct">1,317 <span class="ctu">img/s</span></div>
+            <div class="cm">7.54% MFU · 573 ms/step</div>
+            <div class="cf">
+              <span class="mb mg">8.9 GB</span>
+              <span class="sb sb-purple">💾 Fallback</span>
+            </div>
+            <div class="cn">Job 45281 · gpu07</div>
+          </div>
+
+          <!-- bs=128 row -->
+          <div class="mrow-lbl">bs=128<small>investig.</small></div>
+
+          <div class="cell cell-inv">
+            <div class="ct">1,267 <span class="ctu">img/s</span></div>
+            <div class="cm">7.25% MFU · 809 ms/step</div>
+            <div class="cf">
+              <span class="mb mr">33.0 GB</span>
+              <span class="sb sb-amber">⚠ OOM risk</span>
+            </div>
+            <div class="cn">Job 45282 · gpu07</div>
+          </div>
+
+          <div class="cell cell-inv">
+            <div class="ct">1,276 <span class="ctu">img/s</span></div>
+            <div class="cm">7.30% MFU · 802 ms/step</div>
+            <div class="cf">
+              <span class="mb ma">18.9 GB</span>
+              <span class="sb sb-gray">parked</span>
+            </div>
+            <div class="cn">Job 45366 · gpu07 (clean rerun)</div>
+          </div>
+
+          <div class="cell cell-inv">
+            <div class="ct">1,297 <span class="ctu">img/s</span></div>
+            <div class="cm">7.42% MFU · 787 ms/step</div>
+            <div class="cf">
+              <span class="mb mlg">11.7 GB</span>
+              <span class="sb sb-gray">parked</span>
+            </div>
+            <div class="cn">Job 45364 · gpu03 ⚠ cross-node</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="insight ins-green">
+        <strong>Key surprise:</strong> Selective AC is <em>faster</em> than no-AC at bs=96 (+5.6%, 1279→1351 img/s). Keeping large activation tensors live creates allocator/cache pressure that hurts more than the recompute cost. This is regime-specific (H100 BF16, not compute-bound enough for textbook AC tradeoff).
+      </div>
+      <div class="insight ins-amber" style="margin-top:8px">
+        <strong>bs=128 verdict — REOPENED 2026-05-20 (Codex-tightened):</strong> The "not promoted" call was correct <em>for reshT</em> but the cell that mattered — bs=128 + reshF + sel AC — was never tested. <strong>Job 47554 (gpu05, 1000 i)</strong>: mean <strong>1,341</strong> / median <strong>1,312</strong> img/s, MFU 7.67%, CV 10.6%. That's +5.1% over an older bs=128 reshT anchor (45366, gpu07, 300 i) but the comparison crosses nodes and dates. Mean is partly spike-inflated (iter 300=1851, iter 700=1680); the median is the defensible point. Memory 18.6 GiB rank-0, eval+ckpt off — does not yet answer the prior real-run OOM (researcher 05-12; reshT vs reshF unknown). <strong>bs=128 is reopened for investigation, NOT promoted.</strong> Required before any production move: paired same-node bs=128 reshT vs reshF A/B + resolve OOM-history; LL128 stacking is later (LL128 already hurt bs=128 reshT by −6.4%).
+      </div>
+    </div>
+  </div>
+
+  <!-- ── NCCL SWEEP + OPEN QUESTIONS ── -->
+  <div class="two-col">
+
+    <!-- NCCL SWEEP -->
+    <div class="card">
+      <div class="ch">NCCL Sweep — Stage A Results
+        <span style="font-weight:400;font-size:11px;color:#94a3b8">gpu07, 300 iters, bs=96 sel AC, one knob at a time</span>
+      </div>
+      <div class="cb">
+        <!-- axis labels -->
+        <div style="display:flex;margin-bottom:3px">
+          <div style="width:240px;flex-shrink:0"></div>
+          <div style="width:340px;flex-shrink:0;display:flex;justify-content:space-between;font-size:10px;color:#94a3b8">
+            <span>← slower</span><span>baseline (1,257 img/s)</span><span>faster →</span>
+          </div>
+        </div>
+
+        <div class="nccl-chart">
+          <div class="nr">
+            <div class="nl" title="NCCL_PROTO=LL128">NCCL_PROTO=LL128</div>
+            <div class="nc"><div class="nneg"></div><div class="npos"><div class="bw" style="width:100px"></div></div></div>
+            <div class="nd dp">+12.1%</div>
+            <div class="nv" style="color:#15803d;font-weight:600">★ best — not yet shipped (Stage C ≠ replicate)</div>
+          </div>
+
+          <div class="nr">
+            <div class="nl" title="TORCH_NCCL_AVOID_RECORD_STREAMS=1">AVOID_RECORD_STREAMS</div>
+            <div class="nc"><div class="nneg"></div><div class="npos"><div class="bwp" style="width:47px"></div></div></div>
+            <div class="nd dp" style="opacity:.6">+5.7%</div>
+            <div class="nv">parked — stacks badly with LL128 (B1 combined: −6%)</div>
+          </div>
+
+          <div class="nccl-sep"></div>
+
+          <div class="nr" style="opacity:.45">
+            <div class="nl ref">baseline replicate (A6)</div>
+            <div class="nc"><div class="nneg"></div><div class="npos"><div style="width:2px;height:20px;background:#94a3b8;border-radius:1px"></div></div></div>
+            <div class="nd dr">+0.0%</div>
+            <div class="nv">drift check — stable ✓</div>
+          </div>
+
+          <div class="nr" style="opacity:.45">
+            <div class="nl ref">baseline (A0)</div>
+            <div class="nc"><div class="nneg"></div><div class="npos"><div style="width:2px;height:20px;background:#94a3b8;border-radius:1px"></div></div></div>
+            <div class="nd dr">ref</div>
+            <div class="nv">1,257 img/s · CV 10.8%</div>
+          </div>
+
+          <div class="nccl-sep"></div>
+
+          <div class="nr">
+            <div class="nl" title="NCCL_NVLS_ENABLE=1">NCCL_NVLS_ENABLE=1</div>
+            <div class="nc"><div class="nneg"><div class="bl" style="width:72px"></div></div><div class="npos"></div></div>
+            <div class="nd dn">−8.7%</div>
+            <div class="nv">regression — autotuner doesn't pick NVLS anyway</div>
+          </div>
+
+          <div class="nr">
+            <div class="nl" title="NCCL_NTHREADS=256">NCCL_NTHREADS=256</div>
+            <div class="nc"><div class="nneg"><div class="bl" style="width:83px"></div></div><div class="npos"></div></div>
+            <div class="nd dn">−10.0%</div>
+            <div class="nv">regression — default is 512, this is a reduction</div>
+          </div>
+
+          <div class="nr">
+            <div class="nl" title="NCCL_BUFFSIZE=16777216">NCCL_BUFFSIZE=16M</div>
+            <div class="nc"><div class="nneg"><div class="bl" style="width:170px"></div></div><div class="npos"></div></div>
+            <div class="nd dn">−20.6%</div>
+            <div class="nv">worst — avoid entirely</div>
+          </div>
+        </div>
+
+        <div class="insight ins-amber" style="margin-top:12px">
+          <strong>Stage C caveat:</strong> A2 (LL128, +12%) ran on gpu07 in Stage A at ~1,409 img/s. Stage C re-ran the same config on the same node and got ~1,124 img/s (−20%). Likely cluster background load or long-run in-process effects. Do not ship LL128 without a controlled replicate.
+        </div>
+      </div>
+    </div>
+
+    <!-- OPEN QUESTIONS -->
+    <div class="card">
+      <div class="ch">Open Decision Questions</div>
+      <div class="cb">
+        <ul class="ql">
+          <li class="qi amber">
+            <span class="qn">Q1</span>
+            <div class="qt">
+              <div class="qh">Does LL128 hold in longer runs?</div>
+              <div class="qd">Stage A (300 iter) said +12.1%, CV 4.9%. Stage C (1000 iter, same config, same node) got +6–7% with CV 18%. Cause unresolved: cluster background load vs long-run in-process effects (GC, allocator drift, FSDP buffer state). Controlled 3× replicate of A0 vs A2 was proposed but not run.</div>
+            </div>
+          </li>
+          <li class="qi red">
+            <span class="qn">Q2</span>
+            <div class="qt">
+              <div class="qh">What caused the original bs=128 OOM?</div>
+              <div class="qd">A 1000-iter memory profile (job 45282, two forced eval+checkpoint cycles) survived with 33 GB peak, no retries, no OOMs. But the researcher-reported real-run OOM was in actual production training — longer horizon, real data, possibly specific allocator state after many checkpoint cycles. Now that bs=128 + reshF + sel AC is back as a candidate (47554, 18.6 GiB peak, well under 80 GiB available), the OOM question matters again: was the original real-run OOM under reshT or reshF? Need to check. Either way, a longer real-eval-cycle validation must precede any production switch.</div>
+            </div>
+          </li>
+          <li class="qi amber">
+            <span class="qn">Q3</span>
+            <div class="qt">
+              <div class="qh">When does run.sh get updated?</div>
+              <div class="qd">After: (a) the bs=128 reshF + LL128 stacking question resolves (one job), (b) chosen production cell survives a longer validation run on a clean node (&gt;1000 iters, repeated eval+checkpoint), and (c) the bs=128 OOM-history check completes. Candidates: bs=96 reshT sel (current safe default), bs=96 reshT sel + LL128, or bs=128 reshF sel (± LL128).</div>
+            </div>
+          </li>
+          <li class="qi amber">
+            <span class="qn">Q4</span>
+            <div class="qt">
+              <div class="qh">Is NCCL the right growth lever at all?</div>
+              <div class="qd">NCCL knobs can recover at most ~1–2 pp MFU. Current: ~7–8%. Target: 30%. The 22 pp gap likely requires gradient accumulation (fewer NCCL syncs per effective-batch step), coarser FSDP2 wrapping (fewer large collectives), or more nodes. Knob tuning is exhausted as the primary lever.</div>
+            </div>
+          </li>
+          <li class="qi amber">
+            <span class="qn">Q5</span>
+            <div class="qt">
+              <div class="qh">Is FSDP2 costing absolute throughput vs DDP at bs=96?</div>
+              <div class="qd"><strong>First read (2026-05-21):</strong> Job 48312 (DDP bs=96 noAC, gpu03, 1000 i) finished. iter 400–999: <strong>mean 1,387 img/s</strong> (median 1,379), MFU mean 7.94 %, step_ms 545, peak alloc 25.8 GB. Matched FSDP2 cell 45367 (bs=96 reshT noAC, gpu07): 1,279 img/s, 7.32 %, 600 ms, 24.9 GB. <strong>Observed Δ +108 img/s (+8.4 %)</strong>, +0.62 pp MFU, +0.9 GB peak alloc. Eval+checkpoint at iter 400/800 did not exceed training peak. <strong>BUT</strong>: single run, cross-node + cross-date, with a monotonic within-run rise (1,310 → 1,373 → 1,419 img/s) that exceeds the reported Δ. <strong>Attribution deferred.</strong><br><br><strong>Caveat about the archived DDP rows (added 2026-05-21):</strong> the archived 2026-04-03 DDP screening (9630/9631/9651) shows 18–23 % MFU and ~4 k img/s at bs=128, but those were 100-iter short soaks with the same MFU formula. The matched May 21 long-soak does <em>not</em> reproduce that throughput regime. Until the original 100-iter recipe is rerun on today's codebase, the archived DDP numbers are <strong>historical context, not a current target</strong> — do not use them as evidence FSDP2 is leaving 3× on the table. See the archived-table caveat in the ledger below for the full breakdown.<br><br>Cleanest next step (Codex): same-node FSDP2 bs=96 reshT noAC A/B on gpu03, plus a 100-iter `screening_ddp.sh 128` rerun on today's code to tag the archived numbers as either convention-mismatched or genuinely regressed.</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── EXPERIMENT LEDGER ── -->
+  <div class="card">
+    <details>
+      <summary>
+        <span class="tog">▶</span>
+        Full Experiment Ledger — Phase 5 (30+ runs)
+        <span style="font-size:11px;color:#94a3b8;margin-left:8px;font-weight:400">click to expand</span>
+      </summary>
+      <div class="cb">
+        <div style="overflow-x:auto">
+          <table class="lt">
+            <thead>
+              <tr>
+                <th>ID</th><th>Date</th><th>Job</th><th>Node</th>
+                <th>Config</th><th>MFU</th><th>img/s</th><th>Peak Mem</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- DDP calibration (post-47554) -->
+              <tr class="grp-hdr"><td colspan="9">DDP bs=96 calibration — one run to fill the missing DDP × bs=96 cell · 1000 i · forced eval+ckpt 400/800</td></tr>
+              <tr class="rh"><td>ddp-bs96-calib</td><td>05-21</td><td>48312</td><td>gpu03</td><td><code>DDP bs=96 no AC, compile=true, no ES</code><span class="cfg-note">matched recipe vs FSDP2 cell 45367 (bs=96 reshT noAC = 1,279 img/s, gpu07); only distributed_strategy differs. iter 400–999 mean. Cross-node + cross-date — see Q5 caveats. Trend across run: 1,310 → 1,373 → 1,419 img/s.</span></td><td>7.94%</td><td>1,387</td><td>25.8 GB</td><td><span class="sp sp-g">★ observed +8.4%</span></td></tr>
+              <!-- Missing-cell probe (post-Stage C) -->
+              <tr class="grp-hdr"><td colspan="9">Missing-cell probe — bs=128 × reshF × sel AC (the untested combination) · 1000 i</td></tr>
+              <tr class="rh"><td>bs128-reshF-sel</td><td>05-20</td><td>47554</td><td>gpu05</td><td><code>bs=128 reshF sel AC (1000 i, no NCCL knobs)</code><span class="cfg-note">gpu07 was occupied (~1.5d wait); landed on gpu05. Cross-node read but same-node anchor 45370 (bs=96 reshF full = 1,326) supports the 1,341 reading.</span></td><td>7.67%</td><td>1,341</td><td>18.6 GB</td><td><span class="sp sp-g">★ reopens bs=128</span></td></tr>
+              <!-- NCCL Stage C -->
+              <tr class="grp-hdr"><td colspan="9">Stage C — longer validation (1000 i) · base: bs=96 reshT sel AC · gpu07 · same-node as Stage A</td></tr>
+              <tr><td>C3</td><td>05-18</td><td>46031</td><td>gpu07</td><td><code>bs=96 reshT sel + LL128 + NORS (300 i)</code></td><td>7.55%</td><td>1,319</td><td>14.3 GB</td><td><span class="sp sp-g">done · C3</span></td></tr>
+              <tr><td>C2</td><td>05-18</td><td>46030</td><td>gpu07</td><td><code>bs=128 reshT sel + LL128 (1000 i)</code></td><td>6.83%</td><td>1,194</td><td>18.9 GB</td><td><span class="sp sp-g">done · noisy</span></td></tr>
+              <tr><td>C1</td><td>05-18</td><td>46029</td><td>gpu07</td><td><code>bs=96 reshT sel + LL128 (1000 i)</code></td><td>6.4–7.1%</td><td>1,124–1,249</td><td>14.3 GB</td><td><span class="sp sp-g">done · noisy epoch</span></td></tr>
+              <!-- NCCL Stage B -->
+              <tr class="grp-hdr"><td colspan="9">Stage B — validate winners + diagnostic cells · base: reshT · 300 i · gpu07</td></tr>
+              <tr><td>B3</td><td>05-18</td><td>45993</td><td>gpu07</td><td><code>bs=128 reshT sel + LL128</code></td><td>7.98%</td><td>1,394 (mixed)</td><td>18.9 GB</td><td><span class="sp sp-a">regime mixed</span></td></tr>
+              <tr><td>B2</td><td>05-18</td><td>45992</td><td>gpu07</td><td><code>bs=96 reshT full + LL128</code><span class="cfg-note">LL128 on full AC (not sel) — held up</span></td><td>7.76%</td><td>1,355</td><td>8.9 GB</td><td><span class="sp sp-g">done</span></td></tr>
+              <tr><td>B1</td><td>05-18</td><td>45991</td><td>gpu07</td><td><code>bs=96 reshT sel + LL128 + NORS</code><span class="cfg-note">stacking LL128 + NORS on sel AC → regression</span></td><td>6.77%</td><td>1,183</td><td>14.3 GB</td><td><span class="sp sp-r">stacked regression</span></td></tr>
+              <!-- NCCL Stage A -->
+              <tr class="grp-hdr"><td colspan="9">Stage A — one NCCL knob at a time · base: bs=96 reshT sel AC · 300 i · gpu07</td></tr>
+              <tr><td>A6</td><td>05-18</td><td>45987</td><td>gpu07</td><td><code>bs=96 reshT sel AC — baseline replicate</code><span class="cfg-note">drift check after A1–A5 — confirms gpu07 stable</span></td><td>7.20%</td><td>1,257</td><td>14.3 GB</td><td><span class="sp sp-b">drift ref</span></td></tr>
+              <tr><td>A5</td><td>05-18</td><td>45986</td><td>gpu07</td><td><code>bs=96 reshT sel + AVOID_RECORD_STREAMS</code></td><td>7.61%</td><td>1,330</td><td>14.3 GB</td><td><span class="sp sp-g">+5.7% · parked</span></td></tr>
+              <tr><td>A4</td><td>05-18</td><td>45985</td><td>gpu07</td><td><code>bs=96 reshT sel + NCCL_BUFFSIZE=16M</code></td><td>5.72%</td><td>999</td><td>14.3 GB</td><td><span class="sp sp-r">−20.6%</span></td></tr>
+              <tr><td>A3</td><td>05-18</td><td>45984</td><td>gpu07</td><td><code>bs=96 reshT sel + NCCL_NTHREADS=256</code></td><td>6.48%</td><td>1,132</td><td>14.3 GB</td><td><span class="sp sp-r">−10.0%</span></td></tr>
+              <tr class="rh"><td>A2</td><td>05-18</td><td>45983</td><td>gpu07</td><td><code>bs=96 reshT sel + NCCL_PROTO=LL128</code></td><td>8.06%</td><td>1,409</td><td>14.3 GB</td><td><span class="sp sp-g">+12.1% ★</span></td></tr>
+              <tr><td>A1</td><td>05-18</td><td>45982</td><td>gpu07</td><td><code>bs=96 reshT sel + NCCL_NVLS_ENABLE=1</code></td><td>6.57%</td><td>1,148</td><td>14.3 GB</td><td><span class="sp sp-r">−8.7%</span></td></tr>
+              <tr><td>A0</td><td>05-18</td><td>45981</td><td>gpu07</td><td><code>bs=96 reshT sel AC — baseline</code></td><td>7.20%</td><td>1,257</td><td>14.3 GB</td><td><span class="sp sp-b">reference</span></td></tr>
+              <!-- 1-GPU -->
+              <tr class="grp-hdr"><td colspan="9">1-GPU disambiguator · FSDP2 degenerates to no-shard at 1 rank · reshT sel AC · gpu07</td></tr>
+              <tr><td>1GPU-128</td><td>05-16</td><td>45477</td><td>gpu07</td><td><code>bs=128 reshT sel — 1 GPU</code></td><td>21.88%</td><td>478/GPU</td><td>20.7 GB</td><td><span class="sp sp-g">+6.7% local</span></td></tr>
+              <tr><td>1GPU-96</td><td>05-16</td><td>45476</td><td>gpu07</td><td><code>bs=96 reshT sel — 1 GPU</code></td><td>20.49%</td><td>448/GPU</td><td>16.1 GB</td><td><span class="sp sp-b">1-GPU ref</span></td></tr>
+              <!-- reshF matrix -->
+              <tr class="grp-hdr"><td colspan="9">reshard × AC matrix (bs=96) · note: reshF-sel and reshF-full ran on gpu03/gpu05 — cross-node timing</td></tr>
+              <tr><td>reshF-full</td><td>05-15</td><td>45370</td><td>gpu05</td><td><code>bs=96 reshF full AC</code></td><td>7.59%</td><td>1,326</td><td>9.1 GB</td><td><span class="sp sp-g">done · x-node</span></td></tr>
+              <tr><td>reshF-sel</td><td>05-15</td><td>45369</td><td>gpu03</td><td><code>bs=96 reshF sel AC</code></td><td>7.47%</td><td>1,305</td><td>14.5 GB</td><td><span class="sp sp-g">done · x-node</span></td></tr>
+              <tr><td>reshT-noAC</td><td>05-15</td><td>45367</td><td>gpu07</td><td><code>bs=96 reshT no AC</code></td><td>7.32%</td><td>1,279</td><td>24.9 GB</td><td><span class="sp sp-g">done</span></td></tr>
+              <tr><td>reshF-noAC</td><td>05-15</td><td>45368</td><td>gpu07</td><td><code>bs=96 reshF no AC</code></td><td>6.54%</td><td>1,143</td><td>25.1 GB</td><td><span class="sp sp-r">worst cell</span></td></tr>
+              <!-- main matrix -->
+              <tr class="grp-hdr"><td colspan="9">Batch × AC matrix (primary) · all reshT · 1000 i with forced eval+ckpt at iter 400/800</td></tr>
+              <tr class="rh"><td>reshT-sel ★</td><td>05-15</td><td>45280</td><td>gpu07</td><td><code>bs=96 reshT sel AC</code></td><td>7.73%</td><td>1,351</td><td>14.3 GB</td><td><span class="sp sp-g">★ default</span></td></tr>
+              <tr class="rh"><td>reshT-full 💾</td><td>05-15</td><td>45281</td><td>gpu07</td><td><code>bs=96 reshT full AC</code></td><td>7.54%</td><td>1,317</td><td>8.9 GB</td><td><span class="sp sp-g">💾 fallback</span></td></tr>
+              <tr><td>bs128-sel-v2</td><td>05-15</td><td>45366</td><td>gpu07</td><td><code>bs=128 reshT sel AC</code><span class="cfg-note">clean rerun on gpu07 — replaces bs128-sel-BAD</span></td><td>7.30%</td><td>1,276</td><td>18.9 GB</td><td><span class="sp sp-g">no advantage</span></td></tr>
+              <tr><td>bs128-full</td><td>05-15</td><td>45364</td><td>gpu03</td><td><code>bs=128 reshT full AC</code></td><td>7.42%</td><td>1,297</td><td>11.7 GB</td><td><span class="sp sp-g">dominated · x-node</span></td></tr>
+              <tr><td>bs128-noAC</td><td>05-15</td><td>45282</td><td>gpu07</td><td><code>bs=128 reshT no AC (memprofile)</code></td><td>7.25%</td><td>1,267</td><td>33.0 GB</td><td><span class="sp sp-a">OOM unresolved</span></td></tr>
+              <tr class="ra"><td>bs128-sel-BAD</td><td>05-15</td><td>45363</td><td>gpu01</td><td><code>bs=128 reshT sel AC</code><span class="cfg-note">8-GPU job — GPU-exclusive; step time halved at iter 400 (604→297 ms); cause unknown (CPU co-scheduling, thermal, or NCCL algo reselection — not another GPU job). Memory (18.9 GB) trustworthy; timing is not.</span></td><td>19.55%</td><td>3,416 !!!</td><td>18.9 GB</td><td><span class="sp sp-a">⚠ timing artifact</span></td></tr>
+              <!-- early baselines -->
+              <tr class="grp-hdr"><td colspan="9">Early baselines · FSDP2 ZeRO-3 · no AC · reshT (default) · no NCCL overrides</td></tr>
+              <tr><td>VAR2</td><td>05-14</td><td>44794</td><td>gpu05</td><td><code>bs=96 reshT no AC</code></td><td>7.01%</td><td>1,224</td><td>24.9 GB</td><td><span class="sp sp-b">variance ref</span></td></tr>
+              <tr><td>VAR1</td><td>05-14</td><td>44793</td><td>gpu01</td><td><code>bs=96 reshT no AC</code></td><td>7.39%</td><td>1,291</td><td>24.9 GB</td><td><span class="sp sp-b">variance ref</span></td></tr>
+              <tr class="ra"><td>P5-00</td><td>05-13</td><td>44023</td><td>gpu08</td><td><code>bs=96 reshT no AC</code></td><td>14.67%</td><td>2,564</td><td>24.9 GB</td><td><span class="sp sp-a">⚠ gpu08 idle outlier</span></td></tr>
+              <tr class="rf"><td>P5-stacked</td><td>05-13</td><td>44024</td><td>gpu08</td><td><code>bs=96 reshF + NCCL_ALGO=NVLS + DEBUG=INFO</code><span class="cfg-note">3 knobs changed at once — confounded</span></td><td>6.59%</td><td>1,151</td><td>25.1 GB</td><td><span class="sp sp-r">confounded</span></td></tr>
+              <!-- Archived DDP reference -->
+              <tr class="grp-hdr"><td colspan="9">⚠ ARCHIVED — pre-Phase-5 DDP screening · NOT a current benchmark target · do not use as evidence FSDP2 is underperforming</td></tr>
+              <tr class="ra"><td>DDP-128</td><td>04-03</td><td>9631</td><td>—</td><td><code>DDP bs=128 no AC, compile=true · 100-iter screening</code><span class="cfg-note">archived reference. Step-time was ~250 ms across iters 10–99 with no degradation visible. <strong>Convention-mismatched against Phase 5</strong> — see measurement caveat below.</span></td><td>23.1%</td><td>~4,042</td><td>~34.0 GB</td><td><span class="sp sp-b">archived</span></td></tr>
+              <tr class="ra"><td>DDP-ES-128</td><td>04-03</td><td>9651</td><td>—</td><td><code>DDP + expandable_segments bs=128 no AC · 100-iter screening</code></td><td>22.9%</td><td>~3,993</td><td>~34.1 GB</td><td><span class="sp sp-b">archived</span></td></tr>
+              <tr class="ra"><td>DDP-64</td><td>04-03</td><td>9630</td><td>—</td><td><code>DDP bs=64 no AC · 100-iter screening</code></td><td>18.1%</td><td>~3,169</td><td>n/a</td><td><span class="sp sp-b">archived</span></td></tr>
+              <tr class="ra"><td colspan="9" style="background:#fef3c7;border-left:4px solid #d97706;padding:10px;font-size:12px;line-height:1.55">
+                <strong>⚠ Measurement caveat (added 2026-05-21).</strong> These DDP rows are <em>archived pre-Phase-5 short-soak screening runs (100 iters total)</em>, not current performance targets. The new matched May 21 DDP bs=96 calibration (<strong>job 48312</strong>, 1000 iters, same MFU formula <code>226.4 GMACs/img</code>, same dataset, same script knobs) reported steady-state <strong>~1,400 img/s · ~8 % MFU on iter 400–999</strong> — far below the archived ~4,042 img/s / 23 % MFU. Re-parsing 9631 shows step_ms held at ~250 ms across its full iter 10–99 window with no degradation; 48312 starts at iter 10 = 198 ms but degrades to ~545 ms by iter 30 and stays there. Two plausible reads: <strong>(a)</strong> 9631 was simply too short — it lacks a matched long-window validation and may have measured a startup regime the longer run leaves; <strong>(b)</strong> code/runtime drift across the 7 weeks since 2026-04-03 changed steady-state kernel timing. Hypothesis (a) and (b) are not mutually exclusive. Additional confounds we have <em>not</em> yet ruled out: recipe/config drift (precision, crops, masks, allocator, env), runtime drift (PyTorch/NCCL/CUDA, GPU clocks, thermal), compile/dynamic-shape recompiles after early iters (iBOT mask shapes vary by step), per-rank stragglers timed at rank 0. <strong>Until the original 100-iter DDP screening recipe is rerun on today's codebase, treat 18–23 % MFU as historical context only — not as evidence FSDP2 should match ~4 k img/s.</strong>
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  </div>
+
+</div>
+</body>
+</html>

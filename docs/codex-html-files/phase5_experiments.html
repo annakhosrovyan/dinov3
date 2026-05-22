@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 5 Experiments</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">DINOv3 Phase 5</div>
+      <nav class="nav" aria-label="Phase 5 pages">
+        <a href="phase5_current.html">Current</a>
+        <a href="phase5_experiments.html" aria-current="page">Experiments</a>
+        <a href="phase5_mental_model.html">Mental Model</a>
+        <a href="phase5_archive.html">Archive</a>
+      </nav>
+      <p class="source-note">Use this page for evidence. Keep interpretation short and push historical narrative to the archive.</p>
+    </aside>
+
+    <main class="content">
+      <p class="eyebrow">Evidence without the notebook fog</p>
+      <h1>Experiment ledger, compressed into decision-shaped rows.</h1>
+      <p class="lede">Filter by batch, AC mode, knob, or verdict. Each row carries one interpretation sentence so the table stays readable.</p>
+
+      <section class="filters" aria-label="experiment filters">
+        <label>Batch
+          <select id="batchFilter">
+            <option value="all">All</option>
+            <option value="96">bs=96</option>
+            <option value="128">bs=128</option>
+            <option value="mixed">mixed</option>
+          </select>
+        </label>
+        <label>AC Mode
+          <select id="acFilter">
+            <option value="all">All</option>
+            <option value="none">none</option>
+            <option value="selective">selective</option>
+            <option value="full">full</option>
+            <option value="mixed">mixed</option>
+          </select>
+        </label>
+        <label>Knob
+          <select id="knobFilter">
+            <option value="all">All</option>
+            <option value="baseline">baseline</option>
+            <option value="LL128">LL128</option>
+            <option value="NORS">NORS</option>
+            <option value="NVLS">NVLS</option>
+            <option value="reshard">reshard</option>
+            <option value="nsys">nsys</option>
+          </select>
+        </label>
+        <label>Verdict
+          <select id="verdictFilter">
+            <option value="all">All</option>
+            <option value="winner">winner</option>
+            <option value="candidate">candidate</option>
+            <option value="neutral">neutral</option>
+            <option value="parked">parked</option>
+            <option value="regression">regression</option>
+            <option value="untrusted">untrusted</option>
+            <option value="failed">failed</option>
+          </select>
+        </label>
+      </section>
+
+      <div class="table-wrap">
+        <table id="experimentTable">
+          <thead>
+            <tr>
+              <th>Run / Jobs</th>
+              <th>Config</th>
+              <th>Result</th>
+              <th>Verdict</th>
+              <th>Interpretation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr data-batch="96" data-ac="selective" data-knob="baseline" data-verdict="winner">
+              <td>AC matrix 45280</td>
+              <td>bs=96, selective AC, reshard true</td>
+              <td>1351 img/s, 7.73% MFU, 14.3 GB</td>
+              <td><span class="pill good">winner</span></td>
+              <td>Best clean matrix cell; current throughput candidate before LL128.</td>
+            </tr>
+            <tr data-batch="96" data-ac="full" data-knob="baseline" data-verdict="candidate">
+              <td>AC matrix 45281</td>
+              <td>bs=96, full AC, reshard true</td>
+              <td>1317 img/s, 7.54% MFU, 8.9 GB</td>
+              <td><span class="pill info">fallback</span></td>
+              <td>Nearly same throughput as selective, much lower memory; keep as memory fallback.</td>
+            </tr>
+            <tr data-batch="96" data-ac="none" data-knob="baseline" data-verdict="neutral">
+              <td>AC matrix 45367</td>
+              <td>bs=96, no AC, reshard true</td>
+              <td>1279 img/s, 7.32% MFU, 24.9 GB</td>
+              <td><span class="pill warn">superseded</span></td>
+              <td>Selective AC improved both throughput and memory in this regime.</td>
+            </tr>
+            <tr data-batch="96" data-ac="none" data-knob="reshard" data-verdict="regression">
+              <td>AC matrix 45368</td>
+              <td>bs=96, no AC, reshard false</td>
+              <td>1143 img/s, 6.54% MFU, 25.1 GB</td>
+              <td><span class="pill bad">regression</span></td>
+              <td>Worst matrix cell; avoid no-reshard without AC.</td>
+            </tr>
+            <tr data-batch="96" data-ac="selective" data-knob="reshard" data-verdict="neutral">
+              <td>AC matrix 45369</td>
+              <td>bs=96, selective AC, reshard false</td>
+              <td>1305 img/s, 7.47% MFU, 14.5 GB</td>
+              <td><span class="pill warn">cross-node</span></td>
+              <td>Close enough to reshard true that timing should not be overread across nodes.</td>
+            </tr>
+            <tr data-batch="128" data-ac="none" data-knob="baseline" data-verdict="parked">
+              <td>Memory profile 45282</td>
+              <td>bs=128, no AC, reshard true</td>
+              <td>1267 img/s, 7.25% MFU, 33.0 GB</td>
+              <td><span class="pill warn">parked</span></td>
+              <td>Survived 1000 iters but did not beat bs=96+AC and has unresolved long-run OOM history.</td>
+            </tr>
+            <tr data-batch="128" data-ac="selective" data-knob="baseline" data-verdict="parked">
+              <td>AC matrix 45366</td>
+              <td>bs=128, selective AC, reshard true</td>
+              <td>1276 img/s, 7.30% MFU, 18.9 GB</td>
+              <td><span class="pill warn">parked</span></td>
+              <td>Same-node rerun killed the earlier gpu01 artifact; no 8-GPU upside.</td>
+            </tr>
+            <tr data-batch="128" data-ac="full" data-knob="baseline" data-verdict="neutral">
+              <td>AC matrix 45364</td>
+              <td>bs=128, full AC, reshard true</td>
+              <td>1297 img/s, 7.42% MFU, 11.7 GB</td>
+              <td><span class="pill warn">dominated</span></td>
+              <td>More memory than bs=96 full with roughly similar throughput.</td>
+            </tr>
+            <tr data-batch="96" data-ac="selective" data-knob="LL128" data-verdict="winner">
+              <td>Stage A A2 / job 45983</td>
+              <td>bs=96, selective AC, LL128</td>
+              <td>1408.9 img/s, 8.06% MFU, CV 4.9%</td>
+              <td><span class="pill good">winner</span></td>
+              <td>Cleanest NCCL signal: +12% vs Stage A baseline with lower jitter.</td>
+            </tr>
+            <tr data-batch="96" data-ac="selective" data-knob="NORS" data-verdict="candidate">
+              <td>Stage A A5</td>
+              <td>bs=96, selective AC, avoid record streams</td>
+              <td>1329.5 img/s, 7.61% MFU</td>
+              <td><span class="pill info">secondary</span></td>
+              <td>Standalone win, but less clean than LL128 and did not survive stacking clearly.</td>
+            </tr>
+            <tr data-batch="96" data-ac="selective" data-knob="LL128 NORS" data-verdict="untrusted">
+              <td>Stage B B1 / Stage C C3</td>
+              <td>bs=96, selective AC, LL128 + NORS</td>
+              <td>B1: 1183 img/s; C3: 1319 img/s</td>
+              <td><span class="pill warn">unresolved</span></td>
+              <td>Opposite signs across start states; omit from defaults because it is harder to defend.</td>
+            </tr>
+            <tr data-batch="96" data-ac="full" data-knob="LL128" data-verdict="candidate">
+              <td>Stage B B2</td>
+              <td>bs=96, full AC, LL128</td>
+              <td>1355.1 img/s, 7.76% MFU</td>
+              <td><span class="pill info">candidate</span></td>
+              <td>Suggests LL128 helps full AC too; no evidence it preferentially improves overlap.</td>
+            </tr>
+            <tr data-batch="128" data-ac="selective" data-knob="LL128" data-verdict="parked">
+              <td>Stage C C2</td>
+              <td>bs=128, selective AC, LL128</td>
+              <td>1194 img/s over iters 200-999</td>
+              <td><span class="pill warn">parked</span></td>
+              <td>Long run did not recover bs=128 upside; lower CV is diagnostic only.</td>
+            </tr>
+            <tr data-batch="96" data-ac="selective" data-knob="LL128" data-verdict="untrusted">
+              <td>Stage C C1</td>
+              <td>bs=96, selective AC, LL128, 1000 iters</td>
+              <td>1232 img/s over iters 200-999</td>
+              <td><span class="pill warn">regime shift</span></td>
+              <td>Same config as A2 but much slower; shows cluster or start-state variance is material.</td>
+            </tr>
+            <tr data-batch="96" data-ac="selective" data-knob="NVLS" data-verdict="regression">
+              <td>Stage A A1</td>
+              <td>bs=96, selective AC, explicit NVLS</td>
+              <td>1147.8 img/s, -8.7%</td>
+              <td><span class="pill bad">regression</span></td>
+              <td>Do not force NVLS from the current evidence.</td>
+            </tr>
+            <tr data-batch="mixed" data-ac="mixed" data-knob="nsys" data-verdict="candidate">
+              <td>nsys 39140 / 39141</td>
+              <td>8-GPU FSDP2 traces at bs=128 and bs=96</td>
+              <td>NCCL 70-80% kernel time; overlap 11-16%</td>
+              <td><span class="pill info">bottleneck</span></td>
+              <td>Best evidence that the main problem is distributed scaling, not local kernel speed.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const filters = {
+      batch: document.getElementById("batchFilter"),
+      ac: document.getElementById("acFilter"),
+      knob: document.getElementById("knobFilter"),
+      verdict: document.getElementById("verdictFilter")
+    };
+    const rows = Array.from(document.querySelectorAll("#experimentTable tbody tr"));
+
+    function matches(row, key, value) {
+      if (value === "all") return true;
+      return row.dataset[key].split(" ").includes(value);
+    }
+
+    function applyFilters() {
+      rows.forEach((row) => {
+        const visible =
+          matches(row, "batch", filters.batch.value) &&
+          matches(row, "ac", filters.ac.value) &&
+          matches(row, "knob", filters.knob.value) &&
+          matches(row, "verdict", filters.verdict.value);
+        row.style.display = visible ? "" : "none";
+      });
+    }
+
+    Object.values(filters).forEach((filter) => filter.addEventListener("change", applyFilters));
+  </script>
+</body>
+</html>

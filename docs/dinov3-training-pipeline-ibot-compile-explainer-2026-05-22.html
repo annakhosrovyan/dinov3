@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DINOv3 Training Pipeline, iBOT, and Compile/CUDA Graphs</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --surface: #ffffff;
+      --ink: #172033;
+      --muted: #5d6878;
+      --line: #d8dee9;
+      --blue: #2563eb;
+      --green: #16803a;
+      --amber: #a16207;
+      --red: #b42318;
+      --purple: #6d28d9;
+      --code-bg: #111827;
+      --code-ink: #e5e7eb;
+      --inline-code-bg: #eef1f6;
+      --soft-blue: #eef4ff;
+      --soft-green: #ecfdf3;
+      --soft-amber: #fff7e6;
+      --soft-red: #fff1f0;
+      --soft-purple: #f5f3ff;
+      --step-bg: #fbfcff;
+      --note-bg: #f8fbff;
+      --th-bg: #f1f5f9;
+      --shadow: 0 1px 2px rgba(15, 23, 42, .08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1020;
+        --surface: #141b2d;
+        --ink: #e5e7eb;
+        --muted: #a7b0bf;
+        --line: #2b3548;
+        --blue: #93c5fd;
+        --green: #86efac;
+        --amber: #fbbf24;
+        --red: #fca5a5;
+        --purple: #c4b5fd;
+        --code-bg: #050814;
+        --code-ink: #f8fafc;
+        --inline-code-bg: #243047;
+        --soft-blue: #10213d;
+        --soft-green: #0d2a1a;
+        --soft-amber: #2c2108;
+        --soft-red: #321312;
+        --soft-purple: #201637;
+        --step-bg: #101827;
+        --note-bg: #101a2d;
+        --th-bg: #1b2436;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .35);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.58 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 18px 64px; }
+    header {
+      background: var(--surface);
+      border-left: 5px solid var(--blue);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+    h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.15; letter-spacing: 0; }
+    h2 { margin: 0; font-size: 18px; line-height: 1.25; letter-spacing: 0; }
+    h3 { margin: 16px 0 7px; font-size: 15px; letter-spacing: 0; }
+    p { margin: 8px 0; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      background: var(--inline-code-bg);
+      color: var(--ink);
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    pre {
+      margin: 10px 0 0;
+      padding: 12px 14px;
+      overflow-x: auto;
+      color: var(--code-ink);
+      background: var(--code-bg);
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    pre code { background: transparent; color: inherit; padding: 0; }
+    ul, ol { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 4px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; background: var(--surface); }
+    th, td { border: 1px solid var(--line); padding: 8px 9px; text-align: left; vertical-align: top; }
+    th { background: var(--th-bg); color: var(--muted); font-size: 12px; text-transform: uppercase; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    .band {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 14px 0;
+      box-shadow: var(--shadow);
+    }
+    .blue { background: var(--soft-blue); border-color: color-mix(in srgb, var(--blue), var(--line) 55%); }
+    .green { background: var(--soft-green); border-color: color-mix(in srgb, var(--green), var(--line) 55%); }
+    .amber { background: var(--soft-amber); border-color: color-mix(in srgb, var(--amber), var(--line) 55%); }
+    .red { background: var(--soft-red); border-color: color-mix(in srgb, var(--red), var(--line) 55%); }
+    .purple { background: var(--soft-purple); border-color: color-mix(in srgb, var(--purple), var(--line) 55%); }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+    .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 { margin-bottom: 8px; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--step-bg);
+      min-height: 96px;
+    }
+    .step strong { display: block; margin-bottom: 4px; }
+    .note {
+      border-left: 4px solid var(--blue);
+      background: var(--note-bg);
+      padding: 10px 12px;
+      margin: 10px 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .note strong { display: block; margin-bottom: 3px; }
+    .refs { columns: 2; column-gap: 24px; }
+    @media (max-width: 960px) {
+      .grid, .two, .flow { grid-template-columns: 1fr; }
+      .refs { columns: 1; }
+      h1 { font-size: 23px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>DINOv3 Training Pipeline, iBOT, and Compile/CUDA Graphs</h1>
+      <p class="muted">A beginner-friendly map of the training loop, model pieces, iBOT masked-patch objective, and why dynamic masking matters for <code>torch.compile</code> and CUDA graphs.</p>
+      <p class="small"><strong>Date:</strong> 2026-05-22 · <strong>Theme:</strong> follows OS/browser light or dark mode automatically.</p>
+    </header>
+
+    <section class="band blue">
+      <h2>How To Learn This</h2>
+      <p>Do not start with CUDA graphs. Start with the training objective. Once the pipeline is clear, the compiler problem becomes much less mysterious.</p>
+      <ol>
+        <li>Understand the data flow: crops and masks go into a student/teacher self-supervised model.</li>
+        <li>Understand the losses: DINO CLS loss, iBOT masked patch loss, and KoLeo regularization.</li>
+        <li>Find the dynamic shape: not image height/width, but the number of selected masked patch tokens.</li>
+        <li>Connect that dynamic shape to PyTorch compile, graph breaks, recompiles, and CUDA graph replay.</li>
+      </ol>
+    </section>
+
+    <section class="band">
+      <h2>One-Sentence Mental Model</h2>
+      <p>DINOv3 self-supervised training creates multiple views of each image, runs a student and teacher network, asks the student to match the teacher at both image-level and masked-patch-level, then updates only the student while the teacher follows as an EMA copy.</p>
+      <div class="note">
+        <strong>Why this matters for performance</strong>
+        The training step is not just "run a ViT once." It is multi-crop, student-teacher, multi-loss, distributed, and partially stochastic. That is why compiler assumptions about repeated identical shapes can break.
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>The Training Pipeline</h2>
+      <div class="flow">
+        <div class="step"><strong>1. Dataset sample</strong>Raw image-like data is augmented into multiple crops.</div>
+        <div class="step"><strong>2. Collate</strong>Batch builder stacks crops and creates patch masks.</div>
+        <div class="step"><strong>3. Teacher</strong>Teacher sees global crops and produces targets.</div>
+        <div class="step"><strong>4. Student</strong>Student sees global + local crops and predicts.</div>
+        <div class="step"><strong>5. Loss + update</strong>DINO, iBOT, KoLeo losses drive student update; teacher follows by EMA.</div>
+      </div>
+      <p class="small">Code anchors: <a href="../dinov3/data/collate.py">collate.py:11</a>, <a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:379</a>, <a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:463</a>, <a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:561</a>.</p>
+    </section>
+
+    <section class="band purple">
+      <h2>Vocabulary Before the Architecture</h2>
+      <table>
+        <thead><tr><th>Concept</th><th>Meaning</th><th>Why it matters</th></tr></thead>
+        <tbody>
+          <tr><td>Crop / view</td><td>A transformed/resized version of the same source image.</td><td>Different views should produce compatible representations.</td></tr>
+          <tr><td>Global crop</td><td>A larger view, e.g. 224x224 in the default config.</td><td>Teacher and student both use global crops.</td></tr>
+          <tr><td>Local crop</td><td>A smaller view with fewer ViT tokens.</td><td>The student sees extra local crops, so it does more work than the teacher.</td></tr>
+          <tr><td>CLS token</td><td>A learned summary token produced by the ViT.</td><td>DINO loss compares image-level outputs through the DINO head.</td></tr>
+          <tr><td>Patch token</td><td>A token representing one image patch.</td><td>iBOT operates on selected masked patch tokens.</td></tr>
+          <tr><td>Mask</td><td>A boolean pattern saying which patches are hidden/selected.</td><td>The number of selected masked patches varies, creating dynamic tensor shapes.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band">
+      <h2>What Is iBOT?</h2>
+      <p>iBOT is a masked image modeling objective used alongside DINO. It is not specific to this fork. In this repo it is implemented as a first-class DINOv3 loss.</p>
+      <div class="two">
+        <div class="card">
+          <h2>DINO Loss</h2>
+          <p>Works mostly at the image-summary level. The teacher and student produce CLS-token outputs. The student is trained to match teacher targets across crops.</p>
+          <p class="small">Code: <a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:85,488,642-664</a>.</p>
+        </div>
+        <div class="card">
+          <h2>iBOT Loss</h2>
+          <p>Works at the patch level. Some patches are masked/selected; the student predicts teacher-style patch targets for those selected patches.</p>
+          <p class="small">Code: <a href="../dinov3/loss/ibot_patch_loss.py">ibot_patch_loss.py:61</a>, <a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:129,672-680</a>.</p>
+        </div>
+      </div>
+      <div class="note">
+        <strong>Plain-English analogy</strong>
+        DINO asks: "Do these different views of the same image produce compatible overall representations?" iBOT asks: "Can the model infer useful patch-level information when only some patch positions are supervised?"
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>Where iBOT Enters the Code</h2>
+      <table>
+        <thead><tr><th>Step</th><th>Code evidence</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Loss is created</td><td><a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:129</a></td><td><code>self.ibot_patch_loss = iBOTPatchLoss(...)</code></td></tr>
+          <tr><td>Mask indices are loaded on GPU</td><td><a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:399</a></td><td>The training step receives <code>mask_indices_list</code> from the collate function.</td></tr>
+          <tr><td>Student masked patch tokens are selected</td><td><a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:585</a></td><td><code>torch.index_select(..., index=mask_indices_list)</code> creates a variable-length tensor.</td></tr>
+          <tr><td>Student iBOT head runs</td><td><a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:586</a></td><td>The selected masked patch tokens go through <code>student.ibot_head</code>.</td></tr>
+          <tr><td>iBOT loss is added</td><td><a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:672-680</a></td><td>The masked patch loss contributes to the total loss.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band red">
+      <h2>The Dynamic Masking Problem</h2>
+      <p>The shape issue is not simply whether images are resized to fixed dimensions. The key dynamic shape is the number of masked patch tokens.</p>
+      <pre><code>mask_indices_list = collated_masks.flatten().nonzero().flatten()</code></pre>
+      <p>That line means: flatten the mask, find every location that is masked, and return the indices of those locations. If this batch masks 7,503 patches, the tensor has length 7,503. If the next batch masks 7,489 patches, the tensor has length 7,489.</p>
+      <p class="small">Code: <a href="../dinov3/data/collate.py">dinov3/data/collate.py:63,100,107</a>.</p>
+      <div class="note">
+        <strong>Answer to Armen's fixed-shape question</strong>
+        Yes, the crops can be fixed-size. But iBOT creates a second downstream shape: "how many masked patches were selected this batch?" That count is stochastic, and that is the shape that can break static compile/CUDA graph assumptions.
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>Shape Flow: From Mask to Compiler Problem</h2>
+      <table>
+        <thead><tr><th>Tensor / operation</th><th>Shape behavior</th><th>Compiler implication</th></tr></thead>
+        <tbody>
+          <tr><td><code>global_crops</code>, <code>local_crops</code></td><td>Usually fixed per crop type.</td><td>Backbone-only CUDA graphs may be feasible.</td></tr>
+          <tr><td><code>collated_masks</code></td><td>Fixed outer size, but random true/false pattern.</td><td>Pattern variation is fine; count variation becomes the issue.</td></tr>
+          <tr><td><code>mask_indices_list</code></td><td>Length equals number of masked patches; varies per batch.</td><td>Creates dynamic shape guards/recompiles or breaks static graph assumptions.</td></tr>
+          <tr><td><code>masked_patches_pre_head</code></td><td>Shape is <code>[n_masked_patches, D]</code>.</td><td>iBOT head/loss sees a different first dimension across iterations.</td></tr>
+          <tr><td><code>ibot_head</code> and iBOT loss</td><td>Operate downstream of the dynamic selected-token tensor.</td><td>Full-step CUDA graphs likely require padding or bucketing here.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band amber">
+      <h2>What Is <code>torch.compile</code>?</h2>
+      <p><code>torch.compile</code> asks PyTorch to observe Python/PyTorch execution, capture regions as graphs, and lower those graphs into optimized execution. In this repo we usually reach it through <code>nn.Module.compile()</code>.</p>
+      <pre><code>if use_cuda_graphs and is_backbone_block:
+    module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})
+elif compile_mode is not None:
+    module.compile(mode=compile_mode)
+else:
+    module.compile()</code></pre>
+      <p class="small">Code: <a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:65-76</a>.</p>
+      <div class="note">
+        <strong>Key distinction</strong>
+        "Compile is on" does not mean "we are using the strictest, fastest, static-shape path." Phase 5 mostly used plain <code>module.compile()</code>. Armen is asking about the stricter <code>fullgraph=True</code> / CUDA graph path.
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>What Are CUDA Graphs?</h2>
+      <p>CUDA graphs are a GPU launch optimization. Instead of the CPU launching many kernels one by one every iteration, a repeated launch sequence can be captured once and replayed more cheaply.</p>
+      <div class="two">
+        <div class="card">
+          <h2>Why they can help</h2>
+          <ul>
+            <li>Large training steps launch many GPU kernels.</li>
+            <li>CPU launch overhead and Python overhead can become visible.</li>
+            <li>Replay is cheaper if the same sequence repeats with the same shapes and memory patterns.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h2>Why they are strict</h2>
+          <ul>
+            <li>Shapes should be stable.</li>
+            <li>Control flow should be stable.</li>
+            <li>Memory addresses and allocation patterns are harder to vary.</li>
+            <li>Unsupported Python/PyTorch operations can cause capture failure.</li>
+          </ul>
+        </div>
+      </div>
+      <p>That is why iBOT dynamic masking is not a cosmetic issue. It changes the shape of tensors in the training step.</p>
+    </section>
+
+    <section class="band">
+      <h2>Why Phase 6 Splits the Problem</h2>
+      <table>
+        <thead><tr><th>Phase</th><th>What it teaches</th><th>Why not skip straight to fullgraph?</th></tr></thead>
+        <tbody>
+          <tr><td>6.1 diagnostics</td><td>Whether current compile is recompiling or graph-breaking.</td><td>Without logs, a slow result is ambiguous.</td></tr>
+          <tr><td>6.2 backbone CUDA graphs</td><td>Whether the fixed-shape backbone blocks can benefit immediately.</td><td>It isolates the easy/static part from the dynamic iBOT part.</td></tr>
+          <tr><td>6.3 static iBOT pilot</td><td>Whether padding/bucketing masked tokens is correct and affordable.</td><td>Changing the iBOT objective path is riskier than flipping a compile flag.</td></tr>
+          <tr><td>6.4 end-to-end test</td><td>Whether Armen's full recommendation moves real steady-state MFU.</td><td>Only meaningful after static-shape blockers are addressed or proven absent.</td></tr>
+        </tbody>
+      </table>
+      <p class="small">Related plan: <a href="phase6_perf_plan.md">docs/phase6_perf_plan.md</a>.</p>
+    </section>
+
+    <section class="band green">
+      <h2>What You Should Be Able To Explain After Reading This</h2>
+      <ul>
+        <li>iBOT is a masked patch prediction objective, not a fork-only feature.</li>
+        <li>The model has fixed crop sizes, but iBOT can still create variable-length masked-token tensors.</li>
+        <li><code>train.compile=true</code> means this repo enables PyTorch compile wrappers, not necessarily fullgraph CUDA graphs.</li>
+        <li><code>fullgraph=True</code> is both an optimization attempt and a diagnostic: if it fails, the failure tells us what blocks graph capture.</li>
+        <li>Phase 6 should test the easy static part first, then make the dynamic iBOT path static via padding/bucketing, then run the end-to-end fullgraph/CUDA graph experiment.</li>
+      </ul>
+    </section>
+
+    <section class="band">
+      <h2>Recommended Reading Order</h2>
+      <ol>
+        <li>This page, top to bottom.</li>
+        <li><a href="torch-compile-dinov3-phase5-2026-05-21.html">torch-compile-dinov3-phase5-2026-05-21.html</a> for the compile wrapper and Phase 6 plan.</li>
+        <li><a href="phase6_perf_plan.md">phase6_perf_plan.md</a> for the operational experiment sequence.</li>
+        <li><a href="../04_architecture_and_mfu_teaching_guide.md">04_architecture_and_mfu_teaching_guide.md</a> for a broader model/MFU walkthrough.</li>
+        <li>Then read code in this order: <a href="../dinov3/data/collate.py">collate.py</a> -> <a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py</a> -> <a href="../dinov3/loss/ibot_patch_loss.py">ibot_patch_loss.py</a> -> <a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py</a>.</li>
+      </ol>
+    </section>
+
+    <section class="band">
+      <h2>Evidence Index</h2>
+      <ul class="refs">
+        <li><a href="../dinov3/data/collate.py">dinov3/data/collate.py:11</a> - collate entry point.</li>
+        <li><a href="../dinov3/data/collate.py">dinov3/data/collate.py:63,100,107</a> - <code>mask_indices_list = collated_masks.flatten().nonzero().flatten()</code>.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:19</a> - imports <code>iBOTPatchLoss</code>.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:85</a> - creates DINO loss.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:129</a> - creates iBOT patch loss.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:379</a> - training step <code>forward_backward</code>.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:399</a> - moves <code>mask_indices_list</code> to GPU.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:463</a> - teacher output path.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:561</a> - student output path.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:585-586</a> - selected masked patch tokens go through <code>ibot_head</code>.</li>
+        <li><a href="../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py:642-680</a> - DINO, KoLeo, and iBOT losses are accumulated.</li>
+        <li><a href="../dinov3/loss/ibot_patch_loss.py">dinov3/loss/ibot_patch_loss.py:61</a> - <code>iBOTPatchLoss</code> class.</li>
+        <li><a href="../dinov3/models/vision_transformer.py">dinov3/models/vision_transformer.py:222</a> - ViT <code>forward_features_list</code>.</li>
+        <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py:65-76</a> - compile/CUDA graph wrapper branch.</li>
+        <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py:97-101</a> - transformer block compile path.</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

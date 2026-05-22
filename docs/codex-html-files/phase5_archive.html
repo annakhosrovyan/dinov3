@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 5 Archive</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">DINOv3 Phase 5</div>
+      <nav class="nav" aria-label="Phase 5 pages">
+        <a href="phase5_current.html">Current</a>
+        <a href="phase5_experiments.html">Experiments</a>
+        <a href="phase5_mental_model.html">Mental Model</a>
+        <a href="phase5_archive.html" aria-current="page">Archive</a>
+      </nav>
+      <p class="source-note">This page keeps history available without letting it dominate the current plan.</p>
+    </aside>
+
+    <main class="content">
+      <p class="eyebrow">History sink</p>
+      <h1>Old findings stay visible, but they stop driving the page.</h1>
+      <p class="lede">The archive is organized by decision relevance, not by every paragraph from the Markdown notebook.</p>
+
+      <section class="callout warning">
+        <h2>Archive Rule</h2>
+        <p>Historical entries are allowed to be messy. Current pages should not be. If an old claim conflicts with the current verdict, the current page wins.</p>
+      </section>
+
+      <h2>Timeline</h2>
+      <div class="timeline">
+        <article class="event">
+          <h3>2026-05-07 to 2026-05-08: nsys setup and trace capture</h3>
+          <p>Initial nsys jobs failed because <code>module load</code> was unavailable on GPU nodes. Later traces captured usable evidence: NCCL dominated kernel time and overlap was poor.</p>
+          <span class="pill info">still relevant</span>
+        </article>
+        <article class="event">
+          <h3>2026-05-13: early bs=96 baseline outlier</h3>
+          <p>One gpu08 baseline reported much higher MFU. Later node-variance work showed it was not representative of the common gpu01/gpu05/gpu07 regime.</p>
+          <span class="pill warn">superseded baseline</span>
+        </article>
+        <article class="event">
+          <h3>2026-05-14: selective AC first became real</h3>
+          <p>Selective AC ran cleanly at bs=96 and cut memory by about 10.6 GB. The initial "free win" language was later softened because one paired run was not enough for a universal claim.</p>
+          <span class="pill good">foundation result</span>
+        </article>
+        <article class="event">
+          <h3>2026-05-15: AC and batch matrix</h3>
+          <p>bs=96 selective AC became the throughput candidate. bs=96 full AC became the memory fallback. bs=128 remained investigational and then was parked after same-node reruns.</p>
+          <span class="pill good">decision-shaping</span>
+        </article>
+        <article class="event">
+          <h3>2026-05-16: single-GPU disambiguator</h3>
+          <p>bs=128 was faster per image on one GPU, proving local compute likes the larger batch. Since 8-GPU did not benefit, the lost gain is a distributed scaling issue.</p>
+          <span class="pill info">conceptual anchor</span>
+        </article>
+        <article class="event">
+          <h3>2026-05-18: NCCL Stage A</h3>
+          <p>LL128 was the clean positive result. NVLS, lower NTHREADS, and larger BUFFSIZE regressed. NORS was a secondary standalone win.</p>
+          <span class="pill good">LL128 signal</span>
+        </article>
+        <article class="event">
+          <h3>2026-05-18: NCCL Stage B</h3>
+          <p>LL128 + full AC looked reasonable, NORS stacking looked bad, and bs=128 + LL128 was too mixed-regime to trust at 300 iterations.</p>
+          <span class="pill warn">partly revised</span>
+        </article>
+        <article class="event">
+          <h3>2026-05-18: NCCL Stage C</h3>
+          <p>Longer runs exposed a regime shift: C1 did not reproduce Stage A A2, C2 did not rescue bs=128, and C3 contradicted B1 on NORS stacking. This changed the confidence language around production claims.</p>
+          <span class="pill warn">variance warning</span>
+        </article>
+      </div>
+
+      <h2>Superseded Claims</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Old framing</th>
+              <th>Replacement framing</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>bs=96 baseline is around 14.7% MFU.</td>
+              <td>Common working regime is closer to 7-8% MFU.</td>
+              <td>The gpu08 run was an outlier relative to later node-controlled results.</td>
+            </tr>
+            <tr>
+              <td>Selective AC has zero MFU cost.</td>
+              <td>Selective AC is throughput-positive in the measured bs=96 matrix.</td>
+              <td>"Zero cost" was too broad; the matrix result is strong enough without overclaiming.</td>
+            </tr>
+            <tr>
+              <td>bs=128 might recover with LL128 based on B3 aggregate.</td>
+              <td>bs=128 is parked for production.</td>
+              <td>B3 mixed early-fast and late-slow regimes; C2 did not show sustained upside.</td>
+            </tr>
+            <tr>
+              <td>NORS stacking is clearly bad.</td>
+              <td>NORS stacking is unresolved and omitted from defaults.</td>
+              <td>B1 and C3 had opposite signs under different start states.</td>
+            </tr>
+            <tr>
+              <td>LL128 production throughput is anchored at 1409 img/s.</td>
+              <td>LL128 is promising, but production magnitude is uncertain.</td>
+              <td>Stage C did not reproduce Stage A under the longer-run regime.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Parked Work</h2>
+      <div class="grid three">
+        <article class="card">
+          <h3>Packed multi-crop attention</h3>
+          <p>High effort. Keep as a future structural lever only if a fresh profile says forward attention dominates.</p>
+        </article>
+        <article class="card">
+          <h3>Explicit H2D copy stream</h3>
+          <p>H2D overlap was poor, but H2D was only about 1% of GPU time in usable traces. Low priority.</p>
+        </article>
+        <article class="card">
+          <h3>More blind NCCL env sweeps</h3>
+          <p>Useful once. Now only worth doing when a specific trace-backed question points to a knob.</p>
+        </article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

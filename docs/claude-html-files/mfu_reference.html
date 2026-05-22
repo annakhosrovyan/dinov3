@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MFU Implementation Reference — DINOv3</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22253a;
+      --border: #2e3150;
+      --accent: #6c8ef5;
+      --accent2: #a78bfa;
+      --green: #4ade80;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --orange: #fb923c;
+      --cyan: #22d3ee;
+      --text: #e2e8f0;
+      --muted: #8892b0;
+      --code-bg: #111827;
+      --highlight: #312e81;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      color: var(--accent);
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+
+    h2 {
+      font-size: 1.15rem;
+      color: var(--accent2);
+      margin: 2rem 0 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    h3 {
+      font-size: 0.95rem;
+      color: var(--cyan);
+      margin: 1rem 0 0.4rem;
+      font-weight: 600;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.1rem 1.25rem;
+    }
+
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    code, pre {
+      font-family: 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
+      font-size: 0.85rem;
+    }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      line-height: 1.7;
+      margin: 0.5rem 0;
+    }
+
+    .hl-fn     { color: #60a5fa; }  /* function name */
+    .hl-kw     { color: #c084fc; }  /* keyword */
+    .hl-str    { color: #4ade80; }  /* string/value */
+    .hl-num    { color: #fb923c; }  /* number */
+    .hl-cmt    { color: #64748b; font-style: italic; }  /* comment */
+    .hl-var    { color: #e2e8f0; }
+    .hl-op     { color: #fbbf24; }
+
+    .eq-box {
+      background: var(--surface2);
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      margin: 0.5rem 0;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+
+    .eq-box .label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.25rem;
+    }
+
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+
+    .pipe-step {
+      flex: 1;
+      min-width: 160px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      padding: 0.85rem 1rem;
+      position: relative;
+    }
+
+    .pipe-step:first-child { border-radius: 8px 0 0 8px; }
+    .pipe-step:last-child  { border-radius: 0 8px 8px 0; }
+
+    .pipe-step + .pipe-step::before {
+      content: '→';
+      position: absolute;
+      left: -14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-size: 1.1rem;
+      z-index: 1;
+    }
+
+    .pipe-fn   { font-size: 0.8rem; font-weight: 700; color: var(--accent2); margin-bottom: 0.3rem; font-family: monospace; }
+    .pipe-file { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.4rem; }
+    .pipe-desc { font-size: 0.78rem; color: var(--text); }
+    .pipe-out  { font-size: 0.72rem; color: var(--green); margin-top: 0.4rem; font-family: monospace; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin: 0.5rem 0;
+    }
+
+    th {
+      background: var(--surface2);
+      color: var(--muted);
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 0.45rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    td code {
+      background: var(--code-bg);
+      padding: 0.1em 0.4em;
+      border-radius: 4px;
+      font-size: 0.82rem;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.15em 0.5em;
+      border-radius: 4px;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-green  { background: #14532d; color: #4ade80; }
+    .badge-blue   { background: #1e3a5f; color: #60a5fa; }
+    .badge-purple { background: #2e1065; color: #c084fc; }
+    .badge-orange { background: #431407; color: #fb923c; }
+    .badge-yellow { background: #451a03; color: #fbbf24; }
+
+    .warn {
+      background: #1c1200;
+      border: 1px solid #78350f;
+      border-radius: 6px;
+      padding: 0.65rem 1rem;
+      font-size: 0.85rem;
+      color: var(--yellow);
+      margin: 0.5rem 0;
+    }
+
+    .warn::before { content: '⚠ '; }
+
+    .note {
+      background: #0c1a33;
+      border: 1px solid #1d3461;
+      border-radius: 6px;
+      padding: 0.65rem 1rem;
+      font-size: 0.85rem;
+      color: var(--text);
+      margin: 0.5rem 0;
+    }
+
+    .note::before { content: '→ '; color: var(--accent); }
+
+    .baseline-row-highlight { background: #1a2240; }
+
+    .loop-callout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 0.75rem 0;
+      font-size: 0.84rem;
+    }
+
+    .loop-label {
+      background: var(--surface2);
+      padding: 0.6rem 0.85rem;
+      color: var(--muted);
+      font-family: monospace;
+      font-size: 0.78rem;
+      border-right: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+    }
+
+    .loop-detail {
+      padding: 0.6rem 1rem;
+      color: var(--text);
+    }
+
+    .loop-detail code { color: var(--cyan); background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 3px; }
+
+    .section { margin-bottom: 2.5rem; }
+
+    .toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 2rem;
+      font-size: 0.87rem;
+    }
+
+    .toc a { color: var(--accent); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .toc ul { list-style: none; padding-left: 0; }
+    .toc li { padding: 0.2rem 0; }
+    .toc li::before { content: '›  '; color: var(--muted); }
+
+    .formula-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.1rem 1.4rem;
+      margin: 0.75rem 0;
+    }
+
+    .formula-line {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 1rem;
+      align-items: baseline;
+      padding: 0.2rem 0;
+      font-family: monospace;
+      font-size: 0.87rem;
+    }
+
+    .formula-lhs { color: var(--cyan); }
+    .formula-rhs { color: var(--text); }
+    .formula-rhs span.op { color: var(--yellow); }
+    .formula-rhs span.num { color: var(--orange); }
+    .formula-rhs span.var { color: #e2e8f0; }
+    .formula-rhs span.cmt { color: #64748b; font-style: italic; }
+
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  </style>
+</head>
+<body>
+
+<h1>MFU Implementation Reference — DINOv3</h1>
+<p class="subtitle">How Model FLOP Utilization is computed in this codebase · <code>dinov3/utils/mfu.py</code></p>
+
+<nav class="toc">
+  <strong style="color:var(--muted); font-size:0.75rem; letter-spacing:0.08em; text-transform:uppercase;">Contents</strong>
+  <ul style="margin-top:0.5rem; columns: 2;">
+    <li><a href="#pipeline">Call pipeline</a></li>
+    <li><a href="#layer1">Layer 1 — vit_forward_flops()</a></li>
+    <li><a href="#layer2">Layer 2 — compute_dino_flops_per_image()</a></li>
+    <li><a href="#layer3">Layer 3 — compute_mfu()</a></li>
+    <li><a href="#trainloop">Where it runs in train.py</a></li>
+    <li><a href="#gotchas">Critical gotchas — the two 2× multipliers</a></li>
+    <li><a href="#constants">Constants &amp; config wiring</a></li>
+    <li><a href="#baselines">Baseline results</a></li>
+    <li><a href="#tests">Test anchors</a></li>
+  </ul>
+</nav>
+
+<!-- ─── PIPELINE OVERVIEW ─── -->
+<section class="section" id="pipeline">
+  <h2>⟶ Call Pipeline</h2>
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-fn">vit_forward_flops()</div>
+      <div class="pipe-file">mfu.py:20</div>
+      <div class="pipe-desc">MACs for one forward pass through the ViT backbone for a single image at a given crop resolution.</div>
+      <div class="pipe-out">→ int (MACs)</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-fn">compute_dino_flops_per_image()</div>
+      <div class="pipe-file">mfu.py:52</div>
+      <div class="pipe-desc">Assembles student fwd+bwd, teacher fwd (global only), optional gram fwd, and head overhead into total MACs per image.</div>
+      <div class="pipe-out">→ int (MACs/image)</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-fn">compute_mfu()</div>
+      <div class="pipe-file">mfu.py:111</div>
+      <div class="pipe-desc">Converts MACs → hardware FLOPs (×2), divides by GPU peak. Returns fraction 0–1.</div>
+      <div class="pipe-out">→ float (0.0 – 1.0)</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-fn">train.py loop</div>
+      <div class="pipe-file">train.py:670</div>
+      <div class="pipe-desc">CUDA event timing → images_per_sec → compute_mfu() → logged to console + WandB as <code>mfu_pct</code>.</div>
+      <div class="pipe-out">→ logged % each iter</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── LAYER 1 ─── -->
+<section class="section" id="layer1">
+  <h2>① vit_forward_flops() <span style="font-size:0.8rem; color:var(--muted); font-weight:400">— mfu.py:20</span></h2>
+  <p style="font-size:0.88rem; color:var(--muted); margin-bottom:0.75rem;">
+    Computes MACs for <strong>one forward pass of a ViT on one image</strong> at a given sequence length.
+    This is the mathematical foundation — everything else calls this.
+  </p>
+
+  <div class="grid-2">
+    <div>
+      <h3>Per-layer MAC breakdown</h3>
+      <div class="formula-block">
+        <div class="formula-line">
+          <span class="formula-lhs">attn_linear</span>
+          <span class="formula-rhs">
+            <span class="num">4</span> <span class="op">×</span> <span class="var">seq_len</span> <span class="op">×</span> <span class="var">D²</span>
+            <span class="cmt">   # Q, K, V, O projections</span>
+          </span>
+        </div>
+        <div class="formula-line">
+          <span class="formula-lhs">attn_scores</span>
+          <span class="formula-rhs">
+            <span class="num">2</span> <span class="op">×</span> <span class="var">seq_len²</span> <span class="op">×</span> <span class="var">D</span>
+            <span class="cmt">   # QKᵀ + AV (bidirectional, full square)</span>
+          </span>
+        </div>
+        <div class="formula-line">
+          <span class="formula-lhs">ffn</span>
+          <span class="formula-rhs">
+            <span class="num">2</span> <span class="op">×</span> <span class="var">seq_len</span> <span class="op">×</span> <span class="var">D</span> <span class="op">×</span> <span class="var">ffn_dim</span>
+            <span class="cmt">   # MLP up + down</span>
+          </span>
+        </div>
+        <div class="formula-line" style="border-top:1px solid var(--border); margin-top:0.35rem; padding-top:0.35rem;">
+          <span class="formula-lhs" style="color:var(--green);">total_MACs</span>
+          <span class="formula-rhs">
+            <span class="var">num_layers</span> <span class="op">×</span> (attn_linear <span class="op">+</span> attn_scores <span class="op">+</span> ffn)
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h3>Concrete numbers — ViT-B/16, satellite config</h3>
+      <table>
+        <thead><tr><th>Crop</th><th>seq_len</th><th>MACs / fwd</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Global 224×224</td>
+            <td><code>197</code> <span style="color:var(--muted); font-size:0.75rem">(14×14 + CLS)</span></td>
+            <td><code>~17.4 GMACs</code></td>
+          </tr>
+          <tr>
+            <td>Local 96×96</td>
+            <td><code>37</code> <span style="color:var(--muted); font-size:0.75rem">(6×6 + CLS)</span></td>
+            <td><code>~3.3 GMACs</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-top:0.75rem;">
+        17.4 GMACs for ViT-B/16 global crop matches the DINOv2 paper — used as a paper-anchor sanity check in <code>test_mfu.py</code>.
+      </div>
+      <div class="note" style="margin-top:0.5rem;">
+        <strong>Why quadratic?</strong> The <code>attn_scores</code> term is <em>seq_len²</em>. At 197 vs 37 tokens, global crop is ~28× more expensive on attention alone, but FFN dominates at these sizes so the ratio is ~5×.
+      </div>
+    </div>
+  </div>
+
+  <h3>Key assumptions baked in</h3>
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-title">Bidirectional attention</div>
+      Full <code>seq_len × seq_len</code> matrix — no causal mask savings. ViTs always attend to all tokens.
+    </div>
+    <div class="card">
+      <div class="card-title">ffn_ratio = 4.0</div>
+      Standard MLP: <code>ffn_dim = 4 × D = 3072</code>. Not SwiGLU (which uses 2/3 × 4 × D). Controlled by <code>cfg.student.ffn_ratio</code>.
+    </div>
+    <div class="card">
+      <div class="card-title">n_registers = 0</div>
+      Satellite fork drops register tokens. <code>seq_len = (crop // patch)² + 1</code> (patches + CLS only). Confirmed from <code>ssl_default_config.yaml</code>.
+    </div>
+  </div>
+</section>
+
+<!-- ─── LAYER 2 ─── -->
+<section class="section" id="layer2">
+  <h2>② compute_dino_flops_per_image() <span style="font-size:0.8rem; color:var(--muted); font-weight:400">— mfu.py:52</span></h2>
+  <p style="font-size:0.88rem; color:var(--muted); margin-bottom:0.75rem;">
+    Assembles the full student-teacher workload: student forward+backward, teacher forward, optional gram teacher forward, plus a head overhead factor.
+  </p>
+
+  <div class="grid-2">
+    <div>
+      <h3>Workload breakdown formula</h3>
+      <div class="formula-block">
+        <div class="formula-line">
+          <span class="formula-lhs">student_fwd</span>
+          <span class="formula-rhs">
+            <span class="num">2</span><span class="op">×</span>global_fwd <span class="op">+</span> <span class="num">8</span><span class="op">×</span>local_fwd
+          </span>
+        </div>
+        <div class="formula-line">
+          <span class="formula-lhs">student_bwd</span>
+          <span class="formula-rhs">
+            <span class="num">2</span> <span class="op">×</span> student_fwd
+            <span class="cmt">  # chain rule: 2× forward</span>
+          </span>
+        </div>
+        <div class="formula-line">
+          <span class="formula-lhs">teacher_fwd</span>
+          <span class="formula-rhs">
+            <span class="num">2</span><span class="op">×</span>global_fwd
+            <span class="cmt">  # global crops only, no grad</span>
+          </span>
+        </div>
+        <div class="formula-line">
+          <span class="formula-lhs">gram_fwd</span>
+          <span class="formula-rhs">
+            <span class="num">2</span><span class="op">×</span>global_fwd <span class="cmt"> if gram_enabled else 0</span>
+          </span>
+        </div>
+        <div class="formula-line" style="border-top:1px solid var(--border); margin-top:0.35rem; padding-top:0.35rem;">
+          <span class="formula-lhs" style="color:var(--green);">return</span>
+          <span class="formula-rhs">
+            (student_fwd + student_bwd + teacher_fwd + gram_fwd)
+            <span class="op">×</span> <span class="num">1.05</span>
+            <span class="cmt">  # +5% head overhead</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h3>Concrete total — default config</h3>
+      <table>
+        <thead><tr><th>Component</th><th>GMACs</th></tr></thead>
+        <tbody>
+          <tr><td>student_fwd (2 global + 8 local)</td><td><code>61.2</code></td></tr>
+          <tr><td>student_bwd (2× fwd)</td><td><code>122.4</code></td></tr>
+          <tr><td>teacher_fwd (2 global)</td><td><code>34.8</code></td></tr>
+          <tr><td>gram_fwd (disabled)</td><td><code>0</code></td></tr>
+          <tr><td>head overhead (+5%)</td><td><code>+10.9</code></td></tr>
+          <tr class="baseline-row-highlight"><td><strong>Total</strong></td><td><code><strong>~229 GMACs</strong></code></td></tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-top:0.5rem;">
+        CLAUDE.md records ~226 GMACs; test suite expects 200–245 GMACs. Slight differences come from rounding.
+      </div>
+    </div>
+  </div>
+
+  <h3>Why student_bwd = 2 × student_fwd</h3>
+  <div class="card" style="font-size:0.87rem; margin-top:0.25rem;">
+    Backprop runs chain rule through every layer. For each layer the backward pass performs two matmuls the same size as the forward matmul:
+    <strong>(1)</strong> gradient w.r.t. weights <code>dL/dW</code> and
+    <strong>(2)</strong> gradient w.r.t. input <code>dL/dX</code>.
+    That's 2 forward-equivalent units of work per layer — hence <code>backward ≈ 2× forward</code>.
+    The teacher uses <code>torch.no_grad()</code> so it has no backward pass and doesn't appear here.
+    <strong>EMA update</strong> (<code>_foreach_mul_/add_</code>) is cheap enough that it's excluded from FLOP counting entirely.
+  </div>
+</section>
+
+<!-- ─── LAYER 3 ─── -->
+<section class="section" id="layer3">
+  <h2>③ compute_mfu() <span style="font-size:0.8rem; color:var(--muted); font-weight:400">— mfu.py:111</span></h2>
+  <p style="font-size:0.88rem; color:var(--muted); margin-bottom:0.75rem;">
+    Converts throughput (images/sec) + MACs/image → fraction of GPU peak.
+  </p>
+
+  <div class="grid-2">
+    <div>
+      <h3>Formula</h3>
+      <div class="eq-box">
+        <div class="label">Step 1 — MAC → hardware FLOP</div>
+        actual_tflops = (images_per_sec × <strong>2</strong> × macs_per_image) / 1e12
+      </div>
+      <div class="eq-box">
+        <div class="label">Step 2 — Divide by peak</div>
+        MFU = actual_tflops / (num_gpus × peak_tflops)
+      </div>
+      <div class="eq-box" style="border-left-color: var(--green);">
+        <div class="label">Logged as percentage</div>
+        mfu_pct = MFU × 100
+      </div>
+    </div>
+
+    <div>
+      <h3>The 989 TFLOPS constant — why not 1979?</h3>
+      <div class="card" style="font-size:0.86rem;">
+        NVIDIA's H100 spec sheet lists <strong>1979 TFLOPS BF16</strong> — but that number assumes <strong>2:4 structured sparsity</strong>, which roughly doubles theoretical throughput by skipping every other weight in a specially arranged sparse format.<br><br>
+        Standard ViT training uses <strong>dense matmuls</strong>. The real dense BF16 peak is:
+        <div style="text-align:center; padding: 0.5rem 0; font-family: monospace; color: var(--orange);">
+          1979 ÷ 2 = 989 TFLOPS (dense)
+        </div>
+        Using 1979 as the denominator would make MFU look 2× lower than reality.
+        Reference: Stas Bekman's <em>ML Engineering</em> book; NVIDIA H100 datasheet footnote.
+      </div>
+    </div>
+  </div>
+
+  <div class="warn">
+    There are <strong>two separate 2× multipliers</strong> in this pipeline — they serve completely different purposes. See the Gotchas section below.
+  </div>
+</section>
+
+<!-- ─── TRAIN LOOP ─── -->
+<section class="section" id="trainloop">
+  <h2>⟲ Where it runs in train.py</h2>
+
+  <div style="font-size:0.87rem; margin-bottom:0.75rem; color:var(--muted);">
+    <code>macs_per_image</code> is precomputed once before the loop (train.py:478). Timing uses CUDA events (GPU-synchronized, not wall-clock).
+  </div>
+
+  <div class="loop-callout">
+    <div class="loop-label">train.py:478–490<br><span style="color:var(--green)">before loop</span></div>
+    <div class="loop-detail">
+      <code>macs_per_image = compute_dino_flops_per_image(...)</code> — reads config params (crop sizes, patch size, embed_dim, n_blocks, n_storage_tokens, gram). Called <strong>once</strong>.
+    </div>
+  </div>
+  <div class="loop-callout">
+    <div class="loop-label">train.py:604<br><span style="color:var(--cyan)">each iter</span></div>
+    <div class="loop-detail"><code>step_start_event.record()</code> — CUDA event fires on GPU timeline just before <code>optimizer.zero_grad()</code>.</div>
+  </div>
+  <div class="loop-callout">
+    <div class="loop-label">train.py:605–663<br><span style="color:var(--cyan)">each iter</span></div>
+    <div class="loop-detail">
+      <code>zero_grad</code> → <code>forward_backward()</code> → grad clip → allreduce metrics → <code>optimizer.step()</code> → <code>update_ema()</code>
+      — all inside the timed window.
+    </div>
+  </div>
+  <div class="loop-callout">
+    <div class="loop-label">train.py:664<br><span style="color:var(--cyan)">each iter</span></div>
+    <div class="loop-detail"><code>step_end_event.record()</code> — CUDA event fires after EMA update.</div>
+  </div>
+  <div class="loop-callout">
+    <div class="loop-label">train.py:667–670<br><span style="color:var(--yellow)">each iter</span></div>
+    <div class="loop-detail">
+      <code>step_end_event.synchronize()</code> → <code>step_time_ms = start.elapsed_time(end)</code> → <code>images_per_sec = global_batch_size / (step_time_ms / 1000)</code> → <code>mfu = compute_mfu(...)</code>
+    </div>
+  </div>
+  <div class="loop-callout">
+    <div class="loop-label">train.py:702–726<br><span style="color:var(--accent2)">logged</span></div>
+    <div class="loop-detail">
+      MetricLogger: <code>mfu</code> (as %), <code>images_per_sec</code>, <code>step_time_ms</code> · WandB: <code>mfu_pct</code>, <code>images_per_sec</code>, <code>step_time_ms</code>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:0.75rem;">
+    The <code>step_end_event.synchronize()</code> call adds one GPU sync per iteration. This is acceptable overhead — it replaces a wall-clock measurement that would be inaccurate due to CPU/GPU asynchrony.
+  </div>
+  <div class="warn" style="margin-top:0.5rem;">
+    Iteration 1 is ~35 seconds (torch.compile warmup). Skip the first 1–2 logged points (iters 1–10) for any steady-state MFU analysis.
+  </div>
+</section>
+
+<!-- ─── GOTCHAS ─── -->
+<section class="section" id="gotchas">
+  <h2>⚡ Critical Gotchas — The Two 2× Multipliers</h2>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title" style="color: var(--orange);">2× #1 — Backward pass (in compute_dino_flops_per_image)</div>
+      <div style="font-size:0.87rem; margin-top:0.4rem;">
+        <code style="background:var(--code-bg); padding: 0.2em 0.5em; border-radius:4px;">student_bwd = 2 × student_fwd</code>
+      </div>
+      <div style="font-size:0.85rem; margin-top:0.6rem; color:var(--text);">
+        <strong>What it models:</strong> The gradient computation through each layer requires two extra matmuls (dL/dW and dL/dX), each the same cost as the forward pass.
+      </div>
+      <div style="font-size:0.85rem; margin-top:0.4rem; color:var(--muted);">
+        <strong>Unit stays:</strong> still MACs.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="color: var(--cyan);">2× #2 — MAC → hardware FLOP (in compute_mfu)</div>
+      <div style="font-size:0.87rem; margin-top:0.4rem;">
+        <code style="background:var(--code-bg); padding: 0.2em 0.5em; border-radius:4px;">actual_tflops = (ips × <strong>2</strong> × macs) / 1e12</code>
+      </div>
+      <div style="font-size:0.85rem; margin-top:0.6rem; color:var(--text);">
+        <strong>What it models:</strong> 1 MAC = 1 multiply-add = 2 hardware FLOPs. Hardware vendors count the multiply and the add separately.
+      </div>
+      <div style="font-size:0.85rem; margin-top:0.4rem; color:var(--muted);">
+        <strong>Unit changes:</strong> MACs → hardware FLOPs (matching what NVIDIA's TFLOPS rating counts).
+      </div>
+    </div>
+  </div>
+
+  <div class="warn" style="margin-top:0.75rem;">
+    These are independent of each other. Don't conflate them: one is about the training algorithm (backward), the other is about hardware accounting (MAC vs FLOP unit).
+  </div>
+</section>
+
+<!-- ─── CONSTANTS ─── -->
+<section class="section" id="constants">
+  <h2>⚙ Constants &amp; Config Wiring</h2>
+
+  <div class="grid-2">
+    <div>
+      <h3>Hardware constants (mfu.py)</h3>
+      <table>
+        <thead><tr><th>Constant</th><th>Value</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>H100_BF16_TFLOPS</code></td>
+            <td><code>989.0</code></td>
+            <td>Dense BF16; NVIDIA's 1979 assumes 2:4 sparsity</td>
+          </tr>
+          <tr>
+            <td><code>A100_BF16_TFLOPS</code></td>
+            <td><code>312.0</code></td>
+            <td>Dense BF16 (FP32 = 156)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h3>Config keys wired into compute_dino_flops_per_image()</h3>
+      <table>
+        <thead><tr><th>Config key</th><th>Param in function</th></tr></thead>
+        <tbody>
+          <tr><td><code>crops.global_crops_size</code></td><td><code>global_crop_size</code></td></tr>
+          <tr><td><code>crops.local_crops_size</code></td><td><code>local_crop_size</code></td></tr>
+          <tr><td><code>student.patch_size</code></td><td><code>patch_size</code></td></tr>
+          <tr><td><code>crops.local_crops_number</code></td><td><code>n_local_crops</code></td></tr>
+          <tr><td><code>backbone.embed_dim</code></td><td><code>hidden_dim</code></td></tr>
+          <tr><td><code>backbone.n_blocks</code></td><td><code>num_layers</code></td></tr>
+          <tr><td><code>student.ffn_ratio</code> (default 4.0)</td><td><code>ffn_ratio</code></td></tr>
+          <tr><td><code>student.n_storage_tokens</code></td><td><code>n_registers</code></td></tr>
+          <tr><td><code>gram.use_loss</code></td><td><code>gram_enabled</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ─── BASELINES ─── -->
+<section class="section" id="baselines">
+  <h2>📊 Baseline Results (current safe operating point)</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Config</th>
+        <th>MFU avg</th>
+        <th>Images/sec</th>
+        <th>Status</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="baseline-row-highlight">
+        <td>FSDP2 bs=96 (8×H100)</td>
+        <td><code>—</code></td>
+        <td><code>—</code></td>
+        <td><span class="badge badge-green">CURRENT SAFE</span></td>
+        <td>Phase 5 target. reshard_after_forward=False being tested.</td>
+      </tr>
+      <tr>
+        <td>FSDP2 bs=64 (8×H100)</td>
+        <td><code>~11.3%</code></td>
+        <td><code>~1970</code></td>
+        <td><span class="badge badge-blue">BASELINE</span></td>
+        <td>Job 6770, steady-state 12–13.4%</td>
+      </tr>
+      <tr>
+        <td>DDP bs=128 (8×H100)</td>
+        <td><code>~22.5%</code></td>
+        <td><code>~4040</code></td>
+        <td><span class="badge badge-purple">SCREENING ONLY</span></td>
+        <td>Short 500-iter soak; not production-validated</td>
+      </tr>
+      <tr>
+        <td>FSDP2 bs=256 (8×H100)</td>
+        <td><code>~23.5%</code></td>
+        <td><code>~4106</code></td>
+        <td><span class="badge badge-orange">OFF TABLE</span></td>
+        <td>OOM in real training; discard these numbers</td>
+      </tr>
+      <tr>
+        <td>DDP+ES bs=256 (8×H100)</td>
+        <td><code>~23.9%</code></td>
+        <td><code>~4190</code></td>
+        <td><span class="badge badge-orange">OFF TABLE</span></td>
+        <td>expandable_segments + large bs; not for FSDP2</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note" style="margin-top:0.75rem;">
+    Lab target: <strong>30% MFU</strong> (internal YSU/YerevanAI target — not a Meta paper claim).
+    At 8×H100: 30% MFU ≈ 30% × 8 × 989 TFLOPS = ~2373 TFLOPS = ~2611 images/sec at 226 GMACs/image.
+  </div>
+  <div class="note">
+    MACs/image at default config: <strong>~226–229 GMACs</strong>.
+    As actual hardware FLOPs: <code>2 × 226e9 = 452 GFLOPs/image</code>.
+  </div>
+</section>
+
+<!-- ─── TESTS ─── -->
+<section class="section" id="tests">
+  <h2>✓ Test Anchors <span style="font-size:0.8rem; color:var(--muted); font-weight:400">— tests/test_mfu.py</span></h2>
+
+  <div class="grid-2">
+    <div>
+      <h3>vit_forward_flops tests</h3>
+      <table>
+        <thead><tr><th>Test</th><th>What it verifies</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>test_global_crop_matches_dinov2_paper</code></td>
+            <td>seq=197 → 16–19 GMACs (DINOv2 paper anchor: ~17.4 GMACs)</td>
+          </tr>
+          <tr>
+            <td><code>test_local_crop_smaller_than_global</code></td>
+            <td>seq=37 < seq=197 / 3 (quadratic attn makes local much cheaper)</td>
+          </tr>
+          <tr>
+            <td><code>test_scales_quadratically_with_seq_len</code></td>
+            <td>2× seq_len → ratio ∈ (2, 4) — linear terms + quadratic attn</td>
+          </tr>
+          <tr>
+            <td><code>test_scales_linearly_with_num_layers</code></td>
+            <td>2× layers → exactly 2× FLOPs</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3>compute_dino_flops / compute_mfu tests</h3>
+      <table>
+        <thead><tr><th>Test</th><th>What it verifies</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>test_default_config_range</code></td>
+            <td>Default config → 200–245 GMACs</td>
+          </tr>
+          <tr>
+            <td><code>test_backward_is_2x_student_forward</code></td>
+            <td>Degenerate (1 global, 0 local, no overhead) → exactly 4× global_fwd</td>
+          </tr>
+          <tr>
+            <td><code>test_floor_estimate_at_expected_baseline</code></td>
+            <td>512 img/s, 8 GPUs → MFU ≈ 2.93% (sanity check at low throughput)</td>
+          </tr>
+          <tr>
+            <td><code>test_perfect_mfu_is_1</code></td>
+            <td>At theoretical throughput → MFU = 1.0 exactly</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <pre><span class="hl-cmt"># Run all MFU tests:</span>
+<span class="hl-var">python</span> <span class="hl-op">-m</span> pytest tests/test_mfu.py <span class="hl-op">-v</span></pre>
+</section>
+
+<hr>
+<div style="font-size:0.78rem; color:var(--muted); text-align:center; padding-top:0.5rem;">
+  DINOv3 MFU Reference · generated 2026-05-21 · dinov3/utils/mfu.py + dinov3/train/train.py
+</div>
+
+</body>
+</html>

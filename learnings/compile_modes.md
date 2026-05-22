@@ -136,8 +136,9 @@ and only viable torch.compile path for this model. Do not attempt further max-au
 
 ## Operating rule for compile modes in this repo
 
-1. Use `train.compile_mode=null` (default). It is stable, correct, and already contributing
-   to the 23.9% MFU at DDP bs=256+ES (production config).
+1. Use `train.compile_mode=null` (default). It is stable, correct, and is the mode used in
+   the current Phase 6 baseline (DDP bs=96, job 48312, 7.94% MFU). Note: the previously cited
+   "DDP bs=256+ES (production config)" is retracted — bs=256 OOMs on 80 GB H100 in real training.
 2. Never set `max-autotune` (with graphs) — CUDA graphs are broken here (see cuda_graphs.md).
 3. Never set `max-autotune-no-cudagraphs` — iBOT dynamic shapes cause SIGABRT at iter-0.
 4. If PyTorch adds a `dynamic=True` + `max-autotune` combination in a future version, retest.

@@ -9,13 +9,23 @@
 #SBATCH --output=/mnt/weka/adovlatyan/logs/dinov3-%j.out
 #SBATCH --error=/mnt/weka/adovlatyan/logs/dinov3-%j.err
 
-# Validated config (2026-04-07 soak test):
-#   DDP + expandable_segments + bs=256 → 23.9% MFU avg, ~4180 img/s (500-iter soak, zero memory creep)
-#   NOTE: FSDP2 bs=256 (no ES) = 23.5% MFU — essentially tied at matched batch size.
-#   The ~2× vs original baseline (FSDP2 bs=64) came from batch-size scaling, not DDP vs FSDP2.
-#   expandable_segments eliminates allocator fragmentation stalls in the compiled DDP path.
-#   sharded_eval_checkpoint avoids full_tensor() materialization during eval phases.
-#   FSDP2 bs=272 being tested (job 29695) — if it fits, FSDP2 may become the preferred strategy.
+# Production config — revised 2026-05-12 (Phase 5)
+# ==================================================
+#   Strategy:        FSDP2 (ZeRO-3 per-block, `reshard_after_forward=True` default)
+#   Batch / GPU:     96   (bs=128 OOM'd in a real long training run; bs=96 is the current safe ceiling)
+#   ES:              OFF  (`expandable_segments:True` is DDP-only and hurts FSDP2)
+#
+# Rollback note: the previous default was DDP + expandable_segments + bs=256 (short 500-iter
+# screening at ~23.9% MFU). That config was retired because:
+#   (a) DDP is closed as a path forward (FSDP2 has an equivalent for every DDP operating
+#       point per Tim Darcet, DINOv2/v3 co-author);
+#   (b) bs=256 / bs=192 are NOT achievable in long training runs (researcher report);
+#   (c) bs=128 FSDP2 also OOM'd in a real long training run — root cause open (see
+#       docs/phase5_perf_plan.md §10, P5-OOM).
+# To restore the old DDP+ES+bs=256 config for screening only:
+#   - export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+#   - train.distributed_strategy=ddp, train.batch_size_per_gpu=256
+#   - DO NOT use for a real long training run until the FSDP2 OOM is understood.
 
 export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
 export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"
@@ -28,9 +38,18 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
 
-# DDP + expandable_segments: fixes allocator fragmentation stalls at bs=256 in compiled DDP path.
-# NOTE: this setting hurts FSDP2 — only set it when using distributed_strategy=ddp.
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# Sanitize allocator env for FSDP2: `expandable_segments:True` is DDP-only and
+# hurts FSDP2. If the submit shell or job env inherited it (e.g. from a prior
+# DDP+ES screening), drop it here so a long FSDP2 run cannot silently inherit
+# the wrong allocator config.
+if [[ "${PYTORCH_CUDA_ALLOC_CONF:-}" == *"expandable_segments:True"* ]]; then
+  echo "WARN: PYTORCH_CUDA_ALLOC_CONF contained 'expandable_segments:True' — unsetting for FSDP2 run."
+fi
+unset PYTORCH_CUDA_ALLOC_CONF
+
+# NCCL — no env overrides until P5-04 NVLS screening lands. NCCL auto-selects algorithm
+# per topology; on this DGX H100 + NVSwitch node that usually means NVLS for all-gather /
+# reduce-scatter. Use `NCCL_DEBUG=INFO` in a probe run to confirm.
 
 mkdir -p /mnt/weka/adovlatyan/logs
 
@@ -38,7 +57,13 @@ echo "=== DINOv3 Satellite Training ==="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
 echo "Date: $(date)"
-echo "Config: DDP + expandable_segments + bs=256 + sharded_eval_checkpoint"
+echo "Config: FSDP2 ZeRO-3 + bs=96 + sharded_eval_checkpoint"
+echo "--- Effective env (perf-critical) ---"
+echo "PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-<unset>}"
+echo "CUDA_DEVICE_MAX_CONNECTIONS=${CUDA_DEVICE_MAX_CONNECTIONS:-<unset>}"
+echo "OMP_NUM_THREADS=${OMP_NUM_THREADS:-<unset>} MKL_NUM_THREADS=${MKL_NUM_THREADS:-<unset>}"
+echo "NCCL_ALGO=${NCCL_ALGO:-<unset>} NCCL_DEBUG=${NCCL_DEBUG:-<unset>} NCCL_NTHREADS=${NCCL_NTHREADS:-<unset>} NCCL_BUFFSIZE=${NCCL_BUFFSIZE:-<unset>}"
+echo "-------------------------------------"
 
 torchrun --nproc_per_node=8 dinov3/train/train.py \
   --config-file dinov3/configs/ssl_default_config.yaml \
@@ -55,7 +80,7 @@ sen1_stats_dir=/mnt/weka/akhosrovyan/re-id/pretraining/satlas_dataset/stats/sent
 naip_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/satlas-dataset-v1-naip-2020/naip:\
 naip_stats_dir=/mnt/weka/akhosrovyan/re-id/pretraining/satlas_dataset/stats/naip_stats:\
 naip_weight=1.0" \
-  train.batch_size_per_gpu=256 \
+  train.batch_size_per_gpu=96 \
   train.num_workers=20 \
   train.OFFICIAL_EPOCH_LENGTH=23412 \
   optim.epochs=10 \
@@ -63,11 +88,12 @@ naip_weight=1.0" \
   train.prefetch_factor=8 \
   train.cache_dataset=true \
   train.compile=true \
-  train.distributed_strategy=ddp \
+  train.distributed_strategy=fsdp2 \
+  train.fsdp_reshard_after_forward=true \
   train.sharded_eval_checkpoint=true \
   wandb.enabled=true \
   wandb.project=dinov3-satellite \
-  wandb.run_name=satellite_ddp_bs256_${SLURM_JOB_ID} \
-  wandb.group=satellite_ddp
+  wandb.run_name=satellite_fsdp2_bs96_${SLURM_JOB_ID} \
+  wandb.group=satellite_fsdp2
 
 echo "=== Training complete: $(date) ==="

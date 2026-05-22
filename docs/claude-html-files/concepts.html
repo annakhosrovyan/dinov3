@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 5 — Concepts &amp; Reference</title>
+  <style>
+    :root {
+      --bg: #f0f4f8;
+      --surface: #fff;
+      --border: #d1dce6;
+      --text: #1a2433;
+      --text-2: #4a5568;
+      --text-3: #94a3b8;
+      --mono: 'SFMono-Regular','SF Mono',Consolas,'Liberation Mono',Menlo,monospace;
+      --sans: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      --r: 8px;
+      --sh: 0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.04);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--sans);font-size:14px;line-height:1.6;color:var(--text);background:var(--bg)}
+    a{color:#2563eb;text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    /* --- layout --- */
+    .wrap{max-width:1000px;margin:0 auto;padding:24px 18px 60px}
+
+    /* --- page header --- */
+    .ph{border-left:4px solid #7c3aed;padding:12px 16px;background:var(--surface);border-radius:0 var(--r) var(--r) 0;box-shadow:var(--sh);margin-bottom:22px}
+    .ph h1{font-size:19px;font-weight:700}
+    .ph .meta{font-size:12px;color:var(--text-2);margin-top:5px}
+    .ph .meta a{margin-right:16px}
+
+    /* --- sticky nav --- */
+    .top-nav{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);padding:8px 0;margin-bottom:22px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    .top-nav .inner{max-width:1000px;margin:0 auto;padding:0 18px;display:flex;gap:4px;flex-wrap:wrap}
+    .top-nav a{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;color:var(--text-2);transition:all .15s}
+    .top-nav a:hover,.top-nav a[aria-current=page]{background:#eff6ff;color:#1d4ed8;text-decoration:none}
+    .nav-sep{width:1px;height:14px;background:var(--border);margin:0 6px;align-self:center;flex-shrink:0}
+
+    /* --- section --- */
+    .section{margin-bottom:32px}
+    .sec-hdr{font-size:17px;font-weight:700;color:var(--text);margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid var(--border);display:flex;align-items:center;gap:10px}
+    .sec-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:12px;background:#e0e7ff;color:#3730a3}
+
+    /* --- cards --- */
+    .card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);margin-bottom:18px;overflow:hidden}
+    .ch{padding:10px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2)}
+    .cb{padding:16px}
+
+    /* --- glossary --- */
+    .g-search-wrap{margin-bottom:14px}
+    .g-search{width:100%;max-width:380px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:var(--sans);outline:none;color:var(--text)}
+    .g-search:focus{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.12)}
+    .g-count{font-size:11px;color:var(--text-3);margin-top:5px}
+    .glist{column-count:2;column-gap:20px}
+    @media(max-width:680px){.glist{column-count:1}}
+    .gi{break-inside:avoid;margin-bottom:12px;padding:10px 13px;background:#f8fafc;border-radius:6px;border-left:3px solid #e2e8f0}
+    .gi:hover{background:#f1f5f9}
+    .gt{font-weight:700;font-size:13px;color:var(--text);font-family:var(--mono)}
+    .gd{font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.55}
+    .gctx{font-size:11px;color:#2563eb;margin-top:4px;font-style:italic}
+    .gi.hi{border-left-color:#2563eb;background:#eff6ff}
+
+    /* --- hypothesis cards --- */
+    .hyp-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    @media(max-width:680px){.hyp-grid{grid-template-columns:1fr}}
+    .hc{border-radius:var(--r);padding:14px 16px;position:relative;overflow:hidden}
+    .hc-a{background:#f0f9ff;border:1px solid #bae6fd}
+    .hc-b{background:#fef2f2;border:1px solid #fecaca}
+    .hc-c{background:#fffbeb;border:1px solid #fde68a}
+    .hc-d{background:#f9fafb;border:1px solid #d1d5db}
+    .hl{font-size:36px;font-weight:900;opacity:.2;position:absolute;top:6px;right:12px;line-height:1;font-family:var(--mono)}
+    .htitle{font-weight:700;font-size:13px;color:var(--text);margin-bottom:6px}
+    .hdesc{font-size:12px;color:var(--text-2);margin-bottom:8px;line-height:1.55}
+    .hverdict{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;display:inline-block;margin-top:2px}
+    .hv-conf{background:#dcfce7;color:#166534}
+    .hv-dem{background:#e0e7ff;color:#3730a3}
+    .hv-minor{background:#fef3c7;color:#92400e}
+    .hv-ok{background:#f3f4f6;color:#374151}
+    .hevid{font-size:11px;color:var(--text-3);margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.06)}
+
+    /* --- diagrams --- */
+    .diag{background:#f8fafc;border-radius:var(--r);padding:16px;overflow-x:auto;margin-bottom:12px}
+    .diag-cap{font-size:11px;color:var(--text-3);margin-top:6px;text-align:center;font-style:italic}
+
+    /* SVG defaults */
+    svg{font-family:var(--sans);overflow:visible}
+
+    /* --- AC table --- */
+    .act{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px}
+    .act th{padding:8px 12px;text-align:left;background:#f1f5f9;font-weight:600;color:var(--text-2);border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+    .act td{padding:8px 12px;border-bottom:1px solid #f1f5f9;color:var(--text-2)}
+    .act tr.best td{background:#f0fdf4;font-weight:600;color:#15803d}
+    .act tr.fallback td{background:#faf5ff;font-weight:600;color:#7c3aed}
+    .act .mem-g{color:#15803d;font-weight:700}
+    .act .mem-a{color:#92400e;font-weight:700}
+    .act .mem-r{color:#991b1b;font-weight:700}
+
+    /* --- insight boxes --- */
+    .ins{padding:10px 14px;border-radius:6px;font-size:13px;margin-top:12px}
+    .ins-g{background:#f0fdf4;border-left:3px solid #16a34a;color:#15803d}
+    .ins-b{background:#eff6ff;border-left:3px solid #2563eb;color:#1e40af}
+    .ins-a{background:#fffbeb;border-left:3px solid #f59e0b;color:#92400e}
+    .ins-r{background:#fef2f2;border-left:3px solid #ef4444;color:#991b1b}
+
+    /* --- quote --- */
+    blockquote{border-left:4px solid #7c3aed;padding:10px 14px;background:#faf5ff;border-radius:0 6px 6px 0;font-style:italic;font-size:13px;color:var(--text-2);margin:12px 0}
+    blockquote cite{display:block;font-style:normal;font-size:11px;color:var(--text-3);margin-top:6px}
+
+    /* --- bs=128 puzzle chart --- */
+    .puzzle{display:flex;gap:12px;align-items:flex-end;padding:14px 0}
+    .bar-group{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:180px}
+    .bg-title{font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+    .bar-pair{display:flex;gap:6px;align-items:flex-end;width:100%}
+    .bp{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1}
+    .bp .bar{border-radius:4px 4px 0 0;width:100%;min-width:36px;display:flex;align-items:flex-start;justify-content:center;padding-top:4px;font-size:10px;font-weight:700;color:rgba(255,255,255,.9)}
+    .bp .bar-lbl{font-size:10px;color:var(--text-3)}
+    .bp .bar-val{font-size:12px;font-weight:700;color:var(--text-2)}
+    .puzzle-arrow{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 8px;padding-bottom:20px}
+    .puzzle-arrow span{font-size:22px;color:#94a3b8}
+    .puzzle-arrow small{font-size:10px;color:var(--text-3);text-align:center;max-width:60px}
+    .sign-flip{font-size:13px;font-weight:700;padding:8px 16px;border-radius:6px;text-align:center;margin-top:12px}
+    .sf-pos{background:#dcfce7;color:#15803d}
+    .sf-neg{background:#fee2e2;color:#991b1b}
+  </style>
+</head>
+<body>
+
+<div class="ph" style="border-radius:0;position:relative">
+  <div style="max-width:1000px;margin:0 auto;padding:0 18px">
+    <h1>Phase 5 — Concepts &amp; Reference &nbsp;<span style="font-weight:400;font-size:15px;color:#6b7280">Glossary · Mental Models · Frameworks</span></h1>
+    <div class="meta">
+      <a href="status.html">← Back to Status Dashboard</a>
+      <span style="color:var(--text-3)">Open this page when you hit an unfamiliar term or want to rebuild the mental model</span>
+    </div>
+  </div>
+</div>
+
+<nav class="top-nav">
+  <div class="inner">
+    <a href="status.html">Status</a>
+    <a href="concepts.html" aria-current="page">Concepts</a>
+    <a href="upstream_pr_findings_v2.html">Upstream PRs</a>
+    <span class="nav-sep"></span>
+    <a href="#glossary">Glossary</a>
+    <a href="#hypotheses">Hypotheses</a>
+    <a href="#fsdp2-model">FSDP2</a>
+    <a href="#ac-tradeoff">AC</a>
+    <a href="#bs128-puzzle">bs=128</a>
+    <a href="#mfu-guide">MFU</a>
+    <a href="#why-fsdp2">Why FSDP2</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- GLOSSARY                                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section" id="glossary">
+    <div class="sec-hdr">
+      Glossary
+      <span class="sec-badge">Reference</span>
+    </div>
+
+    <div class="g-search-wrap">
+      <input class="g-search" type="search" id="gsearch" placeholder="Search terms…" oninput="filterGloss(this.value)" autocomplete="off">
+      <div class="g-count" id="gcount"></div>
+    </div>
+
+    <div class="glist" id="glist">
+
+      <div class="gi" data-terms="ac activation checkpointing selective full recompute">
+        <div class="gt">AC — Activation Checkpointing</div>
+        <div class="gd">Frees activation tensors during forward pass; recomputes them during backward. Trades FLOPs for HBM. <strong>Selective AC</strong> saves only expensive outputs (matmul, SDPA, reduce-scatter tensors) and recomputes the rest — preferred variant here. <strong>Full AC</strong> recomputes everything — maximum memory savings.</div>
+        <div class="gctx">This project: sel-AC saves 10.6 GB at bs=96 (24.9 → 14.3 GB). Surprisingly, AC is also throughput-positive here — see AC Tradeoff section.</div>
+      </div>
+
+      <div class="gi" data-terms="bs batch size gpu batch_size_per_gpu">
+        <div class="gt">bs — batch_size_per_gpu</div>
+        <div class="gd">Images processed by each of the 8 GPUs per training step. Total effective batch = bs × 8. Config key: <code>train.batch_size_per_gpu</code>.</div>
+        <div class="gctx">Safe operating points: bs=64 (conservative), bs=96 (current default), bs=128 (investigational — original OOM unresolved).</div>
+      </div>
+
+      <div class="gi" data-terms="cv coefficient variation noise standard deviation jitter">
+        <div class="gt">CV — Coefficient of Variation</div>
+        <div class="gd">Standard deviation ÷ mean, expressed as %. Measures relative noise in a metric regardless of its scale. Lower CV = more stable, more trustworthy single-run comparisons.</div>
+        <div class="gctx">Stage A: A2 (LL128) had CV 4.9% — very stable. Stage C baseline (C1): CV 18% — structured noise, hard to interpret. Rule of thumb: δ &lt; CV is untrustworthy.</div>
+      </div>
+
+      <div class="gi" data-terms="ddp distributed data parallel">
+        <div class="gt">DDP — Distributed Data Parallel</div>
+        <div class="gd">Each GPU holds a full copy of the model. Gradients are all-reduced at the end of each backward pass. Simple, no per-layer communication overhead during forward.</div>
+        <div class="gctx">FSDP2 is the platform going forward (Tim Darcet, 2026-04-25) — see "Why FSDP2". The archived DDP screening (jobs 9630/9631/9651, 2026-04-03, 100-iter short soaks) reported 18–23 % MFU and ~4 k img/s at bs=128, but the matched May 21 long-soak DDP bs=96 calibration (<strong>job 48312, gpu03, 1000 iters</strong>) reports <strong>~1,400 img/s · ~8 % MFU</strong> with the same MFU formula — only +8.4 % over FSDP2 cell 45367, not 3×. The archived rows therefore are <strong>not</strong> a defensible benchmark target until the original 100-iter recipe is rerun on today's codebase. See Status dashboard Q5 and the archived-table caveat. Attribution deferred pending same-node FSDP2 reshT noAC A/B on gpu03.</div>
+      </div>
+
+      <div class="gi" data-terms="fsdp2 fully sharded data parallel zero3 sharding">
+        <div class="gt">FSDP2 — Fully Sharded Data Parallel v2</div>
+        <div class="gd">Each GPU holds 1/N of each layer's parameters. Before each layer's forward pass, an all-gather reconstructs the full layer. After each layer's backward, a reduce-scatter distributes the gradients. Implements ZeRO-3 semantics when <code>reshard_after_forward=True</code>.</div>
+        <div class="gctx">12 transformer blocks → 12 all-gathers (forward) + 12 reduce-scatters (backward) per step. This is why NCCL = 70–80% of kernel time.</div>
+      </div>
+
+      <div class="gi" data-terms="h2d host device transfer cpu gpu pinned memory">
+        <div class="gt">H2D — Host-to-Device Transfer</div>
+        <div class="gd">Moving data from CPU RAM to GPU HBM. Potential bottleneck if DataLoader can't feed GPUs fast enough and the transfer isn't overlapped with compute.</div>
+        <div class="gctx">In Phase 5 nsys traces: H2D = ~1% of GPU time at both bs=96 and bs=128. Not the bottleneck. DataLoader pipeline (pin_memory, non_blocking, persistent_workers) is already well-tuned.</div>
+      </div>
+
+      <div class="gi" data-terms="ibot masked image modeling dynamic mask shapes">
+        <div class="gt">iBOT — Masked Image Modeling Loss</div>
+        <div class="gd">One of the two self-supervised objectives (alongside DINO). Predicts masked patch tokens using Sinkhorn-Knopp normalization. Uses stochastic per-batch mask shapes.</div>
+        <div class="gctx">The dynamic mask shape is why <code>max-autotune</code> and CUDA graphs are incompatible with this codebase — stochastic shapes prevent static graph capture. Only <code>compile_mode=null</code> (default induction-only) works.</div>
+      </div>
+
+      <div class="gi" data-terms="ll128 nccl protocol latency low latency">
+        <div class="gt">LL128 — NCCL Low-Latency Protocol</div>
+        <div class="gd">A NCCL communication protocol using 128-byte aligned double-buffering. Reduces per-chunk overhead for medium-sized collectives. Set via <code>NCCL_PROTO=LL128</code>.</div>
+        <div class="gctx">Stage A: +12.1% img/s on gpu07 (300 iters, CV 4.9%). Stage C: same config but +6–7% with CV 18% — likely cluster background load. Not yet shipped. Forcing LL128 beats NCCL's auto-selection for this per-block collective pattern.</div>
+      </div>
+
+      <div class="gi" data-terms="mamf maximum achievable mfu matmul bandwidth ceiling">
+        <div class="gt">MAMF — Maximum Achievable MFU</div>
+        <div class="gd">A tighter practical ceiling than NVIDIA's published FLOPS. Approximately 794.5 TFLOPS for H100 BF16, accounting for memory bandwidth limits and realistic matmul efficiency. NVIDIA's 989 TFLOPS assumes dense (non-sparse) matmuls; 1979 TFLOPS assumes 2:4 sparsity.</div>
+        <div class="gctx">~23.9% MFU at the 989-TFLOPS basis ≈ ~29.8% of MAMF. The lab's 30% target refers to the 989-TFLOPS basis (dense MFU).</div>
+      </div>
+
+      <div class="gi" data-terms="mfu model flop utilization efficiency throughput">
+        <div class="gt">MFU — Model FLOP Utilization</div>
+        <div class="gd">Fraction of theoretical peak GPU compute actually used during training. Formula: <code>(actual FLOPs/sec) / (hardware peak FLOPs/sec)</code>. Higher = more compute-efficient. Does not account for communication overhead.</div>
+        <div class="gctx">Current: ~7–8% dense (989 TFLOPS basis). Lab target: 30%. The gap is mostly NCCL overhead eating wall time — the compute kernels themselves are fine.</div>
+      </div>
+
+      <div class="gi" data-terms="nccl nvidia collective communications allgather reducescatter allreduce ring">
+        <div class="gt">NCCL — NVIDIA Collective Communications Library</div>
+        <div class="gd">The library that implements distributed operations: all-gather (assemble sharded params), reduce-scatter (distribute gradients), all-reduce (synchronize metrics). Runs as CUDA kernels, visible in nsys traces as <code>ncclDevKernel_*</code>.</div>
+        <div class="gctx">Phase 5 profiler finding: NCCL = 70–80% of kernel time at 8-GPU. NCCL↔compute overlap = only 11–16%. This is the dominant bottleneck for Phase 5.</div>
+      </div>
+
+      <div class="gi" data-terms="nors avoid record streams torch nccl bookkeeping">
+        <div class="gt">NORS — AVOID_RECORD_STREAMS</div>
+        <div class="gd"><code>TORCH_NCCL_AVOID_RECORD_STREAMS=1</code>. Cuts stream-record bookkeeping overhead around NCCL kernel launches. Reduces lifecycle tracking for NCCL buffers.</div>
+        <div class="gctx">Stage A alone: +5.7% (A5). Stacks badly with LL128 (Stage B B1 combined: −6%). Parked from production defaults — don't use with LL128.</div>
+      </div>
+
+      <div class="gi" data-terms="reshard resht reshf reshard_after_forward zero3 no-release">
+        <div class="gt">reshT / reshF — reshard_after_forward</div>
+        <div class="gd"><code>reshard_after_forward=True</code> (reshT, default): parameters are re-sharded after each layer's forward. This is ZeRO-3 — minimal resident memory, maximum communication. <code>reshard_after_forward=False</code> (reshF, "no-release"): parameters stay unsharded through the full forward pass — closer to DDP memory layout.</div>
+        <div class="gctx">At <strong>bs=96</strong>, reshF without AC is the worst cell (1,143 img/s vs reshT sel 1,351); reshF with AC is roughly tied with reshT — FSDP2 prefetch already hides the reshT all-gather cost. <strong>At bs=128, a possible story flip is being investigated</strong> (2026-05-20, job 47554): reshF + sel AC scored 1,341 mean / 1,312 median img/s on gpu05 vs an older reshT sel anchor on gpu07 = 1,276 (+5.1%). The mechanism (larger per-step compute makes the all-gather-on-forward pattern win again) is plausible, but the comparison crosses both node and date — needs a paired same-node A/B to confirm before promotion.</div>
+      </div>
+
+      <div class="gi" data-terms="zero3 zero redundancy optimizer stage 3">
+        <div class="gt">ZeRO-3 — Zero Redundancy Optimizer Stage 3</div>
+        <div class="gd">Shards parameters, gradients, AND optimizer states across all GPUs. Each GPU holds 1/N of everything. Maximum memory efficiency at the cost of more communication. FSDP2 with <code>reshard_after_forward=True</code> implements ZeRO-3 semantics for the forward/backward pass.</div>
+        <div class="gctx">For ViT-B (85M params) at 8-GPU: each GPU holds ~10.6M params during idle. During each layer's forward, the other ~74.4M are gathered then immediately released.</div>
+      </div>
+
+      <div class="gi" data-terms="nvls nvswitch nvsharpe topology">
+        <div class="gt">NVLS — NVLink SHARP / NVSwitch</div>
+        <div class="gd">NVSwitch-aware algorithm that performs reduce operations in the switch fabric rather than over the PCIe/NVLink bus. Available on DGX H100 systems. Set via <code>NCCL_NVLS_ENABLE=1</code> or <code>NCCL_ALGO=NVLS</code>.</div>
+        <div class="gctx">Stage A A1: −8.7% with NVLS enabled. The autotuner also didn't select NVLS in the nsys traces despite it being available. Parked — this workload's collective sizes don't land in NVLS's sweet spot.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- THE 4 HYPOTHESES                                        -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section" id="hypotheses">
+    <div class="sec-hdr">
+      The 4 Bottleneck Hypotheses
+      <span class="sec-badge">Framework</span>
+    </div>
+    <p style="font-size:13px;color:var(--text-2);margin-bottom:14px">
+      Phase 5 opened with four candidate bottlenecks (A–D), each predicting a different root cause for the ~7–8% MFU. Hypotheses were tested against nsys traces from jobs 39140 (bs=128) and 39141 (bs=96).
+    </p>
+
+    <div class="hyp-grid">
+
+      <div class="hc hc-a">
+        <div class="hl">A</div>
+        <div class="htitle">Multi-crop Sequential Forward</div>
+        <div class="hdesc">Global crops (seq=197 tokens) and local crops (seq=37 tokens) are processed sequentially in the same block loop. Predicted ≥3× attention kernel bimodality due to the different sequence lengths. If real, packed attention (NestedTensor + FA2 varlen) could give 2.5–3× attention speedup.</div>
+        <div class="hevid"><strong>Evidence:</strong> nsys showed flash_fwd_kernel min/max ratio of only 1.5–1.7×. Not the predicted ≥3× signature.</div>
+        <span class="hverdict hv-dem">Demoted — modest effect, not primary</span>
+      </div>
+
+      <div class="hc hc-b">
+        <div class="hl">B</div>
+        <div class="htitle">NCCL Serialization (all-gather stall)</div>
+        <div class="hdesc">With 12 transformer blocks and ZeRO-3, each block requires an all-gather before forward and a reduce-scatter after backward. If these dominate step time and can't be overlapped with compute, NCCL becomes the wall-clock bottleneck.</div>
+        <div class="hevid"><strong>Evidence:</strong> NCCL = 70% (bs=128) / 80% (bs=96) of kernel time. NCCL↔compute overlap = 16% / 11%. AllGather alone = 347 sec over a 90-sec trace window (37,024 launches).</div>
+        <span class="hverdict hv-conf">✓ Confirmed — dominant bottleneck</span>
+      </div>
+
+      <div class="hc hc-c">
+        <div class="hl">C</div>
+        <div class="htitle">H2D Not Overlapped</div>
+        <div class="hdesc">Seven tensors are moved from CPU (DataLoader) to GPU each step via non_blocking=True. If the H2D transfers aren't actually overlapping with NCCL or compute, they could be stalling the main CUDA stream.</div>
+        <div class="hevid"><strong>Evidence:</strong> H2D↔compute overlap = 0% in traces. But H2D total time = ~1% of GPU time at bs=128. Negligible absolute cost.</div>
+        <span class="hverdict hv-minor">Real but minor — &lt;1% of step time</span>
+      </div>
+
+      <div class="hc hc-d">
+        <div class="hl">D</div>
+        <div class="htitle">Python GC / Eval / Checkpoint Stalls</div>
+        <div class="hdesc">Python's garbage collector runs across ranks at different times, creating periodic per-rank stragglers. Eval and checkpoint phases synchronize all ranks, potentially creating long tail events.</div>
+        <div class="hevid"><strong>Evidence:</strong> bs=128 p99 union gap = 0.5 ms (no GC stalls visible). GC is already partially mitigated in train.py (gc.disable() + manual gc.collect() every 150 iters). Straggler rank changes between runs (rank 7 / rank 4) → non-deterministic / nsys-induced.</div>
+        <span class="hverdict hv-ok">Not primary — already partially mitigated</span>
+      </div>
+
+    </div>
+
+    <div class="ins ins-b" style="margin-top:6px">
+      <strong>Bottom line:</strong> Hypothesis B is the one. NCCL all-gathers and reduce-scatters consume 70–80% of every step. Only 11–16% of that time overlaps with useful compute. Fixing this requires either reducing NCCL volume (coarser wrapping, gradient accumulation) or improving overlap — not kernel optimization.
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- FSDP2 COMMUNICATION MODEL                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section" id="fsdp2-model">
+    <div class="sec-hdr">
+      FSDP2: Why NCCL Dominates
+      <span class="sec-badge">Mental Model</span>
+    </div>
+
+    <div class="card">
+      <div class="cb">
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:14px">Each step, FSDP2 ZeRO-3 performs one all-gather + one reduce-scatter per transformer block. For ViT-B (12 blocks), that's 24 collective operations per step. Here's the timeline structure and how the numbers play out:</p>
+
+        <!-- FSDP2 timeline diagram -->
+        <div class="diag">
+          <svg width="700" height="190" viewBox="0 0 700 190">
+            <!-- Title rows -->
+            <text x="0" y="18" font-size="11" fill="#94a3b8" font-weight="600" text-transform="uppercase" letter-spacing="0.05em">ONE TRAINING STEP — ViT-B, 12 transformer blocks, FSDP2 ZeRO-3</text>
+
+            <!-- Row 1: NCCL kernels (what's actually happening) -->
+            <text x="0" y="50" font-size="11" fill="#4a5568" font-weight="600">NCCL kernels</text>
+            <!-- 12 all-gathers: small red blocks, tight -->
+            <!-- Scale: total ~600ms step. NCCL = 70% = 420ms. Compute = 30% = 180ms -->
+            <!-- Simplified: show 4 "representative" NCCL blocks filling 70% of timeline -->
+            <!-- Timeline spans x=110 to x=670 = 560px = 600ms. 1px = ~1.07ms -->
+            <rect x="110" y="38" width="130" height="18" rx="2" fill="#ef4444" opacity=".8"/>
+            <rect x="246" y="38" width="100" height="18" rx="2" fill="#ef4444" opacity=".8"/>
+            <rect x="352" y="38" width="120" height="18" rx="2" fill="#ef4444" opacity=".8"/>
+            <rect x="478" y="38" width="90" height="18" rx="2" fill="#ef4444" opacity=".8"/>
+            <text x="115" y="51" font-size="9" fill="white" font-weight="700">AllGather ×12</text>
+            <text x="251" y="51" font-size="9" fill="white" font-weight="700">ReduceScatter</text>
+            <text x="357" y="51" font-size="9" fill="white" font-weight="700">AllGather ×12</text>
+            <text x="483" y="51" font-size="9" fill="white" font-weight="700">AllReduce</text>
+            <!-- gaps = compute -->
+            <rect x="240" y="38" width="6" height="18" rx="1" fill="#3b82f6" opacity=".6"/>
+            <rect x="346" y="38" width="6" height="18" rx="1" fill="#3b82f6" opacity=".6"/>
+            <rect x="472" y="38" width="6" height="18" rx="1" fill="#3b82f6" opacity=".6"/>
+            <rect x="568" y="38" width="6" height="18" rx="1" fill="#3b82f6" opacity=".6"/>
+            <text x="580" y="51" font-size="9" fill="#3b82f6" font-weight="700">↑ compute</text>
+
+            <!-- Row 2: Ideal overlap (what we want) -->
+            <text x="0" y="88" font-size="11" fill="#4a5568" font-weight="600">Compute kernels</text>
+            <!-- matmuls: blue blocks, interleaved -->
+            <rect x="110" y="76" width="30" height="18" rx="2" fill="#3b82f6" opacity=".7"/>
+            <rect x="246" y="76" width="28" height="18" rx="2" fill="#3b82f6" opacity=".7"/>
+            <rect x="352" y="76" width="32" height="18" rx="2" fill="#3b82f6" opacity=".7"/>
+            <rect x="478" y="76" width="26" height="18" rx="2" fill="#3b82f6" opacity=".7"/>
+            <text x="113" y="89" font-size="9" fill="white" font-weight="600">fwd</text>
+            <text x="249" y="89" font-size="9" fill="white" font-weight="600">bwd</text>
+            <text x="355" y="89" font-size="9" fill="white" font-weight="600">fwd</text>
+            <text x="481" y="89" font-size="9" fill="white" font-weight="600">bwd</text>
+
+            <!-- Overlap annotation -->
+            <line x1="110" y1="110" x2="670" y2="110" stroke="#e2e8f0" stroke-width="1"/>
+            <text x="0" y="128" font-size="11" fill="#4a5568" font-weight="600">Overlap</text>
+            <!-- small overlap regions -->
+            <rect x="130" y="115" width="10" height="12" rx="1" fill="#8b5cf6" opacity=".6"/>
+            <rect x="265" y="115" width="9" height="12" rx="1" fill="#8b5cf6" opacity=".6"/>
+            <rect x="373" y="115" width="10" height="12" rx="1" fill="#8b5cf6" opacity=".6"/>
+            <rect x="495" y="115" width="8" height="12" rx="1" fill="#8b5cf6" opacity=".6"/>
+            <text x="110" y="128" font-size="9" fill="#7c3aed" font-weight="600">↑ ~11–16% of NCCL time actually overlaps with compute</text>
+
+            <!-- Total step bar -->
+            <line x1="110" y1="150" x2="670" y2="150" stroke="#94a3b8" stroke-width="1.5"/>
+            <line x1="110" y1="145" x2="110" y2="155" stroke="#94a3b8" stroke-width="1.5"/>
+            <line x1="670" y1="145" x2="670" y2="155" stroke="#94a3b8" stroke-width="1.5"/>
+            <text x="375" y="147" font-size="10" fill="#94a3b8" text-anchor="middle">~560–810 ms / step (varies by batch size and node)</text>
+
+            <!-- Legend -->
+            <rect x="110" y="165" width="10" height="10" fill="#ef4444" opacity=".8" rx="1"/>
+            <text x="125" y="174" font-size="10" fill="#4a5568">NCCL collective (all-gather / reduce-scatter / all-reduce)</text>
+            <rect x="340" y="165" width="10" height="10" fill="#3b82f6" opacity=".7" rx="1"/>
+            <text x="355" y="174" font-size="10" fill="#4a5568">Compute kernel (matmul, attention, norm)</text>
+            <rect x="530" y="165" width="10" height="10" fill="#8b5cf6" opacity=".6" rx="1"/>
+            <text x="545" y="174" font-size="10" fill="#4a5568">Overlap</text>
+          </svg>
+          <div class="diag-cap">Schematic (not to scale). bs=96 nsys trace: NCCL = 80% of kernel time, overlap = 11%. bs=128: NCCL = 70%, overlap = 16%.</div>
+        </div>
+
+        <!-- Key numbers -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px">
+          <div style="background:#fef2f2;border-radius:6px;padding:12px;text-align:center">
+            <div style="font-size:28px;font-weight:800;color:#dc2626;line-height:1">70–80%</div>
+            <div style="font-size:11px;color:#991b1b;font-weight:600;margin-top:4px">of kernel time is NCCL</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:3px">AllGather dominates</div>
+          </div>
+          <div style="background:#fffbeb;border-radius:6px;padding:12px;text-align:center">
+            <div style="font-size:28px;font-weight:800;color:#d97706;line-height:1">11–16%</div>
+            <div style="font-size:11px;color:#92400e;font-weight:600;margin-top:4px">NCCL↔compute overlap</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:3px">84–89% is wasted wait</div>
+          </div>
+          <div style="background:#eff6ff;border-radius:6px;padding:12px;text-align:center">
+            <div style="font-size:28px;font-weight:800;color:#2563eb;line-height:1">24×</div>
+            <div style="font-size:11px;color:#1e40af;font-weight:600;margin-top:4px">collectives per step</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:3px">12 AG + 12 RS (ViT-B)</div>
+          </div>
+        </div>
+
+        <div class="ins ins-b" style="margin-top:12px">
+          <strong>Why does bigger batch hurt at 8-GPU?</strong> Larger activations mean more all-gather payload per step. ViT-B (~85M params) is small, so NCCL volume is already large relative to compute at any batch size — scaling batch increases both, but NCCL grows proportionally more. See bs=128 Puzzle section.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- AC TRADEOFF                                             -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section" id="ac-tradeoff">
+    <div class="sec-hdr">
+      AC Tradeoff: The Surprise
+      <span class="sec-badge">Mental Model</span>
+    </div>
+
+    <div class="card">
+      <div class="cb">
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:14px">
+          The textbook AC tradeoff is: <em>save memory by paying FLOPs to recompute activations → throughput goes down slightly.</em>
+          At ViT-B / bs=96 / H100 BF16, the opposite happens.
+        </p>
+
+        <table class="act">
+          <thead>
+            <tr><th>Config (bs=96, reshT, gpu07)</th><th>img/s</th><th>MFU</th><th>Peak Alloc</th><th>step_ms</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>No AC (baseline)</td><td>1,279</td><td>7.32%</td><td class="mem-a">24.9 GB</td><td>600ms</td></tr>
+            <tr class="best"><td>Selective AC ★</td><td>1,351 <span style="font-weight:400;font-size:11px;color:#15803d">(+5.6%)</span></td><td>7.73%</td><td class="mem-g">14.3 GB</td><td>562ms</td></tr>
+            <tr class="fallback"><td>Full AC 💾</td><td>1,317 <span style="font-weight:400;font-size:11px;color:#7c3aed">(+3.0%)</span></td><td>7.54%</td><td class="mem-g">8.9 GB</td><td>573ms</td></tr>
+          </tbody>
+        </table>
+
+        <div class="ins ins-g">
+          <strong>Why AC is faster here:</strong> The dominant cost is <em>activation working-set size</em>, not arithmetic. Keeping 24.9 GB of activations live throughout the forward→backward window creates HBM cache pressure and allocator overhead that slows effective throughput. AC drops them immediately and recomputes — the recompute cost is less than the pressure cost. This is a regime-specific result: we are not compute-bound enough for the textbook tradeoff to hold at H100 BF16 speeds.
+        </div>
+
+        <!-- Memory bar visualization -->
+        <div style="margin-top:16px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:8px">Memory usage vs 80 GB H100</div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div>
+              <div style="font-size:12px;color:var(--text-2);margin-bottom:3px;display:flex;justify-content:space-between"><span>No AC</span><span style="color:#92400e;font-weight:700">24.9 GB</span></div>
+              <div style="background:#e2e8f0;border-radius:3px;height:14px"><div style="background:#f59e0b;height:14px;border-radius:3px;width:31.1%;display:flex;align-items:center;padding-left:6px"><span style="font-size:10px;color:white;font-weight:700">31%</span></div></div>
+            </div>
+            <div>
+              <div style="font-size:12px;color:var(--text-2);margin-bottom:3px;display:flex;justify-content:space-between"><span>Selective AC ★</span><span style="color:#15803d;font-weight:700">14.3 GB</span></div>
+              <div style="background:#e2e8f0;border-radius:3px;height:14px"><div style="background:#16a34a;height:14px;border-radius:3px;width:17.9%;display:flex;align-items:center;padding-left:6px"><span style="font-size:10px;color:white;font-weight:700">18%</span></div></div>
+            </div>
+            <div>
+              <div style="font-size:12px;color:var(--text-2);margin-bottom:3px;display:flex;justify-content:space-between"><span>Full AC 💾</span><span style="color:#15803d;font-weight:700">8.9 GB</span></div>
+              <div style="background:#e2e8f0;border-radius:3px;height:14px"><div style="background:#15803d;height:14px;border-radius:3px;width:11.1%;display:flex;align-items:center;padding-left:6px"><span style="font-size:10px;color:white;font-weight:700">11%</span></div></div>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:5px">Bars show fraction of 80 GB H100 HBM. Peak alloc at rank 0, steady-state (iter 400–999).</div>
+        </div>
+
+        <div class="ins ins-a" style="margin-top:12px">
+          <strong>What selective AC saves vs what it doesn't recompute:</strong> The save list in <code>ac_compile_parallelize.py:32–40</code> preserves matmul outputs, SDPA outputs, and reduce-scatter tensors. Everything else (norms, activations, element-wise ops) is recomputed. This matches Meta's own ViT-7B recipe: <code>checkpointing=true, checkpointing_full=false</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- BS=128 PUZZLE                                           -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section" id="bs128-puzzle">
+    <div class="sec-hdr">
+      The bs=128 Sign Flip
+      <span class="sec-badge">Key Insight</span>
+    </div>
+
+    <div class="card">
+      <div class="cb">
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:16px">
+          The same config — bs=128 selective AC — produces opposite results at 1-GPU vs 8-GPU. This is a controlled experiment: the 1-GPU run uses the same FSDP2-wrapped model, but FSDP2 all-gathers/reduce-scatters collapse to no-ops at world_size=1.
+        </p>
+
+        <div style="display:flex;gap:24px;align-items:stretch;flex-wrap:wrap">
+
+          <!-- 1-GPU bar group -->
+          <div style="flex:1;min-width:220px">
+            <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;text-align:center;margin-bottom:10px">1-GPU (no communication)</div>
+            <div style="display:flex;gap:10px;align-items:flex-end;justify-content:center">
+              <!-- bs=96 -->
+              <div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;max-width:80px">
+                <div style="font-size:12px;font-weight:700;color:var(--text-2)">448</div>
+                <div style="background:#2563eb;border-radius:4px 4px 0 0;width:100%;height:80px;display:flex;align-items:flex-start;justify-content:center;padding-top:5px"><span style="font-size:10px;font-weight:700;color:white">20.5%</span></div>
+                <div style="font-size:10px;color:var(--text-3)">bs=96</div>
+              </div>
+              <!-- bs=128 -->
+              <div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;max-width:80px">
+                <div style="font-size:12px;font-weight:700;color:#15803d">478 <span style="font-weight:400">+6.7%</span></div>
+                <div style="background:#16a34a;border-radius:4px 4px 0 0;width:100%;height:86px;display:flex;align-items:flex-start;justify-content:center;padding-top:5px"><span style="font-size:10px;font-weight:700;color:white">21.9%</span></div>
+                <div style="font-size:10px;color:var(--text-3)">bs=128</div>
+              </div>
+            </div>
+            <div class="sign-flip sf-pos" style="font-size:13px;margin-top:10px">bs=128 is +6.7% faster ✓</div>
+            <div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:5px">img/s per GPU · gpu07 · iter 150–299</div>
+          </div>
+
+          <!-- arrow -->
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:25px;color:#94a3b8">
+            <div style="font-size:30px">→</div>
+            <div style="font-size:10px;color:var(--text-3);text-align:center;max-width:70px;margin-top:4px">add 7 more GPUs + FSDP2 comm</div>
+          </div>
+
+          <!-- 8-GPU bar group -->
+          <div style="flex:1;min-width:220px">
+            <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;text-align:center;margin-bottom:10px">8-GPU per GPU (with NCCL)</div>
+            <div style="display:flex;gap:10px;align-items:flex-end;justify-content:center">
+              <!-- bs=96 -->
+              <div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;max-width:80px">
+                <div style="font-size:12px;font-weight:700;color:var(--text-2)">169</div>
+                <div style="background:#f59e0b;border-radius:4px 4px 0 0;width:100%;height:30px;display:flex;align-items:flex-start;justify-content:center;padding-top:4px"><span style="font-size:10px;font-weight:700;color:white">7.7%</span></div>
+                <div style="font-size:10px;color:var(--text-3)">bs=96 ★</div>
+              </div>
+              <!-- bs=128 -->
+              <div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;max-width:80px">
+                <div style="font-size:12px;font-weight:700;color:#dc2626">160 <span style="font-weight:400">−5.6%</span></div>
+                <div style="background:#ef4444;border-radius:4px 4px 0 0;width:100%;height:28px;display:flex;align-items:flex-start;justify-content:center;padding-top:4px"><span style="font-size:10px;font-weight:700;color:white">7.3%</span></div>
+                <div style="font-size:10px;color:var(--text-3)">bs=128</div>
+              </div>
+            </div>
+            <div class="sign-flip sf-neg" style="font-size:13px;margin-top:10px">bs=128 is −5.6% slower ✗</div>
+            <div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:5px">img/s per GPU (total/8) · gpu07 · 8-GPU run</div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px;padding:10px 14px;background:#f1f5f9;border-radius:6px;font-size:13px;color:var(--text-2)">
+          <strong>Also striking:</strong> per-GPU MFU drops from <strong>20–22%</strong> (1-GPU) to <strong>7–8%</strong> (8-GPU) — each GPU does only ~38% of what it can do solo. Within-run σ drops from ±1 pp (8-GPU) to ±0.05 pp (1-GPU), proving nearly all the noise at 8-GPU comes from cross-rank synchronization scatter (NCCL straggler timing, GC desync, thermal drift), not from intrinsic GPU compute variance.
+        </div>
+
+        <div class="ins ins-r" style="margin-top:10px">
+          <strong>Conclusion (original 2026-05):</strong> The bs=128 deficit at 8-GPU is NCCL/FSDP scheduling overhead, not a kernel or Tensor-Core saturation problem. The compute side wants the bigger batch (+6.7%). No knob in the FSDP2 × AC × batch space has recovered this at 8-GPU. The next gains at 8-GPU require reducing NCCL volume or improving overlap.
+        </div>
+        <div class="ins ins-a" style="margin-top:10px">
+          <strong>Update 2026-05-20 (provisional, Codex-tightened):</strong> Job 47554 (gpu05, bs=128 reshF sel AC, 1000 i) hit <strong>mean 1,341 / median 1,312 img/s</strong> — +5.1% over a 300-iter bs=128 reshT anchor on gpu07. The mechanism (reshF moves all-gather to forward, DDP-equivalent comm) is plausible and would explain a recovery of the bs=128 sign-flip, but the comparison crosses node and date. The single-run delta does not yet separate "reshF helped" from "gpu05 was faster that day than gpu07 was earlier." The bs=128 8-GPU sign-flip is <em>reopened</em>, not closed. Next test is a paired same-node A/B (reshT vs reshF), not LL128 stacking — LL128 already hurt bs=128 reshT by 6.4%.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- MFU GUIDE                                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section" id="mfu-guide">
+    <div class="sec-hdr">
+      MFU Explained
+      <span class="sec-badge">Metric</span>
+    </div>
+
+    <div class="card">
+      <div class="cb">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">What MFU measures</div>
+            <div style="font-size:13px;color:var(--text-2);line-height:1.7">
+              <div style="background:#f8fafc;border-radius:6px;padding:10px;font-family:var(--mono);font-size:12px;margin-bottom:8px">MFU = (model_FLOPs × images_per_sec) / hardware_peak_FLOPs</div>
+              <p>FLOPs here are actually <strong>MACs</strong> (multiply-adds) × 2, following the DINOv2 paper / fvcore convention. A "100% MFU" system uses every available FLOP of hardware compute with no overhead.</p>
+              <p style="margin-top:8px">MFU does NOT account for communication time — a system at 8% MFU that's 80% communication-bound is not "wasting" 92% of compute; 80% of that is unavoidably spent communicating.</p>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Two ceilings</div>
+            <div style="font-size:13px;color:var(--text-2)">
+              <div style="margin-bottom:10px;padding:10px;background:#fef2f2;border-radius:6px">
+                <div style="font-weight:700;color:#dc2626">989 TFLOPS</div>
+                <div style="font-size:12px;margin-top:3px">Dense BF16. Standard MFU reporting basis. NVIDIA published "989" for H100 SXM5. All Phase 5 MFU numbers use this.</div>
+              </div>
+              <div style="margin-bottom:10px;padding:10px;background:#fffbeb;border-radius:6px">
+                <div style="font-weight:700;color:#d97706">794.5 TFLOPS</div>
+                <div style="font-size:12px;margin-top:3px">MAMF (Maximum Achievable MFU) — practical ceiling accounting for memory bandwidth limits and realistic matmul efficiency. ~23.9% at 989 basis ≈ ~29.8% of MAMF.</div>
+              </div>
+              <div style="padding:10px;background:#f0fdf4;border-radius:6px">
+                <div style="font-weight:700;color:#15803d">1979 TFLOPS — DO NOT USE</div>
+                <div style="font-size:12px;margin-top:3px">NVIDIA's advertised number assumes 2:4 structured sparsity. Standard transformer training uses dense matmuls. This figure misleadingly halves reported MFU.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px">
+          <div style="font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Where we stand</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:160px;background:#fef2f2;border-radius:6px;padding:12px;text-align:center">
+              <div style="font-size:26px;font-weight:800;color:#dc2626;line-height:1">7–8%</div>
+              <div style="font-size:11px;color:#991b1b;font-weight:600;margin-top:3px">Current (8-GPU, bs=96 sel)</div>
+              <div style="font-size:11px;color:#6b7280;margin-top:2px">~7–8 × 989 TFLOPS = ~74 TFLOPS actually used</div>
+            </div>
+            <div style="flex:1;min-width:160px;background:#eff6ff;border-radius:6px;padding:12px;text-align:center">
+              <div style="font-size:26px;font-weight:800;color:#2563eb;line-height:1">20–22%</div>
+              <div style="font-size:11px;color:#1e40af;font-weight:600;margin-top:3px">1-GPU compute only</div>
+              <div style="font-size:11px;color:#6b7280;margin-top:2px">What the model can do without NCCL overhead</div>
+            </div>
+            <div style="flex:1;min-width:160px;background:#f0fdf4;border-radius:6px;padding:12px;text-align:center">
+              <div style="font-size:26px;font-weight:800;color:#15803d;line-height:1">30%</div>
+              <div style="font-size:11px;color:#166534;font-weight:600;margin-top:3px">Lab MFU target</div>
+              <div style="font-size:11px;color:#6b7280;margin-top:2px">Aspirational internal target, not from a Meta paper</div>
+            </div>
+          </div>
+          <div class="ins ins-b" style="margin-top:10px">
+            The 22 pp gap between current (8%) and target (30%) is not a compute problem — the 1-GPU numbers show the compute kernels can reach 20–22% on their own. The gap is almost entirely <strong>NCCL overhead not being hidden by compute</strong>. NCCL knob tuning can close ~1–2 pp. The rest requires architectural changes: fewer collectives per step (gradient accumulation, coarser wrapping) or more compute per collective (larger model, more nodes).
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- WHY FSDP2                                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="section" id="why-fsdp2">
+    <div class="sec-hdr">
+      Why FSDP2 (Settled)
+      <span class="sec-badge">Decision</span>
+    </div>
+
+    <div class="card">
+      <div class="cb">
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:12px">This is not an open question. DDP is closed for this project. The rationale comes directly from the DINOv2/v3 team:</p>
+
+        <blockquote>
+          "I have not used DDP once since 2022 … In FSDP you have the option to not release shards, in which case it's basically equivalent to DDP, with the gather moved before the fwd instead of after the bwd … I think both are fine if both fit."
+          <cite>— Tim Darcet, DINOv2/v3 co-author, 2026-04-25</cite>
+        </blockquote>
+
+        <div style="font-size:13px;color:var(--text-2);margin-top:12px">
+          <p><strong>Translation:</strong> FSDP2 with <code>reshard_after_forward=False</code> is mathematically equivalent to DDP (just with the all-gather reordered from post-backward to pre-forward). The screening-time 0.4 pp gap between FSDP2 and DDP+ES at bs=256 was specifically from <code>reshard_after_forward=True</code> (ZeRO-3, more NCCL ops). At bs=96 with selective AC, the reshape×AC matrix shows the reshard flag barely matters once AC is on.</p>
+          <p style="margin-top:8px"><strong>Why not go back to DDP?</strong> FSDP2 provides the right memory-safety envelope as model scale or batch size increases. Once NCCL is the dominant bottleneck, DDP and FSDP2 have the same core problem — the difference is just <em>when</em> the collective happens in the step, not <em>how much</em> communication there is.</p>
+        </div>
+
+        <div class="ins ins-g" style="margin-top:10px">
+          <strong>Operational rule:</strong> All Phase 5 experiments use FSDP2 ZeRO-3 (<code>reshard_after_forward=True</code>). FSDP2 remains the scale-up platform of record.
+        </div>
+        <div class="ins ins-a" style="margin-top:10px">
+          <strong>Caveat — updated 2026-05-21 with first measurement.</strong> Tim Darcet's equivalence is <em>algorithmic</em>: reshF and DDP do the same collectives. Phase 5 throughput does not bear out a <em>practical</em> equivalence: <code>bs=96 reshF noAC</code> (1,143 img/s) was <em>worse</em> than <code>reshT noAC</code> (1,279). The DDP bs=96 calibration (job 48312, gpu03, 2026-05-21) now provides the first matched-recipe data point: <strong>DDP mean 1,387 img/s vs FSDP2 reshT 1,279 (+8.4 %)</strong>, MFU +0.62 pp, peak alloc +0.9 GB, eval+ckpt did not exceed training peak. <strong>Single run, cross-node + cross-date, with a monotonic within-run rise (1,310 → 1,419) that exceeds the reported Δ</strong> — read as "DDP observed faster in this run," not "DDP is faster."<br><br><strong>Separately:</strong> the archived 2026-04-03 DDP screening reported ~4 k img/s · 18–23 % MFU at bs=128 (100-iter soaks). The May 21 long-soak does <em>not</em> reproduce that throughput regime even though the MFU formula and script knobs are unchanged. Until the original 100-iter recipe is rerun on today's code, those archived numbers are convention-mismatched against Phase 5 and should not be cited as a target. The plausible reads (not mutually exclusive) are short-soak measurement convention vs. seven weeks of code/runtime drift; recipe/config drift, dynamic-shape recompiles, and per-rank stragglers are additional confounds we have not ruled out. Next step (Codex): same-node FSDP2 bs=96 reshT noAC rerun on gpu03 + 100-iter <code>screening_ddp.sh 128</code> rerun on today's codebase. See Status dashboard Q5.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function filterGloss(q) {
+    q = q.toLowerCase().trim();
+    const items = document.querySelectorAll('#glist .gi');
+    let shown = 0;
+    items.forEach(el => {
+      const text = (el.textContent + el.getAttribute('data-terms')).toLowerCase();
+      const show = !q || text.includes(q);
+      el.style.display = show ? '' : 'none';
+      if (show) shown++;
+    });
+    document.getElementById('gcount').textContent = q ? `${shown} of ${items.length} terms matching "${q}"` : '';
+  }
+</script>
+</body>
+</html>
