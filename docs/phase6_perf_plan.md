@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Branch | TBD (recommend `perf-ddp-fullgraph`, branched from current `perf-fsdp2-pipeline` head) |
+| Branch | `perf-ddp-fullgraph` (cut 2026-05-21 from `perf-fsdp2-pipeline` head) |
 | Date opened | 2026-05-21 |
 | Predecessor | Phase 5 — FSDP2 + Data/Compute Pipeline (closed 2026-05-21, `docs/phase5_perf_plan.md`) |
 | Trigger | External advisor input from **Armen Aghajanyan** (2026-05-21): drop FSDP for ViT-B, use DDP, set `fullgraph=True`, fix static shapes, use CUDA graphs. |
@@ -53,7 +53,7 @@ walkthrough of how compile is wired today.
 | `train.cudagraphs` | `false` | `dinov3/configs/ssl_default_config.yaml:82` |
 | `train.checkpointing` | `false` (no AC) | default |
 | `PYTORCH_CUDA_ALLOC_CONF` | unset (no expandable_segments) | job 48312 script |
-| Per-GPU bs | 96 | `scripts/ddp_bs96_calibration.sh` |
+| Per-GPU bs | 96 | `scripts/screening/ddp_bs96_calibration.sh` |
 | World size | 8 × H100 (one node) | `gpu03` for 48312 |
 | DDP wrapping | `gradient_as_bucket_view=True`, `static_graph=True`, per sub-module (`backbone`, `dino_head`, `ibot_head`) | `dinov3/fsdp/ac_compile_parallelize.py:310–319` |
 | Param dtype / reduce dtype | bf16 / bf16 (DDP, single dtype after `.to(param_dtype)`) | `dinov3/fsdp/ac_compile_parallelize.py:301–308` |
@@ -112,29 +112,57 @@ This is the technical heart of Phase 6. Without resolving it, fullgraph either f
 to capture or recompiles every iteration (which is what Phase 4 saw at
 `max-autotune-no-cudagraphs`).
 
-**Where the dynamism originates:**
+**Where the dynamism originates — full verified code chain:**
 
 ```python
-# dinov3/data/collate.py:62-63
-collated_masks = torch.stack(masks_list).flatten(1)        # shape (B, N) — STATIC
+# dinov3/data/collate.py:43
+probs = torch.linspace(*mask_ratio_tuple, n_samples_masked + 1)
+# ^ stochastic mask-ratio schedule — different tokens masked each iter
+
+# dinov3/data/collate.py:62
+collated_masks = torch.stack(masks_list).flatten(1)
+# ^ shape (B, N_patches) — STATIC (B = n_global_crops * 2, N = 196 for ViT-B/16)
+
+# dinov3/data/collate.py:63
 mask_indices_list = collated_masks.flatten().nonzero().flatten()
-                                                           # shape (n_masked,) — DYNAMIC
+# ^ shape (K,) — DYNAMIC; K = number of True entries, varies per batch
+
+# dinov3/data/collate.py:65
+masks_weight = (1 / collated_masks.sum(-1).clamp(min=1.0)).unsqueeze(-1).expand_as(collated_masks)[collated_masks]
+# ^ shape (K,) — ALSO DYNAMIC; boolean indexing [collated_masks] produces same variable K
+
+# dinov3/data/collate.py:74
+"n_masked_patches": torch.full((1,), fill_value=mask_indices_list.shape[0], dtype=torch.long)
+# ^ records K as a scalar for downstream loss
+
+# dinov3/train/ssl_meta_arch.py:585
+masked_patches_pre_head = torch.index_select(g_patch.flatten(0, 1), dim=0, index=mask_indices_list)
+# ^ source g_patch.flatten(0,1) is shape (B*n_global, N_patches, D) — STATIC
+# ^ result masked_patches_pre_head is shape (K, D) — DYNAMIC first dim
+
+# dinov3/loss/ibot_patch_loss.py:115
+loss = loss[:n_masked_patches]
+# ^ dynamic slice; K changes → different loss tensor shape each iter
 ```
 
-- `collated_masks` itself is shape-stable: `(B, N)` where `B = global_batch * 2` global crops
-  and `N = 196` patch positions (ViT-B / patch 16 / 224 px). Same every iteration.
-- `mask_indices_list` is the result of `.nonzero()` on the flattened mask, so its
-  length is the total number of True entries — varies stochastically per iter via
-  `mask_ratio_tuple` and `mask_probability`.
-- `n_masked_patches` is then stored as a scalar tensor and used at
-  `dinov3/loss/ibot_patch_loss.py:115` as `loss = loss[:n_masked_patches]`.
+Key clarification from the HTML explainer (`docs/dinov3-training-pipeline-ibot-compile-explainer-2026-05-22.html`):
+- `collated_masks` is a **fixed rectangular tensor** — `(B, N_patches)` boolean. Armen's question
+  "are you not resizing into a fixed shape?" applies here: the mask *grid* is fixed. The variable
+  shape is introduced by `nonzero()` which **materializes only the True positions** into a compact
+  1D index list.
+- The ViT backbone source (`g_patch`) is **also fully static** — `(B * n_global_crops, N_patches, D)`.
+  Only the *result* of `index_select` is variable. This means the backbone compute path is not
+  directly affected by the dynamic-K problem.
+- **Both `mask_indices_list` and `masks_weight` are variable-K.** Option B padding must handle both.
 
 **Downstream effects (chain of varying-shape tensors):**
 
-1. `student_patch_tokens_masked` — gathered from student features using `mask_indices_list`
-   (`dinov3/train/ssl_meta_arch.py` student forward).
-2. `teacher_patch_tokens_masked` — same gather on teacher side.
-3. The iBOT loss math operates on tensors of shape `(n_masked, dim)`.
+1. `masked_patches_pre_head` — shape `(K, D)` — gathered via `index_select` from student backbone
+   output at `ssl_meta_arch.py:585`.
+2. `teacher_patch_tokens` — same gather on teacher side.
+3. `masks_weight` — shape `(K,)` — loss normalization weights, same K as above.
+4. The iBOT loss computes over `(K, D)` logit space; `loss[:n_masked_patches]` at `ibot_patch_loss.py:115`
+   slices the variable-K dimension.
 
 `torch.compile` will trace this branch with one specific `n_masked`. Next iter, n_masked
 changes, and either: (a) Inductor recompiles (with `dynamic=False` and `max-autotune` this
@@ -186,8 +214,8 @@ default to **B (padding)** unless told otherwise, because it lets the throughput
 be answered without entangling it with a convergence question.
 
 A second smaller decision: when we measure `cudagraphs=true` (sub-question 6.A), do we
-do it on a fresh branch / fresh script, or extend `scripts/ddp_bs96_calibration.sh` with
-a config override? I'll default to a fresh `scripts/ddp_bs96_cudagraphs_backbone.sh` so
+do it on a fresh branch / fresh script, or extend `scripts/screening/ddp_bs96_calibration.sh` with
+a config override? I'll default to a fresh `scripts/screening/ddp_bs96_cudagraphs_backbone.sh` so
 the calibration baseline stays pristine.
 
 ---
@@ -222,8 +250,8 @@ exact symbol names that bound any future static-shape work.
 **Goal:** test the cheap half of H6: does flipping `train.cudagraphs=true` on the
 backbone alone change the 7.94 % MFU number?
 
-**Recipe.** `scripts/ddp_bs96_cudagraphs_backbone.sh` — identical to
-`scripts/ddp_bs96_calibration.sh` except:
+**Recipe.** `scripts/screening/ddp_bs96_cudagraphs_backbone.sh` — identical to
+`scripts/screening/ddp_bs96_calibration.sh` except:
 
 ```yaml
 train.cudagraphs=true   # backbone blocks go through fullgraph + triton.cudagraphs branch
@@ -252,14 +280,20 @@ padding *before* we know the *benefit* of fullgraph — so we can attribute corr
 
 **Code change scope (single PR):**
 
-- `dinov3/data/collate.py:62-74`: after computing `mask_indices_list`, pad it (and
-  related `masks_weight`, the gathered student/teacher tensors downstream) to
-  `K_max = ceil(mask_ratio_tuple[1] * N) * n_samples_masked`. Store `n_real_masked` so
-  the loss path can compute the correct denominator.
+- `dinov3/data/collate.py:63`: after computing `mask_indices_list`, pad it to
+  `K_max = ceil(mask_ratio_tuple[1] * N) * n_samples_masked` using e.g.
+  `F.pad(mask_indices_list, (0, K_max - K))`. The pad values can be 0 (any valid index;
+  loss masking makes them inert).
+- `dinov3/data/collate.py:65`: `masks_weight` is also shape `(K,)` — pad it to `K_max`
+  with zeros so padded-token loss contributions are zeroed out automatically.
+- `dinov3/data/collate.py:74`: `n_masked_patches` can remain K (real count) for the
+  loss normalization denominator — we need it so we can normalize correctly over real
+  tokens only.
 - `dinov3/loss/ibot_patch_loss.py:97-117`: replace `loss[:n_masked_patches]` with a
-  multiplication by a 0/1 weight, and use `n_real_masked` for normalization.
-- A flag `train.static_ibot_shapes=true` to gate it (we want to be able to A/B against
-  the stochastic path).
+  multiplication by the (now `K_max`-length) `masks_weight` which already has 0s on
+  pad positions. Normalization denominator uses the stored real K.
+- A flag `train.static_ibot_shapes=true` to gate the change (needed for A/B against the
+  stochastic baseline to verify numeric equivalence in §6.3).
 
 **Recipe.** Same as 48312 except `train.static_ibot_shapes=true`. 1000 iters.
 
@@ -364,6 +398,10 @@ These shape Phase 6 substantially; please confirm or redirect before I touch cod
 
 ## 11. Living evidence index
 
+- `docs/dinov3-training-pipeline-ibot-compile-explainer-2026-05-22.html` — **verified visual explainer**
+  of the full iBOT dynamic-K code chain (all 7 code refs from `collate.py:43` through
+  `ibot_patch_loss.py:115`), DINO vs iBOT patch-token diagrams, and torch.compile timeline
+  showing recompile storm. Primary reference for §4 and §6.3 code-change scope.
 - `docs/torch-compile-dinov3-phase5-2026-05-21.md` — code walkthrough of `train.compile=true`.
 - `docs/phase5_perf_plan.md` — closed predecessor; preserved for nsys / NCCL / OOM history.
 - `dinov3/fsdp/ac_compile_parallelize.py:65–76` — `wrap_compile_block` (the fullgraph / CUDA-graph branch lives here).
@@ -371,5 +409,121 @@ These shape Phase 6 substantially; please confirm or redirect before I touch cod
 - `dinov3/configs/ssl_default_config.yaml:80–82` — `compile`, `compile_mode`, `cudagraphs` defaults.
 - `dinov3/data/collate.py:62–74` — `mask_indices_list` dynamic shape source.
 - `dinov3/loss/ibot_patch_loss.py:96–117` — `loss[:n_masked_patches]` dynamic slice.
-- `scripts/ddp_bs96_calibration.sh` — the recipe job 48312 ran.
+- `scripts/screening/ddp_bs96_calibration.sh` — the recipe job 48312 ran.
+- `scripts/screening/ddp_bs96_cudagraphs.sh` — Phase 6.2 script.
 - `/mnt/weka/adovlatyan/logs/ddp-bs96-calib-48312.out` — baseline log to beat.
+
+---
+
+## 12. Job log and experiment results
+
+Chronological record of Phase 6 runs. Append a new entry for every job.
+
+---
+
+### 6.A.1 — First `cudagraphs=true` attempt (job 53655, 2026-05-23, FAILED)
+
+**Script:** `scripts/screening/ddp_bs96_cudagraphs.sh`  
+**Node:** gpu01  
+**Status:** CRASHED during first training step (~4 min after start)
+
+**[COMPILE] log confirmed** the right path ran:
+```
+[COMPILE] torch.compile enabled — cudagraphs=True, compile_mode=None
+[COMPILE] compile_transformer: 12 backbone blocks → path: fullgraph=True, dynamic=False, triton.cudagraphs=True
+[COMPILE] head 'dino_head' → path: default (module.compile(), dynamic=True)
+[COMPILE] head 'ibot_head' → path: default (module.compile(), dynamic=True)
+```
+
+**Root cause — Inductor CUDA graph tree buffer aliasing:**
+```
+RuntimeError: Error: accessing tensor output of CUDAGraphs that has been overwritten
+by a subsequent run.
+...block.py:194: x_ffn = x_attn + self.ls2(self.mlp(self.norm2(x_attn)))
+To prevent overwriting, clone the tensor outside of torch.compile() or call
+torch.compiler.cudagraph_mark_step_begin() before each model invocation.
+Stack: torch/_inductor/cudagraph_trees.py:1625 → _allocate_and_copy_recording_inputs
+```
+
+**Why it happened:** each compiled transformer block receives `[global_crops_tokens, local_crops_tokens]` as a list and loops over both inside `_forward_list`. Inductor's CUDA graph tree captures a separate sub-graph per input shape (197 tokens vs 37 tokens). Without `cudagraph_mark_step_begin()`, the tree doesn't know that the two sub-graphs belong to the *same* step — it allows output buffers from the first shape's graph to be aliased/overwritten by the second shape's graph. Additionally, teacher and student each call the compiled backbone, making it 4+ compiled-function invocations per step.
+
+**Fix applied:** added `torch.compiler.cudagraph_mark_step_begin()` at the top of `SSLMetaArch.forward_backward()` in `dinov3/train/ssl_meta_arch.py`. This call is a documented no-op when cudagraphs are not active, so it has zero cost on default runs.
+
+**Note on prior compile history:** pre-Phase 6, every submitted job used `train.cudagraphs=false` (yaml default). The `fullgraph=True, triton.cudagraphs=True` branch in `wrap_compile_block` had *never* run before job 53655. All MFU numbers prior to Phase 6 reflect `module.compile()` default mode — dynamic=True, no fullgraph, no CUDA graphs.
+
+---
+
+### 6.A.2 — `cudagraphs=true` with mark_step_begin fix (job 53672, 2026-05-23, COMPLETED — REGRESSION)
+
+**Script:** `scripts/screening/ddp_bs96_cudagraphs.sh`  
+**Fix:** `torch.compiler.cudagraph_mark_step_begin()` at top of `forward_backward()`  
+**Node:** gpu01  
+**Status:** Ran to completion 1000 iters, no crash. Throughput *worse* than baseline.
+
+**Steady-state results (iter 400–999, n = 80 logged points):**
+
+| Run | Strategy | img/s | MFU | step_ms | Peak alloc |
+|---|---|---|---|---|---|
+| Job 48312 (baseline) | DDP, compile=true, cudagraphs=false | 1,387 | 7.94 % | 545 | 25.8 GB |
+| **Job 53672** | **DDP, compile=true, cudagraphs=true** | **1,244** | **7.12 %** | **599** | **~25 GB** |
+| **Delta** | | **−10.3 %** | **−0.82 pp** | **+9.9 %** | flat |
+
+**Root cause of the regression — `index_put_` with `accumulate=True`:**
+
+stderr shows 8 instances of:
+```
+skipping cudagraphs due to index put with accumulate. Found from :
+    x_subset_1_list = [x[indices_1] for x, indices_1 in zip(x_list, indices_1_list)]
+```
+
+That call sits in the **indexed branch of `_forward_list` in `dinov3/layers/block.py`**. The advanced-indexing pattern `x[indices_1]` in forward produces `index_put_(..., accumulate=True)` in backward — an op Inductor **refuses to capture into CUDA graphs**. Inductor falls back to eager for that section, but the run still pays:
+
+1. `cudagraph_mark_step_begin()` per step,
+2. Cudagraph tree partitioning and decision overhead,
+3. `_copy_inputs_and_remove_from_src` input-copy cost per captured sub-graph,
+4. Twice the compile time (197-token graph + 37-token graph instead of one default-mode graph).
+
+With the broken-graph path taking eager fallback inside an otherwise capture-attempted region, the net effect is **negative** rather than positive.
+
+**This is informative, not a dead end:**
+- The fullgraph branch *traces* cleanly (compilation succeeds, no graph breaks at the Dynamo level).
+- The `cudagraph_mark_step_begin()` fix is correct — runtime no longer crashes on the multi-shape `_forward_list` aliasing.
+- The remaining blocker is one specific autograd-time op (`index_put_` with `accumulate=True`) coming from one specific access pattern in `block.py`.
+
+**6.A verdict:** `cudagraphs=true` flipped naively on the current backbone code is a **regression**. To unlock the CUDA-graph win, the indexed-access pattern in `block.py:_forward_list` must be rewritten — see §6.A.3 below.
+
+---
+
+### 6.A.3 — Replace `x[indices]` with `torch.index_select` in `_forward_list` (NEXT)
+
+**Goal:** eliminate the `index_put_(accumulate=True)` backward op so `triton.cudagraphs=True` can actually capture the backbone.
+
+**Code-change scope:** `dinov3/layers/block.py:_forward_list` — replace `x[indices_1]` advanced indexing with `torch.index_select(x, 0, indices_1)` (or `torch.gather` where the index shape demands it). `index_select`'s backward is `index_add`, which Inductor captures cleanly.
+
+**Pre-work:** confirm via `torch._dynamo` logs that this is the **only** `index_put_(accumulate=True)` source. Other suspects to check: stochastic-depth `drop_path`, RoPE coordinate-jitter paths, the iBOT mask gather (already known dynamic — not relevant for backbone), and any `scatter_` calls.
+
+**Recipe:** identical to 53672 (DDP bs=96, cudagraphs=true) after the code change. The control is 48312 (no cudagraphs); the secondary control is 53672 (cudagraphs-on-but-broken). A win has to clear *both*.
+
+**Gate:** only if 6.A.3 shows ≥ 10 % img/s gain over 48312 baseline does 6.B (full static-shape iBOT work) become worth the larger code lift.
+
+---
+
+### 6.A.4 — AC + larger batch + cudagraphs (QUEUED, post-6.A.3)
+
+**Hypothesis (Aram, 2026-05-23):** with selective activation checkpointing on, DDP memory headroom opens up so per-GPU batch can grow (bs=128, possibly 192). Larger batch amortizes the fixed per-step Python / launch overhead — same lever cudagraphs targets, but via a different mechanism. Combined with cudagraphs, the two wins should be at least partly additive: bigger batch reduces *frequency* of step overhead, cudagraphs reduces *cost* of each step.
+
+**Why this is queued, not immediate:**
+1. AC introduces graph breaks at checkpoint boundaries by design (the `checkpoint_wrapper` is a control-flow construct). Combining AC with `triton.cudagraphs=True` is a different compatibility question than 6.A.3. We want the 6.A.3 result first so we know whether the cudagraph path is fixable at all.
+2. bs=128 OOM under FSDP2 (Phase 5) was unexplained. Under DDP without AC at bs=96 we saw 25.8 GB / 80 GB; bs=128 linear estimate is ~34 GB. AC should bring that down substantially. But cudagraph workspaces add memory too, so the prediction is non-trivial.
+3. AC raises HFU but not MFU on its own; the win here is *only* if larger batch is unlocked. The experiment design must therefore be a 2×2 matrix at minimum: {AC on/off} × {cudagraphs on/off}, all at the new larger batch, with the AC-off legs being the OOM/throughput controls.
+
+**Tentative experiment list (run only after 6.A.3 lands):**
+
+| ID | bs | AC | cudagraphs | Purpose |
+|---|---|---|---|---|
+| 6.A.4.a | 128 | sel | false | Establish bs=128 DDP+AC baseline throughput and memory |
+| 6.A.4.b | 128 | sel | true  | Test AC + cudagraphs compatibility and additive win |
+| 6.A.4.c | 128 | off | false | Confirm OOM (or not) at bs=128 DDP without AC |
+| 6.A.4.d | 192 | sel | true  | Stretch goal if 6.A.4.b is throughput-positive |
+
+Acceptance: 6.A.4.b clears job 48312 baseline (1,387 img/s) by ≥ 30 %, or the AC-cudagraphs combination is closed as not worth pursuing.
