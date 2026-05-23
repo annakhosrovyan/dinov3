@@ -75,8 +75,10 @@ class SelfAttentionBlock(nn.Module):
         sin, cos = rope
         assert sin.ndim == cos.ndim
         if sin.ndim == 4:
-            # If the rope embedding has a batch dimension (is different for each batch element), index into it
-            return sin[indices], cos[indices]  # [batch, heads, patches, embed_dim]
+            # If the rope embedding has a batch dimension (is different for each batch element), index into it.
+            # torch.index_select instead of sin[indices] so the backward op is index_add (graph-capturable)
+            # rather than index_put_(accumulate=True) (Inductor refuses to capture).
+            return torch.index_select(sin, 0, indices), torch.index_select(cos, 0, indices)  # [batch, heads, patches, embed_dim]
         else:
             # No batch dimension, do not index
             return sin, cos  # [heads, patches, embed_dim] or [patches, embed_dim]
@@ -93,7 +95,10 @@ class SelfAttentionBlock(nn.Module):
         if self.training and self.sample_drop_ratio > 0.0:
             indices_1 = (torch.randperm(b, device=x.device))[:sample_subset_size]
 
-            x_subset_1 = x[indices_1]
+            # torch.index_select instead of x[indices_1] — same forward output, but backward
+            # is index_add (Inductor can capture into CUDA graphs) rather than
+            # index_put_(accumulate=True) (Inductor refuses, falls back to eager).
+            x_subset_1 = torch.index_select(x, 0, indices_1)
             rope_subset = self._maybe_index_rope(rope, indices_1)
             residual_1 = self.attn(self.norm1(x_subset_1), rope=rope_subset)
 
@@ -107,7 +112,7 @@ class SelfAttentionBlock(nn.Module):
 
             indices_2 = (torch.randperm(b, device=x.device))[:sample_subset_size]
 
-            x_subset_2 = x_attn[indices_2]
+            x_subset_2 = torch.index_select(x_attn, 0, indices_2)
             residual_2 = self.mlp(self.norm2(x_subset_2))
 
             x_ffn = torch.index_add(
@@ -138,7 +143,8 @@ class SelfAttentionBlock(nn.Module):
                 (torch.randperm(b, device=x.device))[:sample_subset_size]
                 for x, b, sample_subset_size in zip(x_list, b_list, sample_subset_sizes)
             ]
-            x_subset_1_list = [x[indices_1] for x, indices_1 in zip(x_list, indices_1_list)]
+            # torch.index_select instead of x[indices_1] — see comment in _forward() above.
+            x_subset_1_list = [torch.index_select(x, 0, indices_1) for x, indices_1 in zip(x_list, indices_1_list)]
 
             if rope_list is not None:
                 rope_subset_list = [
@@ -168,7 +174,7 @@ class SelfAttentionBlock(nn.Module):
                 (torch.randperm(b, device=x.device))[:sample_subset_size]
                 for x, b, sample_subset_size in zip(x_list, b_list, sample_subset_sizes)
             ]
-            x_subset_2_list = [x[indices_2] for x, indices_2 in zip(x_attn_list, indices_2_list)]
+            x_subset_2_list = [torch.index_select(x, 0, indices_2) for x, indices_2 in zip(x_attn_list, indices_2_list)]
             flattened, shapes, num_tokens = cat_keep_shapes(x_subset_2_list)
             norm2_flat = self.norm2(flattened)
             norm2_list = uncat_with_shapes(norm2_flat, shapes, num_tokens)
