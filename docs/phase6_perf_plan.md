@@ -540,8 +540,30 @@ With the broken-graph path taking eager fallback inside an otherwise capture-att
 | ID      | bs  | AC  | cudagraphs | Status | Job | Purpose |
 |---------|-----|-----|------------|--------|-----|---------|
 | 6.A.4.a | 128 | off | true       | **DONE — WIN** (53708) | 53708 | bs=128: 2,394 img/s, 13.70% MFU, 34.1 GB peak. +19.2% img/s vs 53681. No OOM. Loss matches baseline. |
-| 6.A.4.d | 192 | off | true       | RUNNING (53739) | 53739 | Push further — 46 GB headroom from 53708 means AC isn't needed to unlock bs>=192. Predicted ~51 GB peak. |
-| 6.A.4.b | 128 | sel | true       | TBD (deprioritized) | — | AC + cudagraphs compatibility test. Lower value now — AC was meant to unlock larger batch, but 6.A.4.a showed batch is not memory-limited. |
+| 6.A.4.d | 192 | off | true       | **OOM** (53739) | 53739 | Predicted ~51 GB linear; actual exceeded 80 GB. cudagraph workspace scales non-linearly past bs=128. **AC is now the path to bs≥192**, not a deprioritized option. |
+| 6.A.4.b | 128 | sel | true       | superseded by 6.A.5.c | — | (Moved into the 6.A.5 AC sweep below.) |
 | 6.A.4.c | 128 | off | false      | TBD (diagnostic) | — | Isolates batch-amortization win from cudagraphs win. Only worth running if we need to attribute deltas precisely. |
 
-Acceptance: 6.A.4.a clears job 53681 (2,009 img/s) by ≥ 10 %, OR 6.A.4.b combination clears job 48312 baseline (1,387 img/s) by ≥ 50 %. Else the matrix closes as not-worth-pursuing.
+Acceptance: 6.A.4.a clears job 53681 (2,009 img/s) by ≥ 10 % — **cleared at +19.2%**.
+
+---
+
+### 6.A.5 — Activation-checkpointing sweep (RUNNING, 2026-05-23)
+
+**Hypothesis:** AC's value at this point is no longer about fitting bs=128 (already fits with cudagraphs, 34.1 GB) — it's about fitting **bs≥192**, which 53739 showed needs memory headroom we don't have without AC. Before scaling batch under AC, characterize the throughput cost of `sel` vs `full` at both bs=96 and bs=128.
+
+**2x2 matrix (cudagraphs=true for all):**
+
+| ID      | bs  | AC mode | Status | Job | Comparator | Purpose |
+|---------|-----|---------|--------|-----|------------|---------|
+| 6.A.5.a | 96  | sel     | QUEUED | 53740 | 53681 (AC=off, cg=true): 2,009 img/s, 11.50% MFU | Selective-AC throughput cost at original Phase 6 batch. |
+| 6.A.5.b | 96  | full    | QUEUED | 53741 | 53681                                              | Full-recompute AC throughput cost. Worst case for throughput, best case for memory. |
+| 6.A.5.c | 128 | sel     | QUEUED | 53742 | 53708 (AC=off, cg=true): 2,394 img/s, 13.70% MFU  | Selective-AC cost at the production batch. |
+| 6.A.5.d | 128 | full    | QUEUED | 53743 | 53708                                              | Full-recompute AC cost at the production batch. |
+
+**Compatibility risk:** `checkpoint_wrapper` introduces control-flow boundaries that may force graph breaks inside compiled backbone blocks. The fullgraph+triton.cudagraphs path may degrade or fail. Results will tell us whether AC + cudagraphs can coexist before we attempt bs≥192 with AC.
+
+**Acceptance criteria:**
+- The (sel, full) × (bs=96, bs=128) deltas vs their no-AC comparators are characterized.
+- If selective AC at bs=128 stays within 15% of 53708 throughput, AC + bs=192 is the next-step candidate.
+- If `full` runs degrade severely or crash, that closes the question — `full` is incompatible with cudagraphs and we use selective only.
