@@ -380,6 +380,11 @@ class SSLMetaArch(nn.Module):
         self, data, *, teacher_temp, iteration=0, **ignored_kwargs
     ) -> tuple[Tensor, dict[str, float | Tensor]]:
         del ignored_kwargs
+        # Required when triton.cudagraphs=True (train.cudagraphs=true): tells the Inductor
+        # CUDA graph tree that a new step is starting so it does not alias output buffers
+        # across the teacher forward, student forward, and the two crop-size sub-graphs
+        # inside _forward_list. Safe to call unconditionally — no-op when cudagraphs are off.
+        torch.compiler.cudagraph_mark_step_begin()
         metrics_dict = {}
 
         # Shapes
