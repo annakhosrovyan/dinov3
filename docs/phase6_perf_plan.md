@@ -535,13 +535,13 @@ With the broken-graph path taking eager fallback inside an otherwise capture-att
 2. bs=128 OOM under FSDP2 (Phase 5) was unexplained. Under DDP without AC at bs=96 we saw 25.8 GB / 80 GB; bs=128 linear estimate is ~34 GB. AC should bring that down substantially. But cudagraph workspaces add memory too, so the prediction is non-trivial.
 3. AC raises HFU but not MFU on its own; the win here is *only* if larger batch is unlocked. The experiment design must therefore be a 2×2 matrix at minimum: {AC on/off} × {cudagraphs on/off}, all at the new larger batch, with the AC-off legs being the OOM/throughput controls.
 
-**Tentative experiment list (run only after 6.A.3 lands):**
+**Experiment matrix (post-6.A.3 — 6.A.3 cleared, queue open):**
 
-| ID | bs | AC | cudagraphs | Purpose |
-|---|---|---|---|---|
-| 6.A.4.a | 128 | sel | false | Establish bs=128 DDP+AC baseline throughput and memory |
-| 6.A.4.b | 128 | sel | true  | Test AC + cudagraphs compatibility and additive win |
-| 6.A.4.c | 128 | off | false | Confirm OOM (or not) at bs=128 DDP without AC |
-| 6.A.4.d | 192 | sel | true  | Stretch goal if 6.A.4.b is throughput-positive |
+| ID      | bs  | AC  | cudagraphs | Status | Job | Purpose |
+|---------|-----|-----|------------|--------|-----|---------|
+| 6.A.4.a | 128 | off | true       | **DONE — WIN** (53708) | 53708 | bs=128: 2,394 img/s, 13.70% MFU, 34.1 GB peak. +19.2% img/s vs 53681. No OOM. Loss matches baseline. |
+| 6.A.4.d | 192 | off | true       | RUNNING (53739) | 53739 | Push further — 46 GB headroom from 53708 means AC isn't needed to unlock bs>=192. Predicted ~51 GB peak. |
+| 6.A.4.b | 128 | sel | true       | TBD (deprioritized) | — | AC + cudagraphs compatibility test. Lower value now — AC was meant to unlock larger batch, but 6.A.4.a showed batch is not memory-limited. |
+| 6.A.4.c | 128 | off | false      | TBD (diagnostic) | — | Isolates batch-amortization win from cudagraphs win. Only worth running if we need to attribute deltas precisely. |
 
-Acceptance: 6.A.4.b clears job 48312 baseline (1,387 img/s) by ≥ 30 %, or the AC-cudagraphs combination is closed as not worth pursuing.
+Acceptance: 6.A.4.a clears job 53681 (2,009 img/s) by ≥ 10 %, OR 6.A.4.b combination clears job 48312 baseline (1,387 img/s) by ≥ 50 %. Else the matrix closes as not-worth-pursuing.
