@@ -494,17 +494,35 @@ With the broken-graph path taking eager fallback inside an otherwise capture-att
 
 ---
 
-### 6.A.3 — Replace `x[indices]` with `torch.index_select` in `_forward_list` (NEXT)
+### 6.A.3 — Replace `x[indices]` with `torch.index_select` (job 53681, 2026-05-23, ✅ BIG WIN)
 
 **Goal:** eliminate the `index_put_(accumulate=True)` backward op so `triton.cudagraphs=True` can actually capture the backbone.
 
-**Code-change scope:** `dinov3/layers/block.py:_forward_list` — replace `x[indices_1]` advanced indexing with `torch.index_select(x, 0, indices_1)` (or `torch.gather` where the index shape demands it). `index_select`'s backward is `index_add`, which Inductor captures cleanly.
+**Code change (commit `cda29e2`):** `dinov3/layers/block.py` — replaced 5 occurrences of `x[indices]` advanced indexing with `torch.index_select(x, 0, indices)`. Sites: `_maybe_index_rope` (sin/cos), `_forward` (x_subset_1, x_subset_2), `_forward_list` (x_subset_1_list, x_subset_2_list). All inside the stochastic-depth `sample_drop_ratio > 0` branch.
 
-**Pre-work:** confirm via `torch._dynamo` logs that this is the **only** `index_put_(accumulate=True)` source. Other suspects to check: stochastic-depth `drop_path`, RoPE coordinate-jitter paths, the iBOT mask gather (already known dynamic — not relevant for backbone), and any `scatter_` calls.
+**Mathematical equivalence:** indices come from `torch.randperm(b)[:k]` — guaranteed unique, so accumulate-vs-non-accumulate is moot. Forward output identical; backward identical up to float reduction order.
 
-**Recipe:** identical to 53672 (DDP bs=96, cudagraphs=true) after the code change. The control is 48312 (no cudagraphs); the secondary control is 53672 (cudagraphs-on-but-broken). A win has to clear *both*.
+**Results (job 53681, iter 400–999, n = 80):**
 
-**Gate:** only if 6.A.3 shows ≥ 10 % img/s gain over 48312 baseline does 6.B (full static-shape iBOT work) become worth the larger code lift.
+| Run | img/s | MFU | step_ms | Δ vs 48312 baseline |
+|---|---|---|---|---|
+| Job 48312 (cudagraphs=false) | 1,387 | 7.94 % | 545 | — |
+| Job 53672 (cudagraphs=true, broken `index_put`) | 1,244 | 7.12 % | 599 | **−10.3 % img/s** |
+| **Job 53681 (cudagraphs=true + `index_select` fix)** | **2,009** | **11.50 %** | **379** | **+44.8 % img/s** |
+
+**Verification:**
+- `skipping cudagraphs due to index put with accumulate` warnings: **0** (down from 8 in 53672).
+- Loss curve looks healthy: total_loss ~14.04 at iter 999, matching the trajectory of the baseline.
+- `[COMPILE]` log confirmed the fullgraph + triton.cudagraphs branch ran on all 12 backbone blocks.
+- No crashes, no graph breaks, no recompiles after warmup (would need TORCH_LOGS to confirm formally).
+
+**What this means:** Phase 6 hypothesis H6 is *partially confirmed*. Closing the 7.94 % → 30 % gap by 44.8 % in img/s (from one-knob change) is a strong signal that the per-step Python / launch overhead Armen flagged was real. We've moved from `7.94 %` to `11.50 %` MFU. The remaining 18.5 pp gap to 30 % is now the question for 6.B (heads / iBOT static shapes) and 6.A.4 (AC + bigger batch).
+
+**Caveats for next steps:**
+- Per-iter MFU variance is wider than baseline (range 8.96 %–14.26 % in the last 200 iters). The peaks suggest more headroom; the troughs suggest a remaining bottleneck — likely the heads (still on `module.compile()` dynamic default).
+- Memory delta not yet measured (cudagraph workspaces add). Need to grep peak_alloc from the log.
+
+**Gate cleared.** 6.B (full static-shape iBOT + extend fullgraph to heads) is now worth the larger code lift, and 6.A.4 (AC + bigger batch + cudagraphs) is queued.
 
 ---
 
