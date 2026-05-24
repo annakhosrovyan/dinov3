@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 6 — DDP + Fullgraph Compile · Experiment Ledger</title>
+  <style>
+    :root {
+      --bg: #f0f4f8;
+      --surface: #fff;
+      --border: #d1dce6;
+      --text: #1a2433;
+      --text-2: #4a5568;
+      --text-3: #94a3b8;
+      --mono: 'SFMono-Regular','SF Mono',Consolas,'Liberation Mono',Menlo,monospace;
+      --sans: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      --r: 8px;
+      --sh: 0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.04);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--sans);font-size:14px;line-height:1.6;color:var(--text);background:var(--bg)}
+    a{color:#2563eb;text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    /* layout */
+    .wrap{max-width:1240px;margin:0 auto;padding:24px 18px 60px}
+
+    /* page header */
+    .ph{border-left:4px solid #2563eb;padding:12px 16px;background:var(--surface);border-radius:0 var(--r) var(--r) 0;box-shadow:var(--sh);margin-bottom:22px}
+    .ph h1{font-size:19px;font-weight:700}
+    .ph .meta{display:flex;gap:18px;margin-top:5px;flex-wrap:wrap}
+    .mi{font-size:12px;color:var(--text-2)}
+    .mi code{font-family:var(--mono);font-size:11px;background:#f1f5f9;padding:1px 5px;border-radius:3px}
+
+    /* cards */
+    .card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);margin-bottom:18px;overflow:hidden}
+    .ch{padding:10px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);display:flex;align-items:center;gap:8px}
+    .cb{padding:16px}
+
+    /* verdict card */
+    .vc{border-left:4px solid #16a34a;background:#f0fdf4}
+    .vc .ch{background:transparent;border-bottom-color:#bbf7d0;color:#166534}
+    .vc .cb{display:flex;gap:20px;flex-wrap:wrap}
+    .vi{flex:1;min-width:200px}
+    .vi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#6b7280;margin-bottom:3px}
+    .vi-val{font-size:13px}
+    .good{color:#15803d;font-weight:600}
+    .warn{color:#b45309}
+    .muted{color:#6b7280}
+    .purple{color:#7c3aed;font-weight:600}
+    .bad{color:#991b1b;font-weight:600}
+
+    /* progress bar */
+    .prog-outer{background:#e2e8f0;border-radius:4px;height:9px;margin:10px 0 14px;position:relative}
+    .prog-inner{background:linear-gradient(90deg,#16a34a 0%,#22c55e 100%);border-radius:4px;height:9px;transition:width .3s}
+    .prog-tick{position:absolute;top:-3px;width:2px;height:15px;background:#94a3b8;border-radius:1px}
+    .prog-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin-bottom:4px}
+
+    /* gains chart */
+    .gains{display:flex;flex-direction:column;gap:5px;padding:8px 0}
+    .gr{display:flex;align-items:center;height:32px;gap:8px}
+    .grl{width:170px;flex-shrink:0;font-size:12px;font-family:var(--mono);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .grb-wrap{flex:1;height:22px;background:#f1f5f9;border-radius:3px;position:relative;overflow:hidden}
+    .grb{height:22px;border-radius:3px;display:flex;align-items:center;padding-left:9px;color:#fff;font-size:11px;font-weight:700;white-space:nowrap;transition:width .3s}
+    .grv{width:90px;flex-shrink:0;font-size:12px;font-weight:600;font-family:var(--mono);text-align:right;padding-right:4px}
+    .grn{flex:0 0 80px;font-size:10px;color:var(--text-3);padding-left:6px}
+
+    /* color bars */
+    .bar-base{background:#94a3b8}
+    .bar-mid{background:#3b82f6}
+    .bar-best{background:#16a34a}
+    .bar-bad{background:#dc2626}
+    .bar-amber{background:#f59e0b}
+    .bar-purple{background:#7c3aed}
+
+    /* matrix */
+    .mat-wrap{overflow-x:auto}
+    .mat{display:grid;grid-template-columns:84px repeat(3,1fr);gap:7px;min-width:680px}
+    .mhdr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);padding:5px 8px;text-align:center}
+    .mrow-lbl{font-weight:700;font-size:12px;color:var(--text);display:flex;align-items:center;justify-content:center;flex-direction:column;font-family:var(--mono);line-height:1.3;text-align:center}
+    .mrow-lbl small{font-size:10px;color:var(--text-3);font-family:var(--sans);font-weight:400;margin-top:1px}
+
+    .cell{border-radius:var(--r);padding:11px 13px;border:2px solid transparent;position:relative}
+    .ct{font-size:20px;font-weight:800;line-height:1}
+    .ctu{font-size:11px;font-weight:400;color:var(--text-2)}
+    .cm{font-size:11px;color:var(--text-2);margin-top:3px}
+    .cf{display:flex;align-items:center;justify-content:space-between;margin-top:8px;gap:5px;flex-wrap:wrap}
+    .cn{font-size:10px;color:#9ca3af;margin-top:4px;font-family:var(--mono)}
+
+    /* cell themes */
+    .cell-champion{background:#bbf7d0;border-color:#16a34a;box-shadow:0 0 0 2px #bbf7d0,0 4px 8px rgba(22,163,74,.15)}
+    .cell-champion .ct{color:#14532d}
+    .cell-best{background:#dcfce7;border-color:#86efac}
+    .cell-best .ct{color:#15803d}
+    .cell-good{background:#ecfdf5}
+    .cell-good .ct{color:#166534}
+    .cell-neutral{background:#f8fafc}
+    .cell-neutral .ct{color:#374151}
+    .cell-warn{background:#fef3c7}
+    .cell-warn .ct{color:#92400e}
+    .cell-bad{background:#fee2e2;border-color:#fca5a5}
+    .cell-bad .ct{color:#991b1b}
+
+    /* mem badges */
+    .mb{font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px}
+    .mg{background:#bbf7d0;color:#14532d}
+    .mlg{background:#dcfce7;color:#166534}
+    .ma{background:#fef3c7;color:#92400e}
+    .mr{background:#fee2e2;color:#991b1b}
+
+    /* status pills */
+    .sb{font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+    .sb-green{background:#16a34a;color:#fff}
+    .sb-blue{background:#2563eb;color:#fff}
+    .sb-purple{background:#7c3aed;color:#fff}
+    .sb-gray{background:#9ca3af;color:#fff}
+    .sb-amber{background:#f59e0b;color:#fff}
+    .sb-red{background:#dc2626;color:#fff}
+
+    /* journey timeline */
+    .timeline{position:relative;padding-left:30px;margin:8px 0}
+    .timeline::before{content:'';position:absolute;left:9px;top:5px;bottom:5px;width:2px;background:linear-gradient(180deg,#94a3b8 0%,#16a34a 100%)}
+    .tle{position:relative;padding:6px 0 12px;font-size:13px}
+    .tle::before{content:'';position:absolute;left:-26px;top:9px;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #94a3b8}
+    .tle.win::before{background:#16a34a;border-color:#15803d}
+    .tle.fail::before{background:#dc2626;border-color:#991b1b}
+    .tle.fix::before{background:#3b82f6;border-color:#1d4ed8}
+    .tle-h{font-weight:600;font-size:13px;color:var(--text);margin-bottom:1px}
+    .tle-h .tle-job{color:var(--text-3);font-weight:400;font-family:var(--mono);font-size:11px;margin-left:6px}
+    .tle-d{font-size:12px;color:var(--text-2);line-height:1.55}
+
+    /* insights */
+    .insight{padding:10px 14px;border-radius:6px;font-size:12px;line-height:1.6}
+    .ins-green{background:#f0fdf4;border-left:3px solid #16a34a;color:#15803d}
+    .ins-gray{background:#f8fafc;border-left:3px solid #94a3b8;color:#4b5563}
+    .ins-amber{background:#fffbeb;border-left:3px solid #f59e0b;color:#92400e}
+    .ins-red{background:#fef2f2;border-left:3px solid #dc2626;color:#991b1b}
+
+    /* ledger */
+    details summary{cursor:pointer;padding:10px 16px;font-weight:600;font-size:13px;color:var(--text-2);list-style:none;user-select:none;display:flex;align-items:center;gap:6px}
+    details summary::-webkit-details-marker{display:none}
+    details[open] summary{border-bottom:1px solid var(--border)}
+    .tog{transition:transform .18s;font-size:10px;display:inline-block}
+    details[open] .tog{transform:rotate(90deg)}
+    .lt{width:100%;border-collapse:collapse;font-size:12px}
+    .lt th{padding:7px 9px;text-align:left;background:#f8fafc;font-weight:600;color:var(--text-2);border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+    .lt td{padding:6px 9px;border-bottom:1px solid #f1f5f9;color:var(--text-2);vertical-align:middle}
+    .lt tr:hover td{background:#f8fafc}
+    .lt code{font-family:var(--mono);font-size:11px;background:#f1f5f9;padding:1px 4px;border-radius:2px}
+    .rh td{background:#f0fdf4}
+    .rh-champion td{background:#bbf7d0;font-weight:600}
+    .rh-champion:hover td{background:#bbf7d0!important}
+    .ra td{background:#fffbeb}
+    .rf td{background:#fef2f2}
+    .ri td{background:#f1f5f9;opacity:.7}
+    .ri:hover td{background:#e2e8f0!important}
+    .sp{font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;text-transform:uppercase;white-space:nowrap}
+    .sp-g{background:#dcfce7;color:#166534}
+    .sp-r{background:#fee2e2;color:#991b1b}
+    .sp-a{background:#fef3c7;color:#92400e}
+    .sp-b{background:#e0e7ff;color:#3730a3}
+    .sp-best{background:#16a34a;color:#fff}
+    .sp-inv{background:#f1f5f9;color:#6b7280}
+    .grp-hdr td{background:#1e293b!important;color:#94a3b8;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:5px 9px;border-bottom:1px solid #334155}
+    .grp-hdr:hover td{background:#1e293b!important}
+    .lt td .cfg-note{display:block;font-size:10px;color:#94a3b8;margin-top:2px;font-family:var(--sans);line-height:1.5}
+
+    /* two col */
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    @media(max-width:900px){.two-col{grid-template-columns:1fr}}
+
+    /* commits */
+    .commits{font-family:var(--mono);font-size:11px;line-height:1.7;background:#0f172a;color:#cbd5e1;padding:11px 14px;border-radius:6px;overflow-x:auto}
+    .commits .csha{color:#fbbf24}
+    .commits .cmsg{color:#e2e8f0}
+    .commits .cnote{color:#64748b;font-style:italic}
+
+    /* top nav */
+    .top-nav{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);padding:7px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    .top-nav .inner{max-width:1240px;margin:0 auto;padding:0 18px;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+    .top-nav a{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;color:var(--text-2);transition:all .15s}
+    .top-nav a:hover,.top-nav a[aria-current=page]{background:#eff6ff;color:#1d4ed8;text-decoration:none}
+  </style>
+</head>
+<body>
+<nav class="top-nav"><div class="inner">
+  <a href="status.html">Phase 5 Status</a>
+  <a href="phase6_ledger.html" aria-current="page">Phase 6 Ledger</a>
+  <a href="concepts.html">Concepts</a>
+  <a href="mfu_reference.html">MFU Reference</a>
+</div></nav>
+
+<div class="wrap">
+
+  <!-- PAGE HEADER -->
+  <div class="ph">
+    <h1>Phase 6 — DDP + torch.compile(fullgraph=True) &nbsp;<span style="font-weight:400;font-size:15px;color:#6b7280">Experiment Ledger</span></h1>
+    <div class="meta">
+      <span class="mi">Branch <code>perf-ddp-fullgraph</code></span>
+      <span class="mi">Opened 2026-05-22 · Updated 2026-05-24</span>
+      <span class="mi">Champion <code>DDP bs=128 cudagraphs no-AC (job 53708)</code></span>
+      <span class="mi">MFU progress: <span class="bad">7.94%</span> → <span class="good">13.70%</span> (+5.76 pp)</span>
+      <span class="mi">Throughput progress: 1,387 → 2,394 img/s (<strong>+72.6%</strong>)</span>
+      <span class="mi">Lab target 30% (aspirational for ViT-B)</span>
+    </div>
+  </div>
+
+  <!-- CURRENT VERDICT -->
+  <div class="card vc">
+    <div class="ch">Current Verdict <span style="font-weight:400;font-size:11px;color:#6b7280;margin-left:4px">authoritative as of 2026-05-24</span></div>
+    <div class="cb">
+      <div class="vi">
+        <div class="vi-lbl">Production champion</div>
+        <div class="vi-val good">DDP bs=128, cudagraphs=true, no AC — job 53708</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">Throughput</div>
+        <div class="vi-val good">2,394 img/s · 13.70% MFU · ~390 ms/step</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">Memory</div>
+        <div class="vi-val">34.1 GB / 80 GB · ~46 GB headroom</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">Memory fallback</div>
+        <div class="vi-val purple">bs=128 + AC=full — 12.4 GB (-64%) at ~31% throughput cost</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">bs=192 status</div>
+        <div class="vi-val bad">OOM without AC — cudagraph workspaces scale non-linearly past bs=128</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">Next probe</div>
+        <div class="vi-val warn">bs=256 + AC=full — first config predicted to beat 53708 (~2,758 img/s if linear holds)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PHASE 6 JOURNEY (TIMELINE) -->
+  <div class="card">
+    <div class="ch">Phase 6 Journey — How We Got From 7.94% to 13.70% MFU
+      <span style="font-weight:400;font-size:11px;color:#94a3b8;margin-left:4px">three diagnostic failures + three engineering wins</span>
+    </div>
+    <div class="cb">
+      <div class="timeline">
+        <div class="tle">
+          <div class="tle-h">Baseline established <span class="tle-job">job 48312 · 2026-05-21</span></div>
+          <div class="tle-d">DDP bs=96, <code>compile=true</code>, <code>cudagraphs=false</code> (i.e., the legacy code path: <code>module.compile()</code> with <code>dynamic=True</code>). <strong>1,387 img/s, 7.94% MFU, 545 ms/step.</strong> This was the floor we were measuring lifts against.</div>
+        </div>
+
+        <div class="tle fail">
+          <div class="tle-h">First cudagraphs attempt crashed <span class="tle-job">job 53655 · 2026-05-22</span></div>
+          <div class="tle-d">First time anyone in this codebase had set <code>train.cudagraphs=true</code> — code path had been wired for months but never exercised. <code>RuntimeError: accessing tensor output of CUDAGraphs that has been overwritten by a subsequent run</code> at <code>block.py:194</code>. Root cause: Inductor's cudagraph tree aliased output buffers across the teacher fwd, student fwd, and the two crop-size sub-graphs within a single <code>forward_backward()</code> call. Fix: <code>torch.compiler.cudagraph_mark_step_begin()</code> at the top of <code>forward_backward</code> in <code>ssl_meta_arch.py</code> (no-op when cudagraphs off; signals new step to the cudagraph tree).</div>
+        </div>
+
+        <div class="tle fail">
+          <div class="tle-h">Second attempt regressed 10% <span class="tle-job">job 53672 · 2026-05-22</span></div>
+          <div class="tle-d"><strong>1,244 img/s, 7.12% MFU</strong> — slower than baseline despite cudagraphs being on. Stderr showed 8 lines of <em>"skipping cudagraphs due to index put with accumulate"</em> originating from <code>x[indices]</code> advanced indexing inside <code>block.py:_forward_list</code>. The backward of advanced indexing produces <code>index_put_(accumulate=True)</code>, which Inductor refuses to capture into cudagraphs. Fallback to eager + cudagraph tree overhead = net regression.</div>
+        </div>
+
+        <div class="tle fix">
+          <div class="tle-h">Fixed index_put with index_select <span class="tle-job">block.py · 5 sites · 2026-05-22</span></div>
+          <div class="tle-d">Replaced <code>x[indices]</code> with <code>torch.index_select(x, 0, indices)</code> at 5 sites in <code>_maybe_index_rope</code>, <code>_forward</code>, and <code>_forward_list</code>. Mathematically identical for unique <code>torch.randperm</code> indices (which they are — sample drop). Critical difference: backward of <code>index_select</code> is <code>index_add</code> (graph-capturable). All sites inside the <code>if self.training and self.sample_drop_ratio &gt; 0.0</code> branch — only stochastic-depth path affected.</div>
+        </div>
+
+        <div class="tle win">
+          <div class="tle-h">First win — cudagraphs at bs=96 <span class="tle-job">job 53681 · 2026-05-22</span></div>
+          <div class="tle-d"><strong>2,009 img/s, 11.50% MFU, 379 ms/step.</strong> +44.8% throughput vs baseline. The fullgraph + triton.cudagraphs path finally compiled cleanly across the entire backbone. Validates Armen Aghajanyan's hypothesis: ViT-B step time was Python/launch-overhead-bound, not compute-bound; cudagraphs eliminated the launch tax.</div>
+        </div>
+
+        <div class="tle win">
+          <div class="tle-h">Batch scaling win — bs=128 ★ CHAMPION <span class="tle-job">job 53708 · 2026-05-22</span></div>
+          <div class="tle-d"><strong>2,394 img/s, 13.70% MFU, 34.1 GB peak.</strong> +19.2% over 53681; +72.6% over baseline. Step time barely grew (379 → ~390 ms) because the bottleneck had shifted from per-step launch overhead to compute. Memory scaled almost perfectly linear from 25.8 → 34.1 GB. Cumulative gain: +5.76 pp MFU.</div>
+        </div>
+
+        <div class="tle fail">
+          <div class="tle-h">bs=192 OOM <span class="tle-job">job 53739 · 2026-05-23</span></div>
+          <div class="tle-d">Linear prediction said ~51 GB peak; actual exceeded 80 GB. <strong>Cudagraph workspaces scale non-linearly past bs=128.</strong> Inductor's cudagraph tree holds per-shape sub-graph workspaces; growing batch grows them faster than activation memory. This invalidated the AC-isn't-needed narrative — AC is now the only path to bs≥192.</div>
+        </div>
+
+        <div class="tle">
+          <div class="tle-h">AC sweep (×4) characterizes the tradeoff <span class="tle-job">jobs 53740, 53742, 53999, 54000 · 2026-05-23/24</span></div>
+          <div class="tle-d">Mapped {bs=96, bs=128} × {AC=sel, AC=full} at cudagraphs=true. Two surprises:<br>
+            <strong>(1)</strong> AC=full <em>dominates</em> AC=sel — same throughput, ~35% less memory. The selective save list covers fast-to-recompute ops (mm, SDPA) but not bulky activations (norms, residuals); sel doesn't save much memory.<br>
+            <strong>(2)</strong> AC throughput cost is batch-independent at ~31%. Fullgraph + triton.cudagraphs survived both AC modes (all 12 blocks still on the cudagraphs branch per <code>[COMPILE]</code> logs).<br>
+            Config bug found mid-sweep: <code>checkpointing_full=true</code> alone does not enable AC (needs <code>checkpointing=true</code> too). Original 53741/53743 invalidated; re-runs 53999/54000 used correct config.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROGRESS GAINS CHART -->
+  <div class="card">
+    <div class="ch">Throughput Ladder — img/s by experiment
+      <span style="font-weight:400;font-size:11px;color:#94a3b8;margin-left:4px">scaled to 53708 champion = 2,394 img/s</span>
+    </div>
+    <div class="cb">
+      <div class="gains">
+        <!-- 48312 baseline -->
+        <div class="gr">
+          <div class="grl" title="DDP bs=96, cudagraphs=false">48312 · bs=96 baseline</div>
+          <div class="grb-wrap"><div class="grb bar-base" style="width:57.9%">1,387</div></div>
+          <div class="grv">7.94% MFU</div>
+          <div class="grn">baseline ↓</div>
+        </div>
+        <!-- 53672 regression -->
+        <div class="gr">
+          <div class="grl" title="cudagraphs broken by index_put">53672 · bs=96 cg (broken)</div>
+          <div class="grb-wrap"><div class="grb bar-bad" style="width:51.9%">1,244</div></div>
+          <div class="grv">7.12% MFU</div>
+          <div class="grn">-10.3% regression</div>
+        </div>
+        <!-- 53740 ac sel -->
+        <div class="gr">
+          <div class="grl" title="bs=96 + sel AC + cudagraphs">53740 · bs=96 ac=sel</div>
+          <div class="grb-wrap"><div class="grb bar-amber" style="width:57.6%">1,380</div></div>
+          <div class="grv">7.89% MFU</div>
+          <div class="grn">AC tax -31%</div>
+        </div>
+        <!-- 53999 ac full -->
+        <div class="gr">
+          <div class="grl" title="bs=96 + full AC + cudagraphs">53999 · bs=96 ac=full</div>
+          <div class="grb-wrap"><div class="grb bar-amber" style="width:57.5%">1,378</div></div>
+          <div class="grv">7.89% MFU</div>
+          <div class="grn">9.6 GB peak</div>
+        </div>
+        <!-- 53742 ac sel bs128 -->
+        <div class="gr">
+          <div class="grl" title="bs=128 + sel AC + cudagraphs">53742 · bs=128 ac=sel</div>
+          <div class="grb-wrap"><div class="grb bar-amber" style="width:68.0%">1,628</div></div>
+          <div class="grv">9.32% MFU</div>
+          <div class="grn">AC tax -32%</div>
+        </div>
+        <!-- 54000 ac full bs128 -->
+        <div class="gr">
+          <div class="grl" title="bs=128 + full AC + cudagraphs">54000 · bs=128 ac=full</div>
+          <div class="grb-wrap"><div class="grb bar-amber" style="width:69.1%">1,654</div></div>
+          <div class="grv">9.46% MFU</div>
+          <div class="grn">12.4 GB peak</div>
+        </div>
+        <!-- 53681 first win -->
+        <div class="gr">
+          <div class="grl" title="bs=96 + cudagraphs + index_select fix">53681 · bs=96 cg ★</div>
+          <div class="grb-wrap"><div class="grb bar-mid" style="width:83.9%">2,009</div></div>
+          <div class="grv">11.50% MFU</div>
+          <div class="grn">+44.8% ★ first win</div>
+        </div>
+        <!-- 53708 champion -->
+        <div class="gr">
+          <div class="grl" title="bs=128 + cudagraphs + no AC — CHAMPION"><strong>53708 · bs=128 cg ★★</strong></div>
+          <div class="grb-wrap"><div class="grb bar-best" style="width:100.0%">2,394</div></div>
+          <div class="grv good">13.70% MFU</div>
+          <div class="grn"><strong>+72.6% ★★ champion</strong></div>
+        </div>
+        <!-- Predicted bs=256 -->
+        <div class="gr" style="opacity:.65">
+          <div class="grl" title="Linear extrapolation from AC=full slope">[pred] bs=256 ac=full</div>
+          <div class="grb-wrap"><div class="grb bar-purple" style="width:115.2%;background:repeating-linear-gradient(45deg,#7c3aed,#7c3aed 6px,#8b5cf6 6px,#8b5cf6 12px)">~2,758</div></div>
+          <div class="grv purple">~15.78%</div>
+          <div class="grn">extrapolation</div>
+        </div>
+      </div>
+      <div class="insight ins-gray" style="margin-top:14px">
+        <strong>Read the chart top-down as the chronological journey.</strong> The two yellow regression bands (53672 broken cudagraphs, AC tax 53740/53999/53742/54000) show that wins were not monotonic — debugging the cudagraphs path took two iterations, and the AC sweep showed AC is dominated at this batch size. The blue → green block (53681 → 53708) is the actual Phase 6 win. The purple stripe is the next-step prediction, not measured.
+      </div>
+    </div>
+  </div>
+
+  <!-- BATCH × AC MATRIX -->
+  <div class="card">
+    <div class="ch">Batch × AC Matrix
+      <span style="font-weight:400;font-size:11px;color:#94a3b8">all runs cudagraphs=true · steady-state running-avg img/s · 1000 iters each · 8×H100 single node</span>
+    </div>
+    <div class="cb">
+      <div class="mat-wrap">
+        <div class="mat">
+          <div></div>
+          <div class="mhdr">No AC</div>
+          <div class="mhdr">Selective AC <small style="display:block;font-weight:400;text-transform:none;letter-spacing:0">← dominated by full</small></div>
+          <div class="mhdr">Full AC <small style="display:block;font-weight:400;text-transform:none;letter-spacing:0">← memory fallback</small></div>
+
+          <!-- bs=96 row -->
+          <div class="mrow-lbl">bs=96<small>✓ safe</small></div>
+
+          <div class="cell cell-best">
+            <div class="ct">2,009 <span class="ctu">img/s</span></div>
+            <div class="cm">11.50% MFU · 379 ms/step</div>
+            <div class="cf">
+              <span class="mb ma">~25.8 GB</span>
+              <span class="sb sb-blue">first cg win</span>
+            </div>
+            <div class="cn">Job 53681</div>
+          </div>
+
+          <div class="cell cell-warn">
+            <div class="ct">1,380 <span class="ctu">img/s</span></div>
+            <div class="cm">7.89% MFU · 695 ms/step</div>
+            <div class="cf">
+              <span class="mb mlg">14.9 GB</span>
+              <span class="sb sb-gray">dominated</span>
+            </div>
+            <div class="cn">Job 53740</div>
+          </div>
+
+          <div class="cell cell-warn">
+            <div class="ct">1,378 <span class="ctu">img/s</span></div>
+            <div class="cm">7.89% MFU · 689 ms/step</div>
+            <div class="cf">
+              <span class="mb mg">9.6 GB</span>
+              <span class="sb sb-purple">💾 best mem</span>
+            </div>
+            <div class="cn">Job 53999</div>
+          </div>
+
+          <!-- bs=128 row -->
+          <div class="mrow-lbl">bs=128<small>★ production</small></div>
+
+          <div class="cell cell-champion">
+            <div class="ct">2,394 <span class="ctu">img/s</span></div>
+            <div class="cm">13.70% MFU · 390 ms/step</div>
+            <div class="cf">
+              <span class="mb ma">34.1 GB</span>
+              <span class="sb sb-green">★★ CHAMPION</span>
+            </div>
+            <div class="cn">Job 53708</div>
+          </div>
+
+          <div class="cell cell-warn">
+            <div class="ct">1,628 <span class="ctu">img/s</span></div>
+            <div class="cm">9.32% MFU · 980 ms/step</div>
+            <div class="cf">
+              <span class="mb ma">19.4 GB</span>
+              <span class="sb sb-gray">dominated</span>
+            </div>
+            <div class="cn">Job 53742</div>
+          </div>
+
+          <div class="cell cell-warn">
+            <div class="ct">1,654 <span class="ctu">img/s</span></div>
+            <div class="cm">9.46% MFU · 874 ms/step</div>
+            <div class="cf">
+              <span class="mb mlg">12.4 GB</span>
+              <span class="sb sb-purple">💾 fallback</span>
+            </div>
+            <div class="cn">Job 54000</div>
+          </div>
+
+          <!-- bs=192 row -->
+          <div class="mrow-lbl">bs=192<small>⚠ OOM</small></div>
+
+          <div class="cell cell-bad">
+            <div class="ct">OOM</div>
+            <div class="cm">cudagraph workspaces &gt; 80 GB</div>
+            <div class="cf">
+              <span class="mb mr">&gt;80 GB</span>
+              <span class="sb sb-red">⚠ fail</span>
+            </div>
+            <div class="cn">Job 53739</div>
+          </div>
+
+          <div class="cell cell-neutral" style="opacity:.45">
+            <div class="ct" style="font-size:13px;margin-top:5px">untested</div>
+            <div class="cm">predicted ~22 GB, 1,876 img/s</div>
+            <div class="cf">
+              <span class="mb mlg">~22 GB</span>
+              <span class="sb sb-gray">dominated</span>
+            </div>
+            <div class="cn">— skipped (sel dominated by full)</div>
+          </div>
+
+          <div class="cell cell-neutral" style="opacity:.7">
+            <div class="ct" style="font-size:13px;margin-top:5px">untested</div>
+            <div class="cm">predicted ~19 GB, ~2,206 img/s</div>
+            <div class="cf">
+              <span class="mb mlg">~19 GB</span>
+              <span class="sb sb-amber">candidate</span>
+            </div>
+            <div class="cn">— next probe candidate</div>
+          </div>
+
+          <!-- bs=256 row (predicted) -->
+          <div class="mrow-lbl" style="opacity:.7">bs=256<small>predicted</small></div>
+
+          <div class="cell cell-bad" style="opacity:.5">
+            <div class="ct" style="font-size:13px;margin-top:5px">extreme OOM</div>
+            <div class="cm">extrapolation breaks down</div>
+            <div class="cf">
+              <span class="mb mr">&gt;80 GB</span>
+              <span class="sb sb-red">⚠ skip</span>
+            </div>
+            <div class="cn">— no path without AC</div>
+          </div>
+
+          <div class="cell cell-neutral" style="opacity:.5">
+            <div class="ct" style="font-size:13px;margin-top:5px">~2,128 img/s</div>
+            <div class="cm">extrapolated</div>
+            <div class="cf">
+              <span class="mb ma">~30 GB</span>
+              <span class="sb sb-gray">dominated</span>
+            </div>
+            <div class="cn">— dominated by full</div>
+          </div>
+
+          <div class="cell cell-best" style="opacity:.85;border:2px dashed #16a34a">
+            <div class="ct">~2,758 <span class="ctu">img/s</span></div>
+            <div class="cm">~15.78% MFU predicted</div>
+            <div class="cf">
+              <span class="mb mlg">~25 GB</span>
+              <span class="sb sb-amber">★ next probe</span>
+            </div>
+            <div class="cn">— first config predicted to beat 53708</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="insight ins-green" style="margin-top:14px">
+        <strong>Champion cell (53708):</strong> bs=128, no AC, cudagraphs=true. The intersection of "batch big enough to amortize launch overhead" and "memory still fits without AC." Everything to its left or above has been measured. Everything below or right is predicted or skipped.
+      </div>
+      <div class="insight ins-amber" style="margin-top:8px">
+        <strong>Key surprise — AC=full dominates AC=sel here.</strong> Same throughput, ~35% less memory. The codebase's selective save list (mm, SDPA, scaled_mm, reduce_scatter) saves the <em>fast-to-recompute</em> ops but not the <em>bulky-to-store</em> activations (norms, layer-scale, residuals, dropout state). Full saves much more memory for nearly the same recompute cost. Update: drop AC=sel from future runs.
+      </div>
+      <div class="insight ins-red" style="margin-top:8px">
+        <strong>bs=192 no-AC OOM and what it teaches us:</strong> Linear from 53708 said 51 GB peak; actual went over 80 GB. Cudagraph workspaces don't scale linearly — Inductor's cudagraph tree holds per-shape capture buffers and adds substantial workspace overhead that scales super-linearly with batch. Lesson for bs≥192: <em>only</em> with AC=full freeing 64% of activation memory does the workspace overhead become tolerable.
+      </div>
+    </div>
+  </div>
+
+  <!-- KEY CODE CHANGES -->
+  <div class="card">
+    <div class="ch">Code Changes That Made The Champion Possible
+      <span style="font-weight:400;font-size:11px;color:#94a3b8;margin-left:4px">6 commits on perf-ddp-fullgraph; the only two that materially moved the number are highlighted</span>
+    </div>
+    <div class="cb">
+      <div class="commits">
+<span class="csha">6d533d0</span> <span class="cmsg">Phase 6.A.5: queue AC sel/full sweep at bs=96 and bs=128</span>
+<span class="csha">e390657</span> <span class="cmsg">Phase 6.A.4: bs=128 cudagraphs WIN, queue bs=192</span>
+<span class="csha">1a09a2c</span> <span class="cmsg">Record 6.A.3 result in phase6_perf_plan: cudagraphs win, 7.94% → 11.50% MFU</span>
+<span class="csha">c365744</span> <span class="cmsg">Update phase6_perf_plan with cudagraphs experiments 6.A.1-6.A.4</span>
+<span class="csha">cda29e2</span> <span class="cmsg">Replace x[indices] with torch.index_select in SelfAttentionBlock</span>   <span class="cnote">★ unblocked cudagraphs capture; 5 sites in block.py</span>
+<span class="csha">f1fb9f8</span> <span class="cmsg">Add Phase 6.2 DDP+cudagraphs screening script</span>
+<span class="csha">2a18b10</span> <span class="cmsg">Call cudagraph_mark_step_begin at start of forward_backward</span>      <span class="cnote">★ fixed cudagraph tree aliasing in ssl_meta_arch.py</span>
+<span class="csha">b4ffa84</span> <span class="cmsg">Log torch.compile path at startup in ac_compile_parallelize</span>     <span class="cnote">diagnostic [COMPILE] one-time log</span>
+      </div>
+
+      <div class="two-col" style="margin-top:12px">
+        <div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">Why the index_select fix mattered</div>
+          <table class="lt" style="font-size:11px">
+            <tr><td style="font-weight:600;width:130px">Old</td><td><code>x_subset = x[indices]</code> — advanced indexing</td></tr>
+            <tr><td style="font-weight:600">New</td><td><code>x_subset = torch.index_select(x, 0, indices)</code></td></tr>
+            <tr><td style="font-weight:600">Math</td><td>Identical for <code>torch.randperm</code> indices (guaranteed unique)</td></tr>
+            <tr><td style="font-weight:600">Old backward</td><td><code>index_put_(accumulate=True)</code> — Inductor refuses to capture</td></tr>
+            <tr><td style="font-weight:600">New backward</td><td><code>index_add</code> — Inductor captures cleanly</td></tr>
+            <tr><td style="font-weight:600">Sites</td><td>5 in <code>block.py</code> (rope index, _forward, _forward_list)</td></tr>
+            <tr><td style="font-weight:600">Risk</td><td>None — drop-in equivalent for the only callsites (sample drop with unique indices)</td></tr>
+          </table>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">Why mark_step_begin mattered</div>
+          <table class="lt" style="font-size:11px">
+            <tr><td style="font-weight:600;width:130px">Symptom</td><td>RuntimeError accessing tensor output of CUDAGraphs that has been overwritten by a subsequent run</td></tr>
+            <tr><td style="font-weight:600">Root cause</td><td>One <code>forward_backward()</code> call enters compiled backbone 4+ times: teacher fwd, student fwd, global crops, local crops. Without a step marker, Inductor's cudagraph tree aliases output buffers across them.</td></tr>
+            <tr><td style="font-weight:600">Fix</td><td>Call <code>torch.compiler.cudagraph_mark_step_begin()</code> at top of <code>forward_backward()</code>. Tells the cudagraph tree a new step is starting → don't alias buffers from prior step into this step.</td></tr>
+            <tr><td style="font-weight:600">Cost</td><td>No-op when cudagraphs are off. Single function call when on.</td></tr>
+            <tr><td style="font-weight:600">Reference</td><td><code>torch/_inductor/cudagraph_trees.py</code> — see <code>cudagraph_mark_step_begin</code> + buffer reuse logic</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPEN QUESTIONS -->
+  <div class="card">
+    <div class="ch">Open Decision Questions</div>
+    <div class="cb">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+
+        <div style="background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 13px">
+          <div style="font-weight:700;font-size:12px;color:#92400e;margin-bottom:4px">Q1 — Probe bs=256 + AC=full?</div>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.55">
+            Linear extrapolation says ~2,758 img/s, +15% over 53708. Memory ~25 GB. Two risks: (a) per-batch slope from {bs=96, bs=128} may not extrapolate that far, (b) cudagraph workspace bloat may be non-linear past bs=128 (we saw this without AC at bs=192). One cheap 1000-iter run answers it. <strong>Recommendation: run it.</strong>
+          </div>
+        </div>
+
+        <div style="background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 13px">
+          <div style="font-weight:700;font-size:12px;color:#92400e;margin-bottom:4px">Q2 — Move to Phase 6.B?</div>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.55">
+            Phase 6.B = extend <code>fullgraph=True</code> to DINO/iBOT heads + static-shape iBOT (eliminate mask-shape recompiles). Heads currently on <code>module.compile()</code> default (dynamic=True). The per-iter MFU variance in 53708 (8.96% – 14.26%) suggests heads are now the next bottleneck. Larger code lift than batch tuning, but higher ceiling.
+          </div>
+        </div>
+
+        <div style="background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 13px">
+          <div style="font-weight:700;font-size:12px;color:#92400e;margin-bottom:4px">Q3 — Is 30% MFU achievable?</div>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.55">
+            On ViT-B + 1× DGX H100 + DDP: probably no. ViT-B (86M params, seq_len 197/37) is small relative to H100; Tensor Core tile sizes don't fully populate. Reference ViT-B BF16 H100 numbers cluster at 15–22% MFU. <strong>The realistic ceiling for this stack is likely ~18–22% MFU.</strong> 30% would need ViT-L+, longer sequences, or both.
+          </div>
+        </div>
+
+        <div style="background:#fee2e2;border-left:3px solid #ef4444;border-radius:6px;padding:10px 13px">
+          <div style="font-weight:700;font-size:12px;color:#991b1b;margin-bottom:4px">Q4 — Loss numerics regression check pending</div>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.55">
+            53708's loss values match 48312 baseline qualitatively (dino ~9.87, ibot ~4.77). Have NOT run a strict A/B comparing first 100 iter loss curves between cudagraphs=true and cudagraphs=false with fixed seed. Should land before production switch.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- FULL LEDGER -->
+  <div class="card">
+    <details open>
+      <summary>
+        <span class="tog">▶</span>
+        Full Experiment Ledger — Phase 6 (12 runs)
+        <span style="font-size:11px;color:#94a3b8;margin-left:8px;font-weight:400">all runs: DDP, 8×H100, 1000 iters, real Weka satellite data, no eval/ckpt forced</span>
+      </summary>
+      <div class="cb">
+        <div style="overflow-x:auto">
+          <table class="lt">
+            <thead>
+              <tr>
+                <th>ID</th><th>Date</th><th>Job</th><th>Node</th>
+                <th>Config</th><th>MFU</th><th>img/s</th><th>step ms</th><th>Peak Mem</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+
+              <!-- 6.A.5 AC sweep — finalized -->
+              <tr class="grp-hdr"><td colspan="10">Phase 6.A.5 — AC sweep × bs (cudagraphs=true on all) · 2026-05-23/24 · characterizes AC throughput tax + memory savings</td></tr>
+
+              <tr><td>6.A.5.d′</td><td>05-24</td><td>54000</td><td>—</td><td><code>DDP bs=128 + AC=full + cudagraphs=true</code><span class="cfg-note">corrected config (<code>checkpointing=true checkpointing_full=true</code>). Re-run of invalid 53743. fullgraph + triton.cudagraphs branch confirmed on all 12 blocks via [COMPILE] logs. Dominates 53742 (sel) on memory.</span></td><td>9.46%</td><td>1,654</td><td>874</td><td><span class="mb mlg">12.4 GB</span></td><td><span class="sp sp-g">memory fallback ★</span></td></tr>
+
+              <tr><td>6.A.5.b′</td><td>05-24</td><td>53999</td><td>—</td><td><code>DDP bs=96 + AC=full + cudagraphs=true</code><span class="cfg-note">corrected config re-run. Lowest memory of any Phase 6 run (9.6 GB peak). Throughput matches sel AC almost exactly — confirms full AC dominates sel here.</span></td><td>7.89%</td><td>1,378</td><td>689</td><td><span class="mb mg">9.6 GB</span></td><td><span class="sp sp-g">memory min ★</span></td></tr>
+
+              <tr class="ri"><td>6.A.5.d</td><td>05-23</td><td>53743</td><td>—</td><td><code>DDP bs=128 + AC=full + cudagraphs=true</code><span class="cfg-note">INVALID — config bug. <code>checkpointing_full=true</code> alone does not enable AC. AC gate is <code>cfg.train.checkpointing</code> alone. Peak alloc 33.3 GB exactly matches 53708 (no AC), confirming AC never engaged. Numbers are no-AC duplicate of 53708 with run-to-run variance.</span></td><td>(12.55%)</td><td>(2,193)</td><td>(961)</td><td><span class="mb mr">33.3 GB</span></td><td><span class="sp sp-inv">⚠ INVALID</span></td></tr>
+
+              <tr class="ri"><td>6.A.5.b</td><td>05-23</td><td>53741</td><td>—</td><td><code>DDP bs=96 + AC=full + cudagraphs=true</code><span class="cfg-note">INVALID — same config bug as 53743. No "using ... checkpointing" log line, confirming AC never engaged. Peak alloc ~25.4 GB matches no-AC bs=96.</span></td><td>(10.15%)</td><td>(1,769)</td><td>(708)</td><td><span class="mb ma">25.4 GB</span></td><td><span class="sp sp-inv">⚠ INVALID</span></td></tr>
+
+              <tr><td>6.A.5.c</td><td>05-23</td><td>53742</td><td>—</td><td><code>DDP bs=128 + AC=sel + cudagraphs=true</code><span class="cfg-note">selective AC + cudagraphs is compatible. AC throughput tax ~32% vs 53708. Memory drops 43% (34.1 → 19.4 GB). Dominated by AC=full at same memory level.</span></td><td>9.32%</td><td>1,628</td><td>980</td><td><span class="mb ma">19.4 GB</span></td><td><span class="sp sp-a">dominated by full</span></td></tr>
+
+              <tr><td>6.A.5.a</td><td>05-23</td><td>53740</td><td>—</td><td><code>DDP bs=96 + AC=sel + cudagraphs=true</code><span class="cfg-note">AC throughput tax ~31% vs 53681. Memory drops 42%. Dominated by 53999 (full AC, same throughput, less mem).</span></td><td>7.89%</td><td>1,380</td><td>695</td><td><span class="mb mlg">14.9 GB</span></td><td><span class="sp sp-a">dominated by full</span></td></tr>
+
+              <!-- 6.A.4 batch scaling -->
+              <tr class="grp-hdr"><td colspan="10">Phase 6.A.4 — Batch scaling on the winning recipe · 2026-05-22/23 · pushes bs on cudagraphs=true, no AC</td></tr>
+
+              <tr class="rf"><td>6.A.4.d</td><td>05-23</td><td>53739</td><td>—</td><td><code>DDP bs=192 + cudagraphs=true (no AC)</code><span class="cfg-note">OOM at >80 GB. Linear prediction said 51 GB; actual exceeded ceiling. <strong>Cudagraph workspaces scale non-linearly past bs=128.</strong> AC is now the only path to bs ≥ 192.</span></td><td>—</td><td>OOM</td><td>—</td><td><span class="mb mr">&gt;80 GB</span></td><td><span class="sp sp-r">⚠ OOM</span></td></tr>
+
+              <tr class="rh-champion"><td>6.A.4.a ★★</td><td>05-22</td><td>53708</td><td>—</td><td><code>DDP bs=128 + cudagraphs=true (no AC) — CHAMPION</code><span class="cfg-note">+19.2% img/s over 53681. Step time barely grew (379 → ~390 ms). Memory scaled linearly. Loss numerics qualitatively match baseline. No code change vs 53681 — just batch.</span></td><td><strong>13.70%</strong></td><td><strong>2,394</strong></td><td>~390</td><td><span class="mb ma">34.1 GB</span></td><td><span class="sp sp-best">★★ CHAMPION</span></td></tr>
+
+              <!-- 6.A.3 first win -->
+              <tr class="grp-hdr"><td colspan="10">Phase 6.A.3 — First cudagraphs WIN at bs=96 · 2026-05-22 · validates the Aghajanyan thesis</td></tr>
+
+              <tr class="rh"><td>6.A.3 ★</td><td>05-22</td><td>53681</td><td>—</td><td><code>DDP bs=96 + cudagraphs=true (no AC) — first win</code><span class="cfg-note">After fixes: <code>cudagraph_mark_step_begin</code> at top of <code>forward_backward()</code> + <code>x[idx]</code> → <code>index_select</code> at 5 sites in block.py. Fullgraph + triton.cudagraphs on all 12 backbone blocks. Heads still on default module.compile() (dynamic).</span></td><td>11.50%</td><td>2,009</td><td>379</td><td><span class="mb ma">~25.8 GB</span></td><td><span class="sp sp-best">★ first win</span></td></tr>
+
+              <!-- 6.A.2 broken regression -->
+              <tr class="grp-hdr"><td colspan="10">Phase 6.A.2 — Cudagraphs partial fix, still broken · 2026-05-22 · diagnosed second blocker</td></tr>
+
+              <tr class="rf"><td>6.A.2</td><td>05-22</td><td>53672</td><td>—</td><td><code>DDP bs=96 + cudagraphs=true (after mark_step_begin fix)</code><span class="cfg-note">No crash, but -10.3% throughput vs baseline. Stderr: 8 × "skipping cudagraphs due to index put with accumulate. Found from: <code>x_subset_1_list = [x[indices_1] for x, indices_1 in zip(...)]</code>". Inductor refuses to capture <code>index_put_(accumulate=True)</code> (backward of advanced indexing). Falls back to eager + pays cudagraph tree overhead → net regression.</span></td><td>7.12%</td><td>1,244</td><td>599</td><td>—</td><td><span class="sp sp-r">−10.3% regression</span></td></tr>
+
+              <!-- 6.A.1 crash -->
+              <tr class="grp-hdr"><td colspan="10">Phase 6.A.1 — First cudagraphs attempt · 2026-05-22 · diagnosed first blocker</td></tr>
+
+              <tr class="rf"><td>6.A.1</td><td>05-22</td><td>53655</td><td>—</td><td><code>DDP bs=96 + cudagraphs=true (first attempt)</code><span class="cfg-note">RuntimeError at block.py:194 — accessing tensor output of CUDAGraphs that has been overwritten. Root cause: forward_backward enters compiled backbone 4+ times (teacher fwd, student fwd, global+local crops); cudagraph tree aliases output buffers across them without a step marker. First time train.cudagraphs=true had ever been submitted in this codebase.</span></td><td>—</td><td>CRASH</td><td>—</td><td>—</td><td><span class="sp sp-r">⚠ crash</span></td></tr>
+
+              <!-- Baseline -->
+              <tr class="grp-hdr"><td colspan="10">Phase 6 baseline · 2026-05-21 · DDP no cudagraphs · the floor we measured lifts against</td></tr>
+
+              <tr><td>baseline</td><td>05-21</td><td>48312</td><td>gpu03</td><td><code>DDP bs=96, compile=true, cudagraphs=false (legacy code path)</code><span class="cfg-note">Pre-Phase-6 anchor. <code>module.compile()</code> default branch (dynamic=True, no fullgraph). All 12 backbone blocks and 2 heads on this branch. Iter 400-999 mean reported.</span></td><td>7.94%</td><td>1,387</td><td>545</td><td><span class="mb ma">25.8 GB</span></td><td><span class="sp sp-b">baseline anchor</span></td></tr>
+
+            </tbody>
+          </table>
+        </div>
+
+        <div class="insight ins-gray" style="margin-top:14px">
+          <strong>How to read this table.</strong> Sorted reverse-chronological by experimental phase (6.A.5 newest → baseline oldest), with most recent within each phase first. Green-tinted rows are wins / champions. Red-tinted rows are crashes / regressions / OOMs. Yellow-tinted rows are AC-tax results (dominated). Gray-tinted rows with parenthesized metrics are the 53741/53743 invalid runs (config bug — kept for completeness). All MFU values use the dense H100 ceiling of 989 TFLOPS (no 2:4 sparsity); MACs/image = 226.4 GMACs for ViT-B 5ch with 2 global (224px) + 8 local (96px) crops.
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- FOOTER -->
+  <div style="text-align:center;color:var(--text-3);font-size:11px;padding-top:14px">
+    Phase 6 ledger · last updated 2026-05-24 · branch <code style="font-family:var(--mono);background:#f1f5f9;padding:1px 5px;border-radius:3px;color:var(--text-2)">perf-ddp-fullgraph</code>
+    · source <code style="font-family:var(--mono);background:#f1f5f9;padding:1px 5px;border-radius:3px;color:var(--text-2)">docs/phase6_perf_plan.md</code>
+  </div>
+
+</div>
+</body>
+</html>
