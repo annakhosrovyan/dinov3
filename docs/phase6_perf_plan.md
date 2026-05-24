@@ -552,32 +552,45 @@ Acceptance: 6.A.4.a clears job 53681 (2,009 img/s) by ≥ 10 % — **cleared at 
 
 **Hypothesis:** AC's value at this point is no longer about fitting bs=128 (already fits with cudagraphs, 34.1 GB) — it's about fitting **bs≥192**, which 53739 showed needs memory headroom we don't have without AC. Before scaling batch under AC, characterize the throughput cost of `sel` vs `full` at both bs=96 and bs=128.
 
-**2x2 matrix (cudagraphs=true for all):**
+**2x2 matrix (cudagraphs=true for all) — final:**
 
 | ID      | bs  | AC mode | Status | Job | img/s | MFU | step ms | peak GB | Δ vs no-AC |
 |---------|-----|---------|--------|-----|-------|-----|---------|---------|-----------|
-| 6.A.5.a | 96  | sel     | DONE   | 53740 | 1,380 | 7.89% | 695 | 14.9 | **-31.3% img/s vs 53681** (2,009 / 11.50%); mem -42% (25.8 → 14.9 GB) |
-| 6.A.5.b | 96  | full    | **INVALID — re-run as 53999** | 53741 | (1,769) | (10.15%) | (708) | (25.4) | Config bug — `checkpointing_full=true` alone does not enable AC. Numbers are no-AC duplicate of 53681. |
-| 6.A.5.c | 128 | sel     | DONE   | 53742 | 1,628 | 9.32% | 980 | 19.4 | **-32.0% img/s vs 53708** (2,394 / 13.70%); mem -43% (34.1 → 19.4 GB) |
-| 6.A.5.d | 128 | full    | **INVALID — re-run as 54000** | 53743 | (2,193) | (12.55%) | (961) | (33.3) | Same bug; peak alloc 34,098 MiB **exactly matches** 53708 (no-AC), confirming AC never engaged. |
+| 6.A.5.a | 96  | sel     | DONE   | 53740 | 1,380 | 7.89% | 695 | 14.9 | **-31.3% img/s vs 53681** (2,009 / 11.50%); mem **-42%** (25.8 → 14.9 GB) |
+| 6.A.5.b | 96  | full    | DONE (re-run) | 53999 | 1,378 | 7.89% | 689 | **9.6** | **-31.4% img/s vs 53681**; mem **-63%** (25.8 → 9.6 GB) |
+| 6.A.5.c | 128 | sel     | DONE   | 53742 | 1,628 | 9.32% | 980 | 19.4 | **-32.0% img/s vs 53708** (2,394 / 13.70%); mem **-43%** (34.1 → 19.4 GB) |
+| 6.A.5.d | 128 | full    | DONE (re-run) | 54000 | 1,654 | 9.46% | 874 | **12.4** | **-30.9% img/s vs 53708**; mem **-64%** (34.1 → 12.4 GB) |
 
-**Config bug discovered (2026-05-23):** in `ac_compile_parallelize.py:205`, AC is gated by `cfg.train.checkpointing` alone. `cfg.train.checkpointing_full` only switches the *policy* (full-block `checkpoint_wrapper` vs `create_selective_checkpoint_contexts`) **after** AC is enabled. Setting `checkpointing=false, checkpointing_full=true` silently runs without AC. Correct config for full recompute: **both** flags must be `true`. Logs reveal it: 53740 and 53742 emit "using selective checkpointing on backbone with selective policy"; 53741 and 53743 emit no AC log at all.
+**Config bug discovered (2026-05-23):** in `ac_compile_parallelize.py:205`, AC is gated by `cfg.train.checkpointing` alone. `cfg.train.checkpointing_full` only switches the *policy* (full-block `checkpoint_wrapper` vs `create_selective_checkpoint_contexts`) **after** AC is enabled. Setting `checkpointing=false, checkpointing_full=true` silently runs without AC. Correct config for full recompute: **both** flags must be `true`. Original 53741/53743 results were invalidated by this bug; re-runs 53999/54000 above used the corrected config and were confirmed by the "using selective checkpointing on backbone with full checkpointing policy" log line.
 
-**Valid findings so far (selective AC only):**
-- **Selective AC costs ~31–32% throughput** at both bs=96 and bs=128 (consistent overhead, not batch-dependent).
-- **Memory drops by ~42–43%** with selective AC. At bs=128: 34.1 → 19.4 GB. That opens ~60 GB headroom — comfortably enough to fit bs=192 or even bs=256.
-- The fullgraph+triton.cudagraphs path **survives** selective AC — `[COMPILE]` logs confirm all 12 backbone blocks still went down the `fullgraph=True, dynamic=False, triton.cudagraphs=True` branch. The compatibility risk we flagged earlier did not materialize for selective AC.
-- **Selective-AC trade-off math for bs=192:** if img/s scales near-linearly with batch under AC, bs=192 + sel AC predicts ~2,442 img/s — **roughly matching no-AC bs=128's 2,394 img/s**. The AC tax cancels the batch-amortization win at bs=192. AC only wins if it unlocks bs ≥ 256.
-- `full` AC compatibility is **still unknown** — pending 53999 / 54000 re-runs with corrected config.
+**Findings:**
 
-**Re-run queue:**
+1. **`full` AC dominates `sel` AC here — same throughput, ~35% less memory.** Contrary to textbook intuition. Reason: this codebase's selective save list (`mm`, `_scaled_mm`, both SDPA variants, `reduce_scatter`) covers the *expensive-to-recompute* ops but not the *bulky-to-store* activations (intermediate norms, layer-scale, residual buffers, dropout state). So selective saves the right things for recompute speed but doesn't save much memory. Full saves a lot more memory for nearly the same recompute cost.
 
-| ID      | bs  | AC mode | Status | Job | Purpose |
-|---------|-----|---------|--------|-----|---------|
-| 6.A.5.b' | 96  | full   | QUEUED | 53999 | `checkpointing=true, checkpointing_full=true` — true full-recompute. Expect lower img/s than sel, smaller mem. |
-| 6.A.5.d' | 128 | full   | QUEUED | 54000 | Same correction at bs=128. |
+2. **AC throughput cost is ~31% across the board, batch-independent.** This is the recompute overhead — extra forward-pass work in the backward — and it scales linearly with batch.
 
-**Updated decision logic for bs≥192:**
-- If full-AC throughput at bs=128 is within 10% of sel-AC, full is the right choice for memory headroom (bs ≥ 256 attempt next).
-- If full-AC degrades much more than sel, selective is the production choice and bs=192–224 is the practical target.
-- Either way, **AC's per-step throughput cost is real** (~30%). The win from AC must come purely from batch amortization at bs ≥ 256; otherwise stay at bs=128 no-AC (the current Phase 6.A high-water mark).
+3. **Fullgraph + triton.cudagraphs survives BOTH AC modes.** `[COMPILE]` logs confirm all 12 backbone blocks still take the `fullgraph=True, dynamic=False, triton.cudagraphs=True` branch. The compatibility risk we flagged earlier did not materialize.
+
+4. **Steady-state (post-warmup) deltas are narrower than running averages.** Late-iter instant MFU at bs=128 full hits 13.6%, nearly matching 53708's running 13.70%. Running averages are pulled down by the first ~50 iters of dynamic-shape compile + cudagraph capture.
+
+**Batch-scaling extrapolation using AC=full (the better variant):**
+
+Per-batch slope from 53999→54000: `(1654 − 1378) / 32 = 8.625 img/s per unit batch`. Memory slope: `(12.4 − 9.6) / 32 = 0.0875 GB/batch-unit`.
+
+| bs | Predicted img/s | Predicted mem GB | vs 53708 (2,394 img/s) |
+|---|---|---|---|
+| 160 | ~1,930 | ~16 | -19% (loses) |
+| 192 | ~2,206 | ~19 | -8% (loses) |
+| **224** | **~2,482** | **~22** | **+4% (first break-even)** |
+| **256** | **~2,758** | **~25** | **+15%** |
+| 384 | ~3,862 | ~37 | +61% (linearity likely breaks) |
+| 512 | ~4,966 | ~50 | +107% (highly speculative) |
+
+**Why linearity may not hold to bs=512:** at bs=192 *without* AC, cudagraph workspace bloat alone OOM'd at >80 GB (job 53739, well above the 51 GB linear prediction). With AC reducing activation memory by 64% the headroom is better, but the cudagraph-tree growth pattern is non-linear and not yet characterized at these batches. Empirical testing required, no clean prediction.
+
+**Decision:**
+- Stay at **bs=128 no-AC (53708)** as the production high-water mark for now: 2,394 img/s, 13.70% MFU, 34.1 GB.
+- Queue **bs=256 + AC=full + cudagraphs=true** as Phase 6.A.6 — the first config predicted to beat 53708. If it works, it puts the path to ~15-22% MFU on a single DDP node within reach.
+- AC=sel is dominated by AC=full and can be dropped from future work.
+
+**Important nuance on AC + DDP single-node (Aram, 2026-05-24):** AC's value normally shows up in regimes the satellite ViT-B fork *doesn't* live in — large models where activations dominate memory, or FSDP2/multi-node where the sharded budget makes AC the only path to a usable batch. For DDP single-node + ViT-B, AC only pays off if the batch can grow enough to amortize the ~31% throughput tax. With AC=full freeing ~64% of memory, that *might* be reachable at bs≥256 — but the math is tight and depends on linearity that hasn't been tested past bs=128.
