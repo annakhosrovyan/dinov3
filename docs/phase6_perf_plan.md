@@ -554,16 +554,30 @@ Acceptance: 6.A.4.a clears job 53681 (2,009 img/s) by ≥ 10 % — **cleared at 
 
 **2x2 matrix (cudagraphs=true for all):**
 
-| ID      | bs  | AC mode | Status | Job | Comparator | Purpose |
-|---------|-----|---------|--------|-----|------------|---------|
-| 6.A.5.a | 96  | sel     | QUEUED | 53740 | 53681 (AC=off, cg=true): 2,009 img/s, 11.50% MFU | Selective-AC throughput cost at original Phase 6 batch. |
-| 6.A.5.b | 96  | full    | QUEUED | 53741 | 53681                                              | Full-recompute AC throughput cost. Worst case for throughput, best case for memory. |
-| 6.A.5.c | 128 | sel     | QUEUED | 53742 | 53708 (AC=off, cg=true): 2,394 img/s, 13.70% MFU  | Selective-AC cost at the production batch. |
-| 6.A.5.d | 128 | full    | QUEUED | 53743 | 53708                                              | Full-recompute AC cost at the production batch. |
+| ID      | bs  | AC mode | Status | Job | img/s | MFU | step ms | peak GB | Δ vs no-AC |
+|---------|-----|---------|--------|-----|-------|-----|---------|---------|-----------|
+| 6.A.5.a | 96  | sel     | DONE   | 53740 | 1,380 | 7.89% | 695 | 14.9 | **-31.3% img/s vs 53681** (2,009 / 11.50%); mem -42% (25.8 → 14.9 GB) |
+| 6.A.5.b | 96  | full    | **INVALID — re-run as 53999** | 53741 | (1,769) | (10.15%) | (708) | (25.4) | Config bug — `checkpointing_full=true` alone does not enable AC. Numbers are no-AC duplicate of 53681. |
+| 6.A.5.c | 128 | sel     | DONE   | 53742 | 1,628 | 9.32% | 980 | 19.4 | **-32.0% img/s vs 53708** (2,394 / 13.70%); mem -43% (34.1 → 19.4 GB) |
+| 6.A.5.d | 128 | full    | **INVALID — re-run as 54000** | 53743 | (2,193) | (12.55%) | (961) | (33.3) | Same bug; peak alloc 34,098 MiB **exactly matches** 53708 (no-AC), confirming AC never engaged. |
 
-**Compatibility risk:** `checkpoint_wrapper` introduces control-flow boundaries that may force graph breaks inside compiled backbone blocks. The fullgraph+triton.cudagraphs path may degrade or fail. Results will tell us whether AC + cudagraphs can coexist before we attempt bs≥192 with AC.
+**Config bug discovered (2026-05-23):** in `ac_compile_parallelize.py:205`, AC is gated by `cfg.train.checkpointing` alone. `cfg.train.checkpointing_full` only switches the *policy* (full-block `checkpoint_wrapper` vs `create_selective_checkpoint_contexts`) **after** AC is enabled. Setting `checkpointing=false, checkpointing_full=true` silently runs without AC. Correct config for full recompute: **both** flags must be `true`. Logs reveal it: 53740 and 53742 emit "using selective checkpointing on backbone with selective policy"; 53741 and 53743 emit no AC log at all.
 
-**Acceptance criteria:**
-- The (sel, full) × (bs=96, bs=128) deltas vs their no-AC comparators are characterized.
-- If selective AC at bs=128 stays within 15% of 53708 throughput, AC + bs=192 is the next-step candidate.
-- If `full` runs degrade severely or crash, that closes the question — `full` is incompatible with cudagraphs and we use selective only.
+**Valid findings so far (selective AC only):**
+- **Selective AC costs ~31–32% throughput** at both bs=96 and bs=128 (consistent overhead, not batch-dependent).
+- **Memory drops by ~42–43%** with selective AC. At bs=128: 34.1 → 19.4 GB. That opens ~60 GB headroom — comfortably enough to fit bs=192 or even bs=256.
+- The fullgraph+triton.cudagraphs path **survives** selective AC — `[COMPILE]` logs confirm all 12 backbone blocks still went down the `fullgraph=True, dynamic=False, triton.cudagraphs=True` branch. The compatibility risk we flagged earlier did not materialize for selective AC.
+- **Selective-AC trade-off math for bs=192:** if img/s scales near-linearly with batch under AC, bs=192 + sel AC predicts ~2,442 img/s — **roughly matching no-AC bs=128's 2,394 img/s**. The AC tax cancels the batch-amortization win at bs=192. AC only wins if it unlocks bs ≥ 256.
+- `full` AC compatibility is **still unknown** — pending 53999 / 54000 re-runs with corrected config.
+
+**Re-run queue:**
+
+| ID      | bs  | AC mode | Status | Job | Purpose |
+|---------|-----|---------|--------|-----|---------|
+| 6.A.5.b' | 96  | full   | QUEUED | 53999 | `checkpointing=true, checkpointing_full=true` — true full-recompute. Expect lower img/s than sel, smaller mem. |
+| 6.A.5.d' | 128 | full   | QUEUED | 54000 | Same correction at bs=128. |
+
+**Updated decision logic for bs≥192:**
+- If full-AC throughput at bs=128 is within 10% of sel-AC, full is the right choice for memory headroom (bs ≥ 256 attempt next).
+- If full-AC degrades much more than sel, selective is the production choice and bs=192–224 is the practical target.
+- Either way, **AC's per-step throughput cost is real** (~30%). The win from AC must come purely from batch amortization at bs ≥ 256; otherwise stay at bs=128 no-AC (the current Phase 6.A high-water mark).
