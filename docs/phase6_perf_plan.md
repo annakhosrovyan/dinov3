@@ -599,21 +599,42 @@ Per-batch slope from 53999→54000: `(1654 − 1378) / 32 = 8.625 img/s per unit
 
 ---
 
-### 6.A.6 — bs=192 + AC=full + cudagraphs (RUNNING, job 56131)
+### 6.A.6 — bs=192 + AC=full + cudagraphs (DONE — Outcome C, job 56131)
 
-**Why bs=192 not bs=256:** the linear extrapolation says bs=256 is the first solid win, but two pieces of evidence argue for a smaller probe step first:
+**Result: OOM during compile/cudagraph capture.** Signal 9 (SIGKILL) from Slurm cgroup OOM killer; AC engaged correctly per log; no training iterations completed; no `max mem` logged.
 
-1. **53739 (bs=192 no-AC) OOM'd at >80 GB** despite a 51 GB linear prediction — cudagraph workspace bloat is *non-linear* and uncharacterized.
-2. AC=full freed 64% of activation memory at bs=128 (34.1 → 12.4 GB, Δ -21.7 GB), but we don't know if the cudagraph workspace overhead scales with batch the same way activations do. The workspace holds operand buffers for every captured op across teacher + student-global + student-local sub-graphs; that growth could outpace AC's savings.
+**Corrected diagnosis (supersedes the earlier cudagraph-workspace theory):**
 
-**Predictions for bs=192 AC=full:**
-- img/s: ~2,206 (linear slope 8.625 per unit batch from 53999→54000). Still **loses to 53708** (2,394).
-- Peak memory: somewhere between 18 GB (best case, AC saves apply fully to cudagraph workspace) and ~58 GB (worst case, workspace grows at the no-AC slope of +0.72 GB per unit batch from 53708→53739).
+The OOM is **Slurm cgroup OOM = host RAM**, NOT CUDA VRAM. Evidence:
+- Slurm reports `oom_kill event in StepId=56131.batch` — that's the Linux cgroup OOM killer (host memory).
+- No `CUDA out of memory` Python exception in stderr — PyTorch was never given a chance to raise one.
+- SIGKILL came from the kernel, not a graceful CUDA failure.
+- Identical crash signature to 53739 (bs=192 no-AC). **AC made zero difference because activation VRAM was never the bottleneck.**
 
-**Three discriminating outcomes:**
+**Why host RAM is the ceiling at bs=192:** the DataLoader keeps `num_workers=20` × `prefetch_factor=8` = 160 batches in flight per rank, times 8 ranks = 1,280 batches. Each bs=192 batch is 10 crops × 192 samples (2× 224²·5ch + 8× 96²·5ch ≈ 670 MB raw float32 before normalization). The aggregate working set scales superlinearly with batch and overruns Slurm's cgroup memory allocation. AC reduces *activation memory inside the model* — irrelevant to this bottleneck.
 
-| Outcome | Implication | Next step |
-|---|---|---|
-| **A.** img/s ≥ 2,394 (beats no-AC bs=128) | AC=full's per-step tax is amortized at bs=192; production path is AC + bigger batch | Push bs=224, then bs=256 |
-| **B.** img/s < 2,394 but mem << 80 GB | Linear slope holds; characterize the trajectory and predict crossover more accurately | Push to bs=256 directly |
-| **C.** OOM | Cudagraph workspace is the wall, not activations; AC's memory savings don't translate at scale | Close the AC-as-batch-unlocker thesis; bs=128 no-AC stays the champion. Switch to Phase 6.B (static-shape heads / iBOT) |
+**Phase 6.A AC exploration is closed:**
+- AC=full strictly dominates AC=sel at this scale (same throughput, ~35% less activation memory).
+- But AC's value is moot on this configuration — VRAM was never the binding constraint; **host RAM is**.
+- Both bs=192 attempts (with and without AC) hit the same wall.
+- **bs=128 no-AC (53708) remains the production champion**: 2,394 img/s, 13.70% MFU, 34.1 GB VRAM peak.
+
+**If we wanted to probe bs>128**, the lever would be reducing `num_workers` or `prefetch_factor` to free host RAM, accepting some risk of data-pipeline stalls. That's a non-trivial experiment (would need NVTX profiling to characterize the loader↔step overlap) and lower expected value than Phase 6.B.
+
+**Recommended pivot: Phase 6.B (static-shape heads / iBOT).** The DINO and iBOT heads still compile via the default `module.compile()` dynamic-shape path. Late-iter MFU variance in 53708/54000 (instant MFU 12.9–17.0% at bs=128) is consistent with a heads-bound bottleneck. Static-shape heads + fullgraph would close that gap without touching the batch.
+
+---
+
+## Phase 6 — Final scoreboard (post-6.A)
+
+| Phase | Run | bs | Config | img/s | MFU | Peak VRAM |
+|---|---|---|---|---|---|---|
+| 6.A.0 baseline | 48312 | 96  | DDP, compile=true, cg=false | 1,387 | 7.94% | 25.8 GB |
+| 6.A.3 cudagraphs win | 53681 | 96  | + cudagraphs=true (+ block.py index_select fix) | 2,009 | 11.50% | ~25.8 GB |
+| **6.A.4 production champ** | **53708** | **128** | **+ bs=128** | **2,394** | **13.70%** | **34.1 GB** |
+| 6.A.5.b | 53999 | 96  | + AC=full | 1,378 | 7.89% | 9.6 GB |
+| 6.A.5.d | 54000 | 128 | + AC=full | 1,654 | 9.46% | 12.4 GB |
+| 6.A.6 OOM | 56131 | 192 | + AC=full | — | — | host-RAM OOM |
+| 6.A.4.d OOM | 53739 | 192 | no AC | — | — | host-RAM OOM |
+
+**Total Phase 6.A gain over Phase 5 baseline (job 48312):** +72.6% img/s, +5.76 pp MFU absolute (+72.5% relative). Achieved with two compiler-correctness fixes (`mark_step_begin` + `x[idx]→index_select`) and one config flip (`cudagraphs=true`) + one batch bump.
