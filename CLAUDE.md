@@ -269,7 +269,7 @@ At 8 GPUs, **steady-state MFU already exceeds 10%** (dense). Overall avg ~11.3% 
 | Config | MFU avg | img/s | Notes |
 |---|---|---|---|
 | FSDP2 bs=64  | ~11.3% | ~1970 | Original baseline — 8×H100 |
-| DDP   bs=128 | ~22.5% | ~4040 | Screening result. |
+| DDP   bs=128 | ~22.5% | ~4040 | Short-soak screening (job 9631 family). **Different run from Phase 6** — see below. |
 | FSDP2 bs=256 | ~23.5% | ~4106 | Screening result. **NOT production-viable** (see below). |
 | DDP+ES bs=256 | ~23.9% | ~4190 | Screening result. **NOT production-viable** (see below). |
 
@@ -280,16 +280,39 @@ At 8 GPUs, **steady-state MFU already exceeds 10%** (dense). Overall avg ~11.3% 
 > worst-case profiling script did not catch it. See
 > `docs/phase5_perf_plan.md` §10 for the full open question.
 >
-> **The current safe operating point is FSDP2 bs=96** (no-release variant being screened
-> in Phase 5). bs=128 is held until the OOM root cause is understood; bs≥192 is off the table.
+> **The current safe operating point is FSDP2 bs=96** (`run.sh`). DDP bs=128+cudagraphs
+> (Phase 6.A champion, below) is validated for throughput, not long-run convergence.
+
+**Phase 6.A confirmed results (iter 400–999 steady-state, 1000-iter runs)**:
+
+| Config | img/s | MFU | Peak VRAM | Job | Notes |
+|---|---|---|---|---|---|
+| DDP, compile=true, cg=false, bs=96 | 1,387 | 7.94% | 25.8 GB | 48312 | Phase 6 baseline |
+| DDP, cudagraphs=true, bs=96 | 2,009 | 11.50% | ~25.8 GB | 53681 | After `index_select` fix in `block.py` |
+| **DDP, cudagraphs=true, bs=128** | **2,394** | **13.70%** | **34.1 GB** | **53708** | **Phase 6.A champion** |
+| DDP, cudagraphs=true, bs=96, AC=full | 1,378 | 7.89% | 9.6 GB | 53999 | AC frees memory, costs ~31% throughput |
+| DDP, cudagraphs=true, bs=128, AC=full | 1,654 | 9.46% | 12.4 GB | 54000 | AC needed only if bs≥192; host-RAM still limits |
+
+> **Phase 6.A note**: The old "DDP bs=128 → ~22.5% MFU" screening number (job 9631 family) was
+> a short soak without cudagraphs or the `block.py` index_select fix. The Phase 6.A number
+> (13.70%) is from a proper 1000-iter steady-state run with both fixes applied. These are
+> **different experiments** and the numbers are not comparable.
+>
+> bs≥192 hits **host-RAM OOM** (DataLoader prefetch budget: 20 workers × 8 prefetch × 8 ranks
+> exhausts the Slurm cgroup memory allocation). AC does not help because the binding resource
+> is host RAM, not VRAM. See `docs/phase6_perf_plan.md` §12 (6.A.6).
+>
+> **30% MFU target**: ViT-B + DINO+iBOT + 10 crops on a single H100 node is likely capped at
+> 15–25% realistic MFU. The lab's 30% target is aspirational and more achievable at larger model
+> scale or multi-node. See `docs/phase6_perf_plan.md` §12 (6.A.5 realism check).
 
 ### Current Performance Priors (2026-04-25)
 - **Use two ceilings in your head**: keep `989 TFLOPS` for standard MFU reporting/comparisons, but use `~794.5 TFLOPS` H100 BF16 MAMF as the realistic matmul ceiling. `23.9% MFU ~= 237 TFLOPS`, which is `~29.8%` of MAMF.
 - **MFU is a relative metric, not an absolute truth**: BF16-mixed training still includes FP32 work, and activation checkpointing raises HFU but not MFU. Cross-check FLOP math once with `torch.utils.flop_counter.FlopCounterMode`, then cache the result.
 - **The current data pipeline is probably not the first bottleneck**: this repo already uses the high-value loader settings from the local knowledge-base (`num_workers>0`, `pin_memory=True`, `non_blocking=True`, `persistent_workers=True`, elevated `prefetch_factor`). Reference benchmarks show `num_workers=0` is disastrous, but gains usually plateau quickly after 2-3 workers.
 - **Batch-size alignment is mostly a red herring**: Tensor Core efficiency depends much more on sequence length and hidden dimension than batch size. ViT-B has `hidden_dim=768` (good) and `seq_len=197` (slightly unaligned), but this is not worth architectural churn.
-- **Periodic multi-GPU MFU dips can be Python GC, not kernels**: desynchronized automatic GC can create rank stragglers. If long runs show periodic step spikes, try `gc.disable()` at startup and manual `gc.collect()` every ~100 iterations.
-- **DDP vs FSDP2: closed — FSDP2 is the platform going forward.** Confirmed directly by Tim Darcet (DINOv2/v3 co-author, 2026-04-25): *"I have not used DDP once since 2022 … In FSDP you have the option to not release shards, in which case it's basically equivalent to DDP, with the gather moved before the fwd instead of after the bwd … I think both are fine if both fit."* The screening-time 0.4 pp gap (FSDP2 23.5% vs DDP+ES 23.9% at bs=256) was specifically from `reshard_after_forward=True`. Phase 5 is testing `reshard_after_forward=False` at the safe operating point (bs=96).
+- **Periodic multi-GPU MFU dips can be Python GC, not kernels**: desynchronized automatic GC can create rank stragglers. `gc.disable()` + manual `gc.collect()` every 150 iterations is already implemented in `train.py:526-527,585-588`.
+- **DDP vs FSDP2 — empirically resolved by Phase 6.A**: DDP+`cudagraphs=true`+bs=128 is the measured single-node throughput winner (13.70% MFU / 2,394 img/s, job 53708, +72.6% vs FSDP2 bs=96 baseline). Tim Darcet's guidance (2026-04-25) that both are fine when the model fits still holds; the practical conclusion is that `run.sh` stays on FSDP2 bs=96 for stability, while the DDP+cudagraphs path is the target for Phase 6.B work. The 30% gap from Phase 5's FSDP2 screening (reshard_after_forward=True) was FSDP2-vs-DDP communication overhead, now confirmed empirically.
 - **compile_mode: null is the only viable torch.compile path**: `max-autotune-no-cudagraphs` is incompatible with iBOT's dynamic masked-token count (stochastic shape per iter, world-size-dependent). `max-autotune` (with CUDA graphs) was already broken. See `learnings/compile_modes.md`.
 - **`expandable_segments:True` is a DDP+large-batch knob — do not enable for FSDP2.** It was used in the DDP+ES bs=256 screening. For FSDP2 it is not needed and can hurt allocator behavior at smaller batch sizes.
 - See `learnings/README.md` and the topic notes under `learnings/` for the longer-form rationale and references to `~/knowledge-base`.

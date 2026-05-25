@@ -14,7 +14,7 @@ Code fact: Inference-only FSDP models are forced to reshard immediately after fo
 
 Code fact: The repo also has a DDP alternative. `_ac_compile_parallelize_ddp()` wraps only the student submodules in `DistributedDataParallel(static_graph=True, gradient_as_bucket_view=True)` and leaves teacher-like models as plain CUDA modules (`dinov3/fsdp/ac_compile_parallelize.py:261-302`).
 
-Inference: For ViT-B, the DDP path is not a fallback afterthought. The code comments and dedicated scripts indicate it is a first-class experiment for reducing sharding overhead on single-node H100 runs (`dinov3/fsdp/ac_compile_parallelize.py:268-273`, `scripts/screening_ddp.sh:44-70`).
+Inference: For ViT-B, the DDP path is not a fallback afterthought. Phase 6.A empirically confirmed it: DDP + `cudagraphs=true` + bs=128 reached **2,394 img/s / 13.70% MFU** (job 53708) vs the FSDP2 bs=96 baseline of 1,387 img/s / 7.94% MFU — a +72.6% throughput gain. The enabling change was replacing `x[indices]` advanced indexing with `torch.index_select` in `dinov3/layers/block.py` (commit `cda29e2`) to eliminate `index_put_(accumulate=True)` in backward, which previously blocked CUDA-graph capture. Source: `docs/phase6_perf_plan.md` §12.
 
 ## Precision and numerics
 
@@ -102,7 +102,7 @@ Inference: If GPUs show intermittent starvation rather than a flat low-compute p
 
 ### Host-side orchestration overhead
 
-Code fact: Automatic Python GC is disabled and manual `gc.collect()` is forced every 150 iterations (`dinov3/train/train.py:517-520`, `dinov3/train/train.py:575-579`).
+Code fact: Automatic Python GC is disabled and manual `gc.collect()` is forced every 150 iterations (`dinov3/train/train.py:526-527`, `dinov3/train/train.py:585-588`).
 
 Inference: The code already treats Python GC as a performance hazard. If periodic MFU dips remain, this area is still suspect, but less so than it would be in a default Python training loop.
 

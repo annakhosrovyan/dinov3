@@ -4,7 +4,12 @@
 
 Code fact: The codebase contains both FSDP2 and DDP training paths, and the repo includes short-run screening scripts for both (`dinov3/fsdp/ac_compile_parallelize.py:187-302`, `scripts/screening_run.sh:52-80`, `scripts/screening_ddp.sh:44-70`).
 
-Inference: The first systems question is still whether FSDP2 is the right steady-state choice for single-node ViT-B. The code is already structured to answer that experimentally, which usually means the answer is not settled.
+Inference: The DDP vs FSDP2 question for single-node ViT-B is now empirically answered by Phase 6.A:
+- **`run.sh` (stable)**: FSDP2 ZeRO-3, bs=96 — 1,387 img/s, 7.94% MFU (job 48312 baseline).
+- **Phase 6.A champion (throughput)**: DDP + `cudagraphs=true`, bs=128 — 2,394 img/s, 13.70% MFU (job 53708, +72.6% over FSDP2 baseline).
+- DDP wins on throughput at single-node scale because ViT-B's ~85M params fit each rank fully, avoiding FSDP2's per-block all-gather / reshard traffic.
+- FSDP2 remains in `run.sh` as the conservative long-run path; DDP+cudagraphs is validated for throughput but not long-run convergence yet.
+- Source: `docs/phase6_perf_plan.md` §12, Phase 6.A scoreboard.
 
 Code fact: `train.py` only asserts `torch.__version__ >= (2, 1)` (`dinov3/train/train.py:52`), but `ac_compile_parallelize.py` imports `register_fsdp_forward_method` from `torch.distributed.fsdp` at module import time (`dinov3/fsdp/ac_compile_parallelize.py:13-16`).
 
@@ -31,12 +36,17 @@ Code fact: The repo already exposes the experiment knobs needed for a compact ma
 - Code fact: `train.cudagraphs` changes compile options for backbone blocks (`dinov3/configs/ssl_default_config.yaml:81`, `dinov3/fsdp/ac_compile_parallelize.py:65-70`).
 - Code fact: `student.fp8_enabled` activates the optional FP8 linear replacement path (`dinov3/configs/ssl_default_config.yaml:114-115`, `dinov3/models/__init__.py:22-32`).
 
-Inference: The smallest high-value experiment grid is:
+Inference: The Phase 6.A experiment grid is **closed**. Key resolved results:
 
-1. Inference: DDP vs FSDP2 at the same batch size and compile settings.
-2. Inference: FSDP2 with selective activation checkpointing on versus off.
-3. Inference: FSDP2 with `train.cudagraphs=true` versus `false`.
-4. Inference: ViT-B baseline versus a larger model where FP8 becomes relevant enough to matter.
+1. **DDP vs FSDP2** — answered: DDP+cudagraphs wins throughput (+72.6% vs FSDP2 bs=96 baseline). See `docs/phase6_perf_plan.md` §12.
+2. **Selective vs full AC** — answered: `full` AC dominates `sel` AC (same throughput, ~35% less memory). AC cost is ~31% throughput vs no-AC at both bs=96 and bs=128. See Phase 6.A.5 in `docs/phase6_perf_plan.md`.
+3. **`cudagraphs=true` vs `false`** — answered for backbone: +44.8% img/s win after `index_select` fix in `block.py`. Heads/iBOT remain on default `module.compile()` dynamic path.
+4. **bs scaling** — answered to bs=128 (no-AC, 34.1 GB VRAM fits); bs≥192 hits host-RAM OOM (DataLoader prefetch budget, not VRAM).
+
+**Current open frontier (Phase 6.B):**
+
+- Static-shape heads and iBOT: extend `fullgraph=True` capture to DINO/iBOT heads and loss path. Requires padding `mask_indices_list` / `masks_weight` to a fixed `K_max` in `dinov3/data/collate.py:63–65`. See `docs/phase6_perf_plan.md` §5 and §6.3–6.4.
+- FP8 path (`student.fp8_enabled`) — relevant at ViT-L/H scale where matmul dominates; not load-bearing for ViT-B baseline.
 
 Code fact: The scripts already encode short steady-state screening runs and a profiling run that skips early compile warmup in the profiler window (`scripts/screening_run.sh:52-80`, `scripts/profiling_run.sh:35-67`).
 

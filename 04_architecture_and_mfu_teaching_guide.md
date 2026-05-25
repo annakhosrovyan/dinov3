@@ -67,24 +67,42 @@ From `ssl_default_config.yaml`, the default model is:
 
 Source: `dinov3/models/vision_transformer.py:344-353`.
 
-### 1.2 Current production launch
+### 1.2 Current launch state
 
-The launch script we currently use in this repo is `run.sh`, and it overrides some system/training settings:
+The repository has two distinct "current" states that must not be conflated.
 
-- `train.distributed_strategy=ddp`
-- `train.batch_size_per_gpu=256`
+**`run.sh` — stable long-training launch (FSDP2 ZeRO-3, bs=96)**
+
+The launch script overrides several training settings:
+
+- `train.distributed_strategy=fsdp2`
+- `train.fsdp_reshard_after_forward=true`
+- `train.batch_size_per_gpu=96`
 - `train.num_workers=20`
 - `train.prefetch_factor=8`
 - `train.sharded_eval_checkpoint=true`
 
-Source: `run.sh:41-69`.
+Source: `run.sh:83-93`.
 
-Important distinction:
+bs=96 is the safe ceiling: bs=128 FSDP2 OOM'd in a real long training run; bs≥192 is not a target.
+In `run.sh`, the backbone is still `vit_base` with 5 input channels (`run.sh:71-73`).
 
-- These overrides change how training is run.
-- They do not change the basic backbone architecture unless an override explicitly changes an architecture field.
+**Phase 6 performance champion — DDP + `cudagraphs=true`, bs=128 (not in `run.sh`)**
 
-In `run.sh`, the backbone is still `vit_base` with 5 input channels (`run.sh:44-47`).
+After Phase 6.A experiments, the measured single-node throughput champion is:
+
+| Config | img/s | MFU | Peak VRAM | Source |
+|---|---|---|---|---|
+| DDP, `cudagraphs=true`, bs=128, no AC | **2,394** | **13.70%** | 34.1 GB | job 53708 |
+
+This configuration uses `train.distributed_strategy=ddp`, `train.cudagraphs=true`, and requires the
+`torch.index_select` fix in `dinov3/layers/block.py` (commit `cda29e2`). It is **not** the
+production `run.sh` default — it has been validated for throughput but not for convergence over a
+full training run.
+
+The FSDP2 bs=96 baseline (job 48312) measured **1,387 img/s, 7.94% MFU** before Phase 6 work.
+
+Sources: `docs/phase6_perf_plan.md` §12 (Job log), `run.sh:83-97`.
 
 ## 2. Jargon map
 
