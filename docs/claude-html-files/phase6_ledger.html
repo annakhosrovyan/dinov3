@@ -186,6 +186,7 @@
 <nav class="top-nav"><div class="inner">
   <a href="status.html">Phase 5 Status</a>
   <a href="phase6_ledger.html" aria-current="page">Phase 6 Ledger</a>
+  <a href="../torch-compile-dinov3-phase5-2026-05-21.html">Compile Guide</a>
   <a href="concepts.html">Concepts</a>
   <a href="mfu_reference.html">MFU Reference</a>
 </div></nav>
@@ -197,11 +198,11 @@
     <h1>Phase 6 — DDP + torch.compile(fullgraph=True) &nbsp;<span style="font-weight:400;font-size:15px;color:#6b7280">Experiment Ledger</span></h1>
     <div class="meta">
       <span class="mi">Branch <code>perf-ddp-fullgraph</code></span>
-      <span class="mi">Opened 2026-05-22 · Updated 2026-05-24</span>
+      <span class="mi">Opened 2026-05-22 · Updated 2026-05-25</span>
       <span class="mi">Champion <code>DDP bs=128 cudagraphs no-AC (job 53708)</code></span>
       <span class="mi">MFU progress: <span class="bad">7.94%</span> → <span class="good">13.70%</span> (+5.76 pp)</span>
       <span class="mi">Throughput progress: 1,387 → 2,394 img/s (<strong>+72.6%</strong>)</span>
-      <span class="mi">Lab target 30% (aspirational for ViT-B)</span>
+      <span class="mi">Phase 6.A <span class="good" style="font-weight:700">CLOSED</span> · Phase 6.B (static-shape heads + iBOT) next</span>
     </div>
   </div>
 
@@ -227,11 +228,15 @@
       </div>
       <div class="vi">
         <div class="vi-lbl">bs=192 status</div>
-        <div class="vi-val bad">OOM without AC — cudagraph workspaces scale non-linearly past bs=128</div>
+        <div class="vi-val bad">OOM on host RAM (job 56131) — 8 ranks × 20 workers × prefetch=8 pinned pool; AC doesn't help (saves VRAM, not host RAM)</div>
       </div>
       <div class="vi">
-        <div class="vi-lbl">Next probe</div>
-        <div class="vi-val warn">bs=256 + AC=full — first config predicted to beat 53708 (~2,758 img/s if linear holds)</div>
+        <div class="vi-lbl">Phase 6.A verdict</div>
+        <div class="vi-val good">CLOSED — bs=128 no-AC cudagraphs is the ceiling on this configuration</div>
+      </div>
+      <div class="vi">
+        <div class="vi-lbl">Next leg</div>
+        <div class="vi-val warn">Phase 6.B — extend fullgraph to DINO/iBOT heads + static-shape iBOT mask (late-iter variance in 53708 at 12.9–17.0% points to heads as next bottleneck)</div>
       </div>
     </div>
   </div>
@@ -284,6 +289,14 @@
             <strong>(1)</strong> AC=full <em>dominates</em> AC=sel — same throughput, ~35% less memory. The selective save list covers fast-to-recompute ops (mm, SDPA) but not bulky activations (norms, residuals); sel doesn't save much memory.<br>
             <strong>(2)</strong> AC throughput cost is batch-independent at ~31%. Fullgraph + triton.cudagraphs survived both AC modes (all 12 blocks still on the cudagraphs branch per <code>[COMPILE]</code> logs).<br>
             Config bug found mid-sweep: <code>checkpointing_full=true</code> alone does not enable AC (needs <code>checkpointing=true</code> too). Original 53741/53743 invalidated; re-runs 53999/54000 used correct config.</div>
+        </div>
+
+        <div class="tle fail">
+          <div class="tle-h">bs=192 attempt — host-RAM OOM <span class="tle-job">job 56131 · 2026-05-25</span></div>
+          <div class="tle-d">
+            <strong>OOM, but root cause was wrong in the earlier bs=192 diagnosis.</strong> Not VRAM / cudagraph workspace overflow — <em>host RAM</em>. The DataLoader configuration (8 ranks × 20 workers × prefetch=8) keeps a large pinned-memory working set on the host. At bs=192 that pool exhausts system RAM before any GPU memory limit is hit.
+            Critical implication: <strong>AC is irrelevant to this constraint.</strong> Activation checkpointing frees device VRAM, not host pinned memory. The path to bs≥192 requires a loader rework (fewer workers, lower prefetch, or a streaming loader), not just enabling AC. Phase 6.A batch-scaling ceiling is therefore <strong>bs=128</strong> on this configuration.
+          </div>
         </div>
       </div>
     </div>
@@ -352,16 +365,16 @@
           <div class="grv good">13.70% MFU</div>
           <div class="grn"><strong>+72.6% ★★ champion</strong></div>
         </div>
-        <!-- Predicted bs=256 -->
-        <div class="gr" style="opacity:.65">
-          <div class="grl" title="Linear extrapolation from AC=full slope">[pred] bs=256 ac=full</div>
-          <div class="grb-wrap"><div class="grb bar-purple" style="width:115.2%;background:repeating-linear-gradient(45deg,#7c3aed,#7c3aed 6px,#8b5cf6 6px,#8b5cf6 12px)">~2,758</div></div>
-          <div class="grv purple">~15.78%</div>
-          <div class="grn">extrapolation</div>
+        <!-- 56131 bs=192 host-RAM OOM -->
+        <div class="gr">
+          <div class="grl" title="bs=192 — host-RAM OOM from DataLoader pinned pool">56131 · bs=192 host-OOM</div>
+          <div class="grb-wrap"><div class="grb bar-bad" style="width:12%"></div></div>
+          <div class="grv bad">OOM</div>
+          <div class="grn">host RAM (not VRAM)</div>
         </div>
       </div>
       <div class="insight ins-gray" style="margin-top:14px">
-        <strong>Read the chart top-down as the chronological journey.</strong> The two yellow regression bands (53672 broken cudagraphs, AC tax 53740/53999/53742/54000) show that wins were not monotonic — debugging the cudagraphs path took two iterations, and the AC sweep showed AC is dominated at this batch size. The blue → green block (53681 → 53708) is the actual Phase 6 win. The purple stripe is the next-step prediction, not measured.
+        <strong>Read the chart top-down as the chronological journey.</strong> The two yellow regression bands (53672 broken cudagraphs, AC tax 53740/53999/53742/54000) show that wins were not monotonic — debugging the cudagraphs path took two iterations, and the AC sweep showed AC is dominated at this batch size. The blue → green block (53681 → 53708) is the actual Phase 6.A win. The red stub at 56131 is the bs=192 host-RAM OOM — it caps the batch-scaling ladder. Phase 6.A is closed at bs=128.
       </div>
     </div>
   </div>
@@ -446,81 +459,81 @@
           </div>
 
           <!-- bs=192 row -->
-          <div class="mrow-lbl">bs=192<small>⚠ OOM</small></div>
+          <div class="mrow-lbl">bs=192<small>⚠ host OOM</small></div>
 
           <div class="cell cell-bad">
             <div class="ct">OOM</div>
-            <div class="cm">cudagraph workspaces &gt; 80 GB</div>
+            <div class="cm">host-RAM OOM — DataLoader pinned pool (8 ranks × 20 workers × prefetch=8)</div>
             <div class="cf">
-              <span class="mb mr">&gt;80 GB</span>
+              <span class="mb mr">host RAM ↑</span>
               <span class="sb sb-red">⚠ fail</span>
             </div>
-            <div class="cn">Job 53739</div>
+            <div class="cn">Jobs 53739, 56131</div>
           </div>
 
           <div class="cell cell-neutral" style="opacity:.45">
-            <div class="ct" style="font-size:13px;margin-top:5px">untested</div>
-            <div class="cm">predicted ~22 GB, 1,876 img/s</div>
+            <div class="ct" style="font-size:13px;margin-top:5px">skipped</div>
+            <div class="cm">same host-RAM ceiling applies; AC=sel dominated by AC=full anyway</div>
             <div class="cf">
-              <span class="mb mlg">~22 GB</span>
-              <span class="sb sb-gray">dominated</span>
+              <span class="mb mr">host RAM ↑</span>
+              <span class="sb sb-gray">skip</span>
             </div>
-            <div class="cn">— skipped (sel dominated by full)</div>
+            <div class="cn">— not probed</div>
           </div>
 
-          <div class="cell cell-neutral" style="opacity:.7">
-            <div class="ct" style="font-size:13px;margin-top:5px">untested</div>
-            <div class="cm">predicted ~19 GB, ~2,206 img/s</div>
+          <div class="cell cell-bad" style="opacity:.8">
+            <div class="ct" style="font-size:13px;margin-top:5px">OOM (same)</div>
+            <div class="cm">AC saves VRAM only — host-RAM pinned pool is unaffected; path requires loader rework</div>
             <div class="cf">
-              <span class="mb mlg">~19 GB</span>
-              <span class="sb sb-amber">candidate</span>
+              <span class="mb mr">host RAM ↑</span>
+              <span class="sb sb-red">⚠ blocked</span>
             </div>
-            <div class="cn">— next probe candidate</div>
+            <div class="cn">— AC irrelevant to this constraint</div>
           </div>
 
-          <!-- bs=256 row (predicted) -->
-          <div class="mrow-lbl" style="opacity:.7">bs=256<small>predicted</small></div>
+          <!-- bs=256 row (blocked — host-RAM ceiling) -->
+          <div class="mrow-lbl" style="opacity:.5">bs=256<small>blocked</small></div>
 
-          <div class="cell cell-bad" style="opacity:.5">
-            <div class="ct" style="font-size:13px;margin-top:5px">extreme OOM</div>
-            <div class="cm">extrapolation breaks down</div>
+          <div class="cell cell-bad" style="opacity:.4">
+            <div class="ct" style="font-size:13px;margin-top:5px">blocked</div>
+            <div class="cm">host-RAM ceiling blocks all batch sizes ≥ 192 without loader rework</div>
             <div class="cf">
-              <span class="mb mr">&gt;80 GB</span>
-              <span class="sb sb-red">⚠ skip</span>
+              <span class="mb mr">host RAM ↑</span>
+              <span class="sb sb-red">⚠ blocked</span>
             </div>
-            <div class="cn">— no path without AC</div>
+            <div class="cn">— requires fewer workers or lower prefetch</div>
           </div>
 
-          <div class="cell cell-neutral" style="opacity:.5">
-            <div class="ct" style="font-size:13px;margin-top:5px">~2,128 img/s</div>
-            <div class="cm">extrapolated</div>
+          <div class="cell cell-neutral" style="opacity:.4">
+            <div class="ct" style="font-size:13px;margin-top:5px">blocked</div>
+            <div class="cm">same host-RAM constraint; AC irrelevant</div>
             <div class="cf">
-              <span class="mb ma">~30 GB</span>
-              <span class="sb sb-gray">dominated</span>
+              <span class="mb mr">host RAM ↑</span>
+              <span class="sb sb-red">⚠ blocked</span>
             </div>
-            <div class="cn">— dominated by full</div>
+            <div class="cn">— skip</div>
           </div>
 
-          <div class="cell cell-best" style="opacity:.85;border:2px dashed #16a34a">
-            <div class="ct">~2,758 <span class="ctu">img/s</span></div>
-            <div class="cm">~15.78% MFU predicted</div>
+          <div class="cell cell-neutral" style="opacity:.4">
+            <div class="ct" style="font-size:13px;margin-top:5px">blocked</div>
+            <div class="cm">same host-RAM constraint; AC irrelevant</div>
             <div class="cf">
-              <span class="mb mlg">~25 GB</span>
-              <span class="sb sb-amber">★ next probe</span>
+              <span class="mb mr">host RAM ↑</span>
+              <span class="sb sb-red">⚠ blocked</span>
             </div>
-            <div class="cn">— first config predicted to beat 53708</div>
+            <div class="cn">— skip until loader reworked</div>
           </div>
         </div>
       </div>
 
       <div class="insight ins-green" style="margin-top:14px">
-        <strong>Champion cell (53708):</strong> bs=128, no AC, cudagraphs=true. The intersection of "batch big enough to amortize launch overhead" and "memory still fits without AC." Everything to its left or above has been measured. Everything below or right is predicted or skipped.
+        <strong>Champion cell (53708):</strong> bs=128, no AC, cudagraphs=true. The intersection of "batch big enough to amortize launch overhead" and "memory still fits without AC." Everything to its left or above has been measured. The bs=192+ rows are fully blocked by host RAM — not a VRAM/compile issue.
       </div>
       <div class="insight ins-amber" style="margin-top:8px">
-        <strong>Key surprise — AC=full dominates AC=sel here.</strong> Same throughput, ~35% less memory. The codebase's selective save list (mm, SDPA, scaled_mm, reduce_scatter) saves the <em>fast-to-recompute</em> ops but not the <em>bulky-to-store</em> activations (norms, layer-scale, residuals, dropout state). Full saves much more memory for nearly the same recompute cost. Update: drop AC=sel from future runs.
+        <strong>Key surprise — AC=full dominates AC=sel here.</strong> Same throughput, ~35% less memory. The codebase's selective save list (mm, SDPA, scaled_mm, reduce_scatter) saves the <em>fast-to-recompute</em> ops but not the <em>bulky-to-store</em> activations (norms, layer-scale, residuals, dropout state). Full saves much more memory for nearly the same recompute cost. Drop AC=sel from future runs.
       </div>
       <div class="insight ins-red" style="margin-top:8px">
-        <strong>bs=192 no-AC OOM and what it teaches us:</strong> Linear from 53708 said 51 GB peak; actual went over 80 GB. Cudagraph workspaces don't scale linearly — Inductor's cudagraph tree holds per-shape capture buffers and adds substantial workspace overhead that scales super-linearly with batch. Lesson for bs≥192: <em>only</em> with AC=full freeing 64% of activation memory does the workspace overhead become tolerable.
+        <strong>bs=192 OOM root cause corrected:</strong> The earlier diagnosis (cudagraph workspace non-linearity) was wrong. Job 56131 confirmed the blocker is <em>host RAM</em>: 8 ranks × 20 workers × prefetch=8 fills the ~2 TB system RAM pinned pool before any GPU limit is hit. AC saves device VRAM, not host pinned memory — so AC=full cannot unlock bs≥192. The path forward requires a loader rework (fewer workers, lower prefetch factor, or a streaming loader). Phase 6.A is closed at bs=128.
       </div>
     </div>
   </div>
@@ -575,24 +588,24 @@
     <div class="cb">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
 
-        <div style="background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 13px">
-          <div style="font-weight:700;font-size:12px;color:#92400e;margin-bottom:4px">Q1 — Probe bs=256 + AC=full?</div>
+        <div style="background:#fee2e2;border-left:3px solid #ef4444;border-radius:6px;padding:10px 13px">
+          <div style="font-weight:700;font-size:12px;color:#991b1b;margin-bottom:4px">Q1 — bs=256+AC=full probe ✗ SUPERSEDED</div>
           <div style="font-size:12px;color:var(--text-2);line-height:1.55">
-            Linear extrapolation says ~2,758 img/s, +15% over 53708. Memory ~25 GB. Two risks: (a) per-batch slope from {bs=96, bs=128} may not extrapolate that far, (b) cudagraph workspace bloat may be non-linear past bs=128 (we saw this without AC at bs=192). One cheap 1000-iter run answers it. <strong>Recommendation: run it.</strong>
+            Originally planned as the next batch-scaling probe. <strong>Closed by job 56131:</strong> bs=192 already OOM'd on host RAM from the DataLoader pinned pool (8 ranks × 20 workers × prefetch=8). AC saves device VRAM, not host pinned memory — AC=full cannot unlock bs≥192. The batch ceiling is bs=128 until the loader is reworked (fewer workers, lower prefetch, or streaming loader). bs=256 is not a near-term probe.
           </div>
         </div>
 
-        <div style="background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 13px">
-          <div style="font-weight:700;font-size:12px;color:#92400e;margin-bottom:4px">Q2 — Move to Phase 6.B?</div>
+        <div style="background:#f0fdf4;border-left:3px solid #16a34a;border-radius:6px;padding:10px 13px">
+          <div style="font-weight:700;font-size:12px;color:#166534;margin-bottom:4px">Q2 — Move to Phase 6.B ★ RECOMMENDED</div>
           <div style="font-size:12px;color:var(--text-2);line-height:1.55">
-            Phase 6.B = extend <code>fullgraph=True</code> to DINO/iBOT heads + static-shape iBOT (eliminate mask-shape recompiles). Heads currently on <code>module.compile()</code> default (dynamic=True). The per-iter MFU variance in 53708 (8.96% – 14.26%) suggests heads are now the next bottleneck. Larger code lift than batch tuning, but higher ceiling.
+            Phase 6.B = extend <code>fullgraph=True</code> to DINO/iBOT heads + static-shape iBOT (eliminate mask-shape recompiles). Heads currently on <code>module.compile()</code> default (dynamic=True). Late-iter MFU variance in 53708 (instant 12.9–17.0%) is consistent with heads on a dynamic-shape compile path being the next bottleneck. Larger code lift than batch tuning, but the only remaining lever on this configuration that doesn't require structural changes (loader rework, multi-node, larger model). <strong>This is the next Phase 6 leg.</strong>
           </div>
         </div>
 
         <div style="background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 13px">
           <div style="font-weight:700;font-size:12px;color:#92400e;margin-bottom:4px">Q3 — Is 30% MFU achievable?</div>
           <div style="font-size:12px;color:var(--text-2);line-height:1.55">
-            On ViT-B + 1× DGX H100 + DDP: probably no. ViT-B (86M params, seq_len 197/37) is small relative to H100; Tensor Core tile sizes don't fully populate. Reference ViT-B BF16 H100 numbers cluster at 15–22% MFU. <strong>The realistic ceiling for this stack is likely ~18–22% MFU.</strong> 30% would need ViT-L+, longer sequences, or both.
+            On ViT-B + 1× DGX H100 + DDP: probably no. ViT-B (86M params, seq_len 197/37) is small relative to H100; Tensor Core tile sizes don't fully populate. Reference ViT-B BF16 H100 numbers cluster at 15–22% MFU. <strong>The realistic ceiling for this stack is likely ~18–22% MFU.</strong> 30% would need ViT-L+, longer sequences, or both. Phase 6.B may add a few pp but won't close the full gap.
           </div>
         </div>
 
@@ -612,7 +625,7 @@
     <details open>
       <summary>
         <span class="tog">▶</span>
-        Full Experiment Ledger — Phase 6 (12 runs)
+        Full Experiment Ledger — Phase 6 (13 runs · Phase 6.A CLOSED)
         <span style="font-size:11px;color:#94a3b8;margin-left:8px;font-weight:400">all runs: DDP, 8×H100, 1000 iters, real Weka satellite data, no eval/ckpt forced</span>
       </summary>
       <div class="cb">
@@ -625,6 +638,11 @@
               </tr>
             </thead>
             <tbody>
+
+              <!-- 6.A.6 host-RAM OOM -->
+              <tr class="grp-hdr"><td colspan="10">Phase 6.A.6 — bs=192 re-probe · 2026-05-25 · confirmed host-RAM OOM ceiling; Phase 6.A CLOSED</td></tr>
+
+              <tr class="rf"><td>6.A.6</td><td>05-25</td><td>56131</td><td>—</td><td><code>DDP bs=192 + cudagraphs=true (AC=full)</code><span class="cfg-note">OOM on host RAM. Root cause corrected from earlier 53739 diagnosis: blocker is the DataLoader pinned-memory working set (8 ranks × 20 workers × prefetch=8 × bs=192), not VRAM or cudagraph workspace non-linearity. AC=full saves device VRAM only — irrelevant to host-RAM allocation. Path to bs≥192 requires loader rework (fewer workers, lower prefetch, or streaming). Phase 6.A batch ceiling = bs=128.</span></td><td>—</td><td>OOM</td><td>—</td><td><span class="mb mr">host RAM ↑</span></td><td><span class="sp sp-r">⚠ host OOM</span></td></tr>
 
               <!-- 6.A.5 AC sweep — finalized -->
               <tr class="grp-hdr"><td colspan="10">Phase 6.A.5 — AC sweep × bs (cudagraphs=true on all) · 2026-05-23/24 · characterizes AC throughput tax + memory savings</td></tr>
@@ -681,7 +699,7 @@
 
   <!-- FOOTER -->
   <div style="text-align:center;color:var(--text-3);font-size:11px;padding-top:14px">
-    Phase 6 ledger · last updated 2026-05-24 · branch <code style="font-family:var(--mono);background:#f1f5f9;padding:1px 5px;border-radius:3px;color:var(--text-2)">perf-ddp-fullgraph</code>
+    Phase 6 ledger · last updated 2026-05-25 · Phase 6.A CLOSED · branch <code style="font-family:var(--mono);background:#f1f5f9;padding:1px 5px;border-radius:3px;color:var(--text-2)">perf-ddp-fullgraph</code>
     · source <code style="font-family:var(--mono);background:#f1f5f9;padding:1px 5px;border-radius:3px;color:var(--text-2)">docs/phase6_perf_plan.md</code>
   </div>
 

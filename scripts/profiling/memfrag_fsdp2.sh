@@ -21,9 +21,9 @@
 #   inactive_split_mb: MB stuck in fragments. Growing = fragmentation building.
 #   fragmentation_ratio > 0.3: dangerous, OOM risk on real-length runs.
 #
-# Usage: sbatch scripts/memfrag_fsdp2.sh [batch_size] [expand_segments] [n_iters] [log_period]
-# Example (reproduce colleague's OOM config): sbatch scripts/memfrag_fsdp2.sh 128 false 500 10
-# Example (ES control):                      sbatch scripts/memfrag_fsdp2.sh 128 true  500 10
+# Usage: sbatch scripts/profiling/memfrag_fsdp2.sh [batch_size] [expand_segments] [n_iters] [log_period]
+# Example (reproduce colleague's OOM config): sbatch scripts/profiling/memfrag_fsdp2.sh 128 false 500 10
+# Example (ES control):                      sbatch scripts/profiling/memfrag_fsdp2.sh 128 true  500 10
 #
 #SBATCH --job-name=dinov3-memfrag-fsdp2
 #SBATCH --nodes=1

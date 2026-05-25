@@ -1,20 +1,24 @@
 #!/bin/bash
-# Phase 5 screening: FSDP2 ZeRO-3 bs=96 BASELINE (reshard_after_forward=true).
-# Establishes the clean bs=96 reference MFU number — we have never measured this
-# without nsys overhead. 500-iter screening, no nsys, no wandb.
+# Phase 5 screening: FSDP2 bs=96 with P5-03 + P5-04 stacked.
+#   P5-03: train.fsdp_reshard_after_forward=false  (no-release / DDP-like comm)
+#   P5-04: NCCL_ALGO=NVLS                           (NVLink SHARP collectives)
 #
-# Pairs with:
-#   scripts/fsdp2_bs96_noreshard_nvls.sh  (P5-03 + P5-04 stacked)
+# Compare against scripts/fsdp2/fsdp2_bs96_baseline.sh (pure ZeRO-3 bs=96).
 #
-#SBATCH --job-name=dinov3-fsdp2-bs96-baseline
+# Notes:
+# - Phase 4 (job 26, 2026-04-27) tested reshard_after_forward=false at bs=256 → −0.3 pp
+#   vs ZeRO-3 with no memory advantage. At bs=96 the comm/compute ratio differs; retesting.
+# - NCCL_ALGO=NVLS targets the all-gather / reduce-scatter dominance we saw in nsys (ch4:620).
+#
+#SBATCH --job-name=dinov3-fsdp2-bs96-nr-nvls
 #SBATCH --nodes=1
 #SBATCH --partition=research
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
 #SBATCH --gres=gpu:h100:8
 #SBATCH --time=00:30:00
-#SBATCH --output=/mnt/weka/adovlatyan/logs/fsdp2-bs96-baseline-%j.out
-#SBATCH --error=/mnt/weka/adovlatyan/logs/fsdp2-bs96-baseline-%j.err
+#SBATCH --output=/mnt/weka/adovlatyan/logs/fsdp2-bs96-nr-nvls-%j.out
+#SBATCH --error=/mnt/weka/adovlatyan/logs/fsdp2-bs96-nr-nvls-%j.err
 
 export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
 export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"
@@ -33,18 +37,26 @@ if [[ "${PYTORCH_CUDA_ALLOC_CONF:-}" == *"expandable_segments:True"* ]]; then
 fi
 unset PYTORCH_CUDA_ALLOC_CONF
 
+# P5-04: force NCCL to NVLS (NVLink SHARP) algorithm for collectives.
+# DGX H100 + NVSwitch supports this; if it fails, NCCL would normally fall back, but we
+# want to detect that explicitly — surface the per-collective algorithm choice in logs.
+export NCCL_ALGO=NVLS
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,COLL,TUNING
+
 BATCH_SIZE=96
-RUN_TAG="fsdp2_bs${BATCH_SIZE}_baseline"
+RUN_TAG="fsdp2_bs${BATCH_SIZE}_noreshard_nvls"
 OUTPUT_DIR="/mnt/weka/adovlatyan/output_${RUN_TAG}_${SLURM_JOB_ID}"
 
 mkdir -p /mnt/weka/adovlatyan/logs
 
-echo "=== DINOv3 FSDP2 ZeRO-3 bs=96 BASELINE screening: ${RUN_TAG} ==="
+echo "=== DINOv3 FSDP2 bs=96 P5-03 + P5-04 stacked screening: ${RUN_TAG} ==="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
 echo "Batch size: ${BATCH_SIZE}"
-echo "fsdp_reshard_after_forward: true (ZeRO-3 default)"
-echo "NCCL_ALGO: ${NCCL_ALGO:-<unset/auto>}"
+echo "fsdp_reshard_after_forward: false (P5-03 / no-release)"
+echo "NCCL_ALGO: ${NCCL_ALGO}"
+echo "NCCL_DEBUG: ${NCCL_DEBUG}"
 echo "PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-<unset>}"
 echo "Date: $(date)"
 
@@ -72,7 +84,7 @@ naip_weight=1.0" \
   train.cache_dataset=true \
   train.compile=true \
   train.distributed_strategy=fsdp2 \
-  train.fsdp_reshard_after_forward=true \
+  train.fsdp_reshard_after_forward=false \
   wandb.enabled=false \
   checkpointing.period=99999
 

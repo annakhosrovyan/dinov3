@@ -235,7 +235,7 @@ Suggested first experiment:
 
 ```bash
 # Baseline, current default behavior
-sbatch scripts/ddp_bs96_calibration.sh
+sbatch scripts/screening/ddp_bs96_calibration.sh
 
 # New targeted variant, after adding/confirming static shape padding:
 # DDP, bs=96, no AC, no ES, train.compile=true, train.cudagraphs=true,

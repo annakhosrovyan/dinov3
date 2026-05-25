@@ -37,7 +37,7 @@ Files added on branch `mfu-tracking-baseline` relative to master:
 | `dinov3/utils/profiling.py` | NVTX wrapper, PyTorch profiler builder, memory stats, run metadata |
 | `dinov3/train/train.py` | Profiler setup, NVTX ranges, extended memory metrics, `--profiling` flag |
 | `dinov3/train/ssl_meta_arch.py` | `set_nvtx()`, 5 inner-phase NVTX ranges |
-| `scripts/profiling_run.sh` | 8-GPU 15-iter profiling script with trace export |
+| `scripts/profiling/profiling_run.sh` | 8-GPU 15-iter profiling script with trace export |
 
 NVTX hierarchy (used for Nsight Systems analysis):
 ```

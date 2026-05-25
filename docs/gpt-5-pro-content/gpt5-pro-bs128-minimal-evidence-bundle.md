@@ -441,7 +441,7 @@ HYPOTHESIS 6: memory pressure or allocator behavior causes hidden inefficiency.
 
 Job 51069:
 
-- Script: `scripts/fsdp2_bs128_reshT_sel_resoak.sh`
+- Script: `scripts/fsdp2/fsdp2_bs128_reshT_sel_resoak.sh`
 - Node: gpu05
 - Matched against job 47554 on gpu05.
 - Only variable vs 47554: `train.fsdp_reshard_after_forward=false -> true`.

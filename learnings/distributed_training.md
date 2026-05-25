@@ -207,7 +207,7 @@ run. With ES enabled, the bimodal pattern disappeared and the run stabilized at 
 `4229 img/s`.
 
 These screening runs were short (`train.OFFICIAL_EPOCH_LENGTH=100`, `optim.epochs=1` in
-`scripts/screening_ddp_expandseg.sh`), so they prove the short-horizon throughput behavior, not
+`scripts/screening/screening_ddp_expandseg.sh`), so they prove the short-horizon throughput behavior, not
 the absence of any long-horizon memory creep.
 
 This is the important repo-specific interpretation:
@@ -334,8 +334,8 @@ single-step peak of only 36 GB.
 ### Experiment (jobs 16750/16751): 500-iter fragmentation tracking
 
 ```bash
-sbatch scripts/memfrag_fsdp2.sh 128 false 500 10   # FSDP2 no ES — expect fragmentation
-sbatch scripts/memfrag_fsdp2.sh 128 true  500 10   # FSDP2 + ES  — control
+sbatch scripts/profiling/memfrag_fsdp2.sh 128 false 500 10   # FSDP2 no ES — expect fragmentation
+sbatch scripts/profiling/memfrag_fsdp2.sh 128 true  500 10   # FSDP2 + ES  — control
 ```
 
 Results — `[MEMFRAG]` logged every 10 iters, rank=0:

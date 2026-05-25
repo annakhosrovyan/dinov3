@@ -48,7 +48,7 @@ Step: 3 (baseline profiling pass)
 Job ID: 7553
 Node: gpu08
 Goal: Validate profiling infrastructure, capture first baseline trace with PyTorch profiler
-Command or Script: scripts/profiling_run.sh
+Command or Script: scripts/profiling/profiling_run.sh
 Config Delta: --profiling, bs=64/GPU, compile=true, 15 iters, real Weka data (Sen1+Intelinair+MAID+NAIP)
 Output Directory: /mnt/weka/adovlatyan/output_profile_7553
 Trace Artifacts: /mnt/weka/adovlatyan/profiler_traces/2026-04-02/7553/ (8 ranks × json.gz + summary.txt)
@@ -79,7 +79,7 @@ Step: 5 (screening)
 Job ID: 7563
 Node: gpu08
 Goal: Test batch_size=128 (2× baseline) to improve compute/comms ratio
-Command or Script: scripts/screening_run.sh 128 false false
+Command or Script: scripts/screening/screening_run.sh 128 false false
 Config Delta: train.batch_size_per_gpu=128 (vs baseline 64), 100 iters
 Output Directory: /mnt/weka/adovlatyan/output_screen_bs128_cgfalse_ckptfalse_7563
 Summary Window: Iters 50-99 (post-compile warmup, steady-state)
@@ -105,7 +105,7 @@ Step: 5 (screening)
 Job ID: 7564
 Node: gpu08
 Goal: Test CUDA graphs to reduce CPU launch overhead
-Command or Script: scripts/screening_run.sh 64 true false
+Command or Script: scripts/screening/screening_run.sh 64 true false
 Config Delta: train.cudagraphs=true
 Output Directory: N/A (failed)
 Summary Window: N/A
@@ -134,7 +134,7 @@ Step: 5 (screening)
 Job ID: 7565
 Node: gpu08
 Goal: Test CUDA graphs + larger batch
-Command or Script: scripts/screening_run.sh 128 true false
+Command or Script: scripts/screening/screening_run.sh 128 true false
 Config Delta: train.cudagraphs=true, train.batch_size_per_gpu=128
 Output Directory: N/A (failed — same CUDA graph error as Run 3)
 Decision: Confirms CUDA graphs are not viable on this architecture. Same error.
@@ -152,7 +152,7 @@ Step: 5 (screening)
 Job ID: 7566
 Node: gpu08
 Goal: Test batch_size=256 (4× baseline) to further improve compute/comms ratio
-Command or Script: scripts/screening_run.sh 256 false false
+Command or Script: scripts/screening/screening_run.sh 256 false false
 Config Delta: train.batch_size_per_gpu=256, 100 iters
 Output Directory: /mnt/weka/adovlatyan/output_screen_bs256_cgfalse_ckptfalse_7566
 Summary Window: Iters 70-99 (steady-state after early GC/thermal effects)
@@ -180,7 +180,7 @@ Step: 5 (screening)
 Job ID: 7567
 Node: gpu08
 Goal: Push batch_size to find OOM boundary
-Command or Script: scripts/screening_run.sh 384 false false
+Command or Script: scripts/screening/screening_run.sh 384 false false
 Config Delta: train.batch_size_per_gpu=384
 Output Directory: N/A (OOM on iter 0)
 Observed Bottleneck: OOM during torch.compile codegen — 78 GB used, tried to allocate 1.06 GB.
@@ -196,7 +196,7 @@ Step: 5 (screening)
 Job ID: 7573
 Node: gpu08
 Goal: Find the exact OOM boundary between 256 and 384
-Command or Script: scripts/screening_run.sh 320 false false
+Command or Script: scripts/screening/screening_run.sh 320 false false
 Config Delta: train.batch_size_per_gpu=320
 Output Directory: N/A (OOM on iter 0)
 Observed Bottleneck: OOM during torch.compile — 77 GB used, tried to allocate 4.57 GB.
@@ -212,7 +212,7 @@ Step: 5 (screening)
 Job ID: 7574
 Node: gpu08
 Goal: Test if checkpointing enables larger batch while maintaining throughput
-Command or Script: scripts/screening_run.sh 256 false true
+Command or Script: scripts/screening/screening_run.sh 256 false true
 Config Delta: train.batch_size_per_gpu=256, train.checkpointing=true
 Output Directory: /mnt/weka/adovlatyan/output_screen_bs256_cgfalse_ckpttrue_7574
 Summary Window: Iters 80-99 (steady-state)
@@ -239,7 +239,7 @@ Step: 5 (screening)
 Job ID: 7593
 Node: gpu08
 Goal: Test if checkpointing enables 384 batch with net throughput gain
-Command or Script: scripts/screening_run.sh 384 false true
+Command or Script: scripts/screening/screening_run.sh 384 false true
 Config Delta: train.batch_size_per_gpu=384, train.checkpointing=true
 Output Directory: /mnt/weka/adovlatyan/output_screen_bs384_cgfalse_ckpttrue_7593
 Summary Window: Iters 80-90 steady-state (bimodal pattern — low phase)
@@ -264,7 +264,7 @@ Step: 5 (screening)
 Job ID: 7594
 Node: gpu01
 Goal: Test extreme batch scaling with checkpointing
-Command or Script: scripts/screening_run.sh 512 false true
+Command or Script: scripts/screening/screening_run.sh 512 false true
 Config Delta: train.batch_size_per_gpu=512, train.checkpointing=true
 Output Directory: N/A (OOM)
 Observed Bottleneck: OOM even with checkpointing — 75 GB used, tried to allocate 7.3 GB.
@@ -305,7 +305,7 @@ Date: 2026-04-03
 Branch: perf-ddp-vs-fsdp
 Job ID: 9630
 Node: gpu06
-Command or Script: scripts/screening_ddp.sh 64 false
+Command or Script: scripts/screening/screening_ddp.sh 64 false
 Config Delta: train.distributed_strategy=ddp, bs=64
 Images/sec: ~3169 (iters 70-80)
 Step Time ms: 162
@@ -323,7 +323,7 @@ Date: 2026-04-03
 Branch: perf-ddp-vs-fsdp
 Job ID: 9631
 Node: gpu06
-Command or Script: scripts/screening_ddp.sh 128 false
+Command or Script: scripts/screening/screening_ddp.sh 128 false
 Config Delta: train.distributed_strategy=ddp, bs=128
 Images/sec: ~4042 (iter 99)
 Step Time ms: 253
@@ -341,7 +341,7 @@ Date: 2026-04-03
 Branch: perf-ddp-vs-fsdp
 Job ID: 9632
 Node: gpu06
-Command or Script: scripts/screening_ddp.sh 256 false
+Command or Script: scripts/screening/screening_ddp.sh 256 false
 Config Delta: train.distributed_strategy=ddp, bs=256
 Images/sec: ~2113-3157 (bimodal, unstable)
 Step Time ms: 586-933 (variable)
@@ -373,7 +373,7 @@ Observed Bottleneck: DDP at bs=256 is WORSE than FSDP2 bs=256.
 
 Goal: test whether `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` improves throughput
 or unlocks larger batch sizes by reducing allocator fragmentation.
-Date: 2026-04-03. Scripts: `scripts/screening_ddp_expandseg.sh`, `scripts/screening_fsdp2_expandseg.sh`.
+Date: 2026-04-03. Scripts: `scripts/screening/screening_ddp_expandseg.sh`, `scripts/screening/screening_fsdp2_expandseg.sh`.
 
 ### Run 14: DDP+ES bs=64
 
@@ -381,7 +381,7 @@ Date: 2026-04-03. Scripts: `scripts/screening_ddp_expandseg.sh`, `scripts/screen
 Run Name: ddp-es-bs64
 Job ID: 9650
 Node: gpu01 (sequential with prior jobs)
-Command or Script: scripts/screening_ddp_expandseg.sh 64 false
+Command or Script: scripts/screening/screening_ddp_expandseg.sh 64 false
 Config Delta: train.distributed_strategy=ddp, bs=64, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 Summary Window: Iters 50-99 steady state
 Images/sec: ~3061 (iter 99 cumulative avg)
@@ -397,7 +397,7 @@ Decision: No benefit at bs=64 — fragmentation was not the bottleneck here.
 ```text
 Run Name: ddp-es-bs128
 Job ID: 9651
-Command or Script: scripts/screening_ddp_expandseg.sh 128 false
+Command or Script: scripts/screening/screening_ddp_expandseg.sh 128 false
 Config Delta: train.distributed_strategy=ddp, bs=128, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 Summary Window: Iters 50-99 steady state
 Images/sec: ~3993 (iter 99 cumulative avg)
@@ -413,7 +413,7 @@ Decision: Neutral at bs=128 — slight noise-level regression.
 ```text
 Run Name: ddp-es-bs256
 Job ID: 9652
-Command or Script: scripts/screening_ddp_expandseg.sh 256 false
+Command or Script: scripts/screening/screening_ddp_expandseg.sh 256 false
 Config Delta: train.distributed_strategy=ddp, bs=256, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 Summary Window: Iters 50-99 steady state
 Images/sec: ~4229 (iter 99 cumulative avg)
@@ -432,7 +432,7 @@ Decision: MAJOR WIN. expandable_segments completely eliminated the bimodal insta
 ```text
 Run Name: fsdp2-es-bs64
 Job ID: 9653
-Command or Script: scripts/screening_fsdp2_expandseg.sh 64 false
+Command or Script: scripts/screening/screening_fsdp2_expandseg.sh 64 false
 Config Delta: train.distributed_strategy=fsdp2, bs=64, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 Summary Window: Iters 50-99 steady state
 Images/sec: ~2110 (iter 99 cumulative avg)
@@ -449,7 +449,7 @@ Decision: ES hurts FSDP2 at bs=64. FSDP2's fine-grained per-block alloc/free pat
 ```text
 Run Name: fsdp2-es-bs128
 Job ID: 9654
-Command or Script: scripts/screening_fsdp2_expandseg.sh 128 false
+Command or Script: scripts/screening/screening_fsdp2_expandseg.sh 128 false
 Config Delta: train.distributed_strategy=fsdp2, bs=128, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 Summary Window: Iters 50-99 steady state
 Images/sec: ~3213 (iter 99 cumulative avg)
@@ -465,7 +465,7 @@ Decision: ES consistently hurts FSDP2 across batch sizes. Do not use with FSDP2.
 ```text
 Run Name: fsdp2-es-bs256
 Job ID: 9655
-Command or Script: scripts/screening_fsdp2_expandseg.sh 256 false
+Command or Script: scripts/screening/screening_fsdp2_expandseg.sh 256 false
 Config Delta: train.distributed_strategy=fsdp2, bs=256, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 Summary Window: Iters 50-99 steady state
 Images/sec: ~3809 (iter 99 cumulative avg)
@@ -481,7 +481,7 @@ Decision: ES hurts FSDP2 at all tested batch sizes. Confirmed anti-pattern for F
 ```text
 Run Name: ddp-es-bs320
 Job ID: 9656
-Command or Script: scripts/screening_ddp_expandseg.sh 320 false
+Command or Script: scripts/screening/screening_ddp_expandseg.sh 320 false
 Config Delta: train.distributed_strategy=ddp, bs=320, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 Observed Bottleneck: Silent OOM during torch.compile iter 0 — no Training [0/100] output logged.
   expandable_segments reduces runtime fragmentation but not compile-time peak allocation.
@@ -494,7 +494,7 @@ Decision: bs=320 OOMs regardless of expandable_segments. Confirmed hard memory c
 ```text
 Run Name: fsdp2-es-bs320
 Job ID: 9657
-Command or Script: scripts/screening_fsdp2_expandseg.sh 320 false
+Command or Script: scripts/screening/screening_fsdp2_expandseg.sh 320 false
 Config Delta: train.distributed_strategy=fsdp2, bs=320, PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 Observed Bottleneck: Silent OOM during torch.compile iter 0 — no Training [0/100] output logged.
 Decision: bs=320 OOMs for FSDP2 too. Confirmed hard memory ceiling at bs=256 for both strategies.
@@ -535,7 +535,7 @@ defragmentation pauses that periodically stalled forward passes.
 ```text
 Run Name: memprof-ddp-bs256-es
 Job ID: (memprofile_ddp.sh run, exact ID not logged here)
-Command: sbatch scripts/memprofile_ddp.sh 256 false true
+Command: sbatch scripts/profiling/memprofile_ddp.sh 256 false true
 Config Delta: DDP, bs=256, expandable_segments:True, DINOV3_MEMORY_PROFILE=1
   eval_period_iterations=40, checkpointing.period=50 (70 iters total)
 Purpose: Confirm worst-case per-phase peak memory for production config.
@@ -557,7 +557,7 @@ Decision: DDP bs=256+ES is confirmed safe at per-phase granularity.
 ```text
 Run Name: memprof-fsdp2-bs128
 Job ID: (memprofile_fsdp2.sh run)
-Command: sbatch scripts/memprofile_fsdp2.sh 128 false false
+Command: sbatch scripts/profiling/memprofile_fsdp2.sh 128 false false
 Config Delta: FSDP2, bs=128, no expandable_segments, DINOV3_MEMORY_PROFILE=1
 
 [MEMPROFILE] results (rank=0):
@@ -579,7 +579,7 @@ Decision: FSDP2 bs=128 is safe per this profiling, but it is not the recommended
 ```text
 Run Name: soak-ddp-bs256-es
 Job ID: 16718
-Command: sbatch scripts/soak_test_ddp.sh 256 true
+Command: sbatch scripts/soak/soak_test_ddp.sh 256 true
 Config Delta: DDP, bs=256, expandable_segments:True, DINOV3_MEMORY_PROFILE=1
   OFFICIAL_EPOCH_LENGTH=500, eval_period=100 (5 eval cycles), checkpoint_period=200 (2 ckpt cycles)
 Purpose: Validate no memory creep across hundreds of iterations and multiple eval+checkpoint phases.
@@ -607,7 +607,7 @@ Also enabled train.sharded_eval_checkpoint=true and train.compile_mode config ke
 ```text
 Run Name: compile-mode-default-bs128
 Job ID: 16719
-Command: sbatch scripts/screening_compile_modes.sh default 128
+Command: sbatch scripts/screening/screening_compile_modes.sh default 128
 Config Delta: DDP, bs=128, expandable_segments:True, train.compile_mode=null
 
 Steady-state MFU (iters 20–199): avg ~23.1%, range 22.9–23.5%
@@ -619,7 +619,7 @@ Decision: Default compile mode baseline confirmed. Consistent with prior DDP bs=
 ```text
 Run Name: compile-mode-max-autotune-attempt-1
 Job ID: 16720
-Command: sbatch scripts/screening_compile_modes.sh max-autotune-no-cudagraphs 128
+Command: sbatch scripts/screening/screening_compile_modes.sh max-autotune-no-cudagraphs 128
 Config Delta: DDP, bs=128, expandable_segments:True, train.compile_mode=max-autotune-no-cudagraphs
 Result: SIGABRT on rank 2 after 18 min. Training never started (0 log lines produced).
 Cause: All 8 ranks benchmarked Triton kernel variants concurrently during iter-0 compile,
@@ -629,7 +629,7 @@ Cause: All 8 ranks benchmarked Triton kernel variants concurrently during iter-0
 ```text
 Run Name: compile-mode-max-autotune-attempt-2 (with single-rank warmup)
 Job ID: 17824
-Command: sbatch scripts/screening_compile_modes.sh max-autotune-no-cudagraphs 128
+Command: sbatch scripts/screening/screening_compile_modes.sh max-autotune-no-cudagraphs 128
   (updated script with Phase 1: single-rank cache warmup)
 
 Phase 1 (nproc=1, GPU 0): completed successfully in ~27s. Cache written to ~/.cache/torch/inductor.
@@ -694,7 +694,7 @@ Date: 2026-04-27
 Branch: perf-ddp-vs-fsdp
 Job ID: 31102 (first attempt 31010 crashed — DTensor bug)
 Node: gpu07
-Command or Script: scripts/screening_fsdp2_norelease.sh
+Command or Script: scripts/screening/screening_fsdp2_norelease.sh
 Config Delta: fsdp2, reshard_after_forward=false, bs=256, no expandable_segments
 Compile warmup: ~90 iters to stabilize (much longer than ZeRO-3's ~30-40 iters)
 Stable window: iters 90-99 (2 data points — noisy)
@@ -727,7 +727,7 @@ Date: 2026-04-27
 Branch: perf-ddp-vs-fsdp
 Job ID: 31103 (first attempt 31011 crashed — same DTensor bug)
 Node: gpu07
-Command or Script: scripts/screening_fsdp2_norelease_es.sh
+Command or Script: scripts/screening/screening_fsdp2_norelease_es.sh
 Config Delta: fsdp2, reshard_after_forward=false, bs=256, expandable_segments:True
 Compile warmup: ~50 iters to stabilize
 Stable window: iters 50-99 (6 data points)

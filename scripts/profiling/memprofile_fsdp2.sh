@@ -1,22 +1,36 @@
 #!/bin/bash
-# DDP worst-case memory profiling script.
+# FSDP2 worst-case memory profiling script.
 # Runs 70 iterations with eval triggered at iter 39 and checkpoint at iter 49,
 # capturing per-phase peak GPU memory to identify the true OOM risk point.
 #
-# Usage: sbatch scripts/memprofile_ddp.sh <batch_size> [checkpointing] [expand_segments]
-# Example: sbatch scripts/memprofile_ddp.sh 128 false true
+# Note: Do NOT set expandable_segments with FSDP2 — it causes 7-12% throughput
+# regression due to FSDP2's fine-grained alloc/free pattern conflicting with ES.
+#
+# Profiled phases (in order):
+#   post_init_weights   — peak after model NaN-fill + optimizer + pretrained load
+#   pre_training_loop   — peak from post_init_weights through data loader construction
+#   compile_warmup_iter0 — torch.compile first-pass peak
+#   steady_state        — iter 10 steady-state peak
+#   pre_eval / eval_complete — eval phase (do_test + full_tensor() on EMA DTensors)
+#   pre_checkpoint / checkpoint_complete — DCP sharded save
+#
+# Usage: sbatch scripts/profiling/memprofile_fsdp2.sh <batch_size> [checkpointing] [expand_segments] [pretrained_weights]
+# Example (no pretrained, matches prior profiling):
+#   sbatch scripts/profiling/memprofile_fsdp2.sh 128 false false ""
+# Example (with real ssl_default pretrained weights — closest to colleague's config):
+#   sbatch scripts/profiling/memprofile_fsdp2.sh 128 false false /auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
 #
 # Output: grep '[MEMPROFILE]' <logfile> | grep 'rank=0' for per-phase peaks.
 #
-#SBATCH --job-name=dinov3-memprof-ddp
+#SBATCH --job-name=dinov3-memprof-fsdp2
 #SBATCH --nodes=1
 #SBATCH --partition=research
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
 #SBATCH --gres=gpu:h100:8
 #SBATCH --time=01:00:00
-#SBATCH --output=/mnt/weka/adovlatyan/logs/memprof-ddp-%j.out
-#SBATCH --error=/mnt/weka/adovlatyan/logs/memprof-ddp-%j.err
+#SBATCH --output=/mnt/weka/adovlatyan/logs/memprof-fsdp2-%j.out
+#SBATCH --error=/mnt/weka/adovlatyan/logs/memprof-fsdp2-%j.err
 
 export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
 export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"
@@ -34,40 +48,49 @@ export DINOV3_MEMORY_PROFILE=1
 
 BATCH_SIZE="${1:-128}"
 CHECKPOINTING="${2:-false}"
-EXPAND_SEG="${3:-true}"
+EXPAND_SEG="${3:-false}"
+PRETRAINED="${4:-}"  # empty = no pretrained weights (fast smoke test); pass path for ssl_default parity
 
 if [ "${EXPAND_SEG}" = "true" ]; then
     export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 fi
 
-RUN_TAG="memprof_ddp_bs${BATCH_SIZE}_ckpt${CHECKPOINTING}_es${EXPAND_SEG}"
+RUN_TAG="memprof_fsdp2_bs${BATCH_SIZE}_ckpt${CHECKPOINTING}_es${EXPAND_SEG}"
 OUTPUT_DIR="/mnt/weka/adovlatyan/output_${RUN_TAG}_${SLURM_JOB_ID}"
 
 mkdir -p /mnt/weka/adovlatyan/logs
 
-echo "=== DINOv3 DDP Worst-Case Memory Profiling: ${RUN_TAG} ==="
+echo "=== DINOv3 FSDP2 Worst-Case Memory Profiling: ${RUN_TAG} ==="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
 echo "Batch size: ${BATCH_SIZE}"
 echo "Checkpointing: ${CHECKPOINTING}"
 echo "Expand segments: ${EXPAND_SEG}"
+echo "Pretrained weights: ${PRETRAINED:-<none>}"
 echo "PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-not set}"
 echo "Output: ${OUTPUT_DIR}"
 echo "Date: $(date)"
 echo ""
 
 # GPU baseline — verify all GPUs are clean before training starts.
+# Non-zero 'used' memory before torchrun starts = other processes sharing the node.
+# That would explain OOM at a batch size that normally fits.
 echo "=== GPU memory baseline (before torchrun) ==="
 nvidia-smi --query-gpu=index,memory.used,memory.free,memory.total --format=csv,noheader,nounits \
     | awk -F',' '{printf "  GPU %s: used=%s MB  free=%s MB  total=%s MB\n", $1, $2, $3, $4}'
 echo ""
 
 echo "Phase schedule:"
+echo "  Init:       post_init_weights = optimizer + model NaN-fill + pretrained load (if any)"
+echo "  Init:       pre_training_loop = data loader construction overhead"
 echo "  Iters 0-9:  torch.compile warmup + early steady state"
 echo "  Iter  10:   steady_state memory marker logged"
-echo "  Iter  39:   eval phase fires (do_test + full_tensor on EMA)"
-echo "  Iter  49:   checkpoint phase fires (DCP save, model + optimizer)"
+echo "  Iter  39:   eval phase fires (do_test + full_tensor() on all EMA DTensors)"
+echo "  Iter  49:   checkpoint phase fires (DCP sharded save, model + optimizer)"
 echo "  Iters 50-69: post-checkpoint steady state"
+echo ""
+echo "Note: Eval calls full_tensor() on every EMA teacher DTensor by default"
+echo "(sharded_eval_checkpoint=false). This is the suspected OOM cause for FSDP2."
 echo ""
 
 torchrun --nproc_per_node=8 dinov3/train/train.py \
@@ -76,7 +99,7 @@ torchrun --nproc_per_node=8 dinov3/train/train.py \
   student.arch=vit_base \
   student.in_chans=5 \
   teacher.in_chans=5 \
-  student.pretrained_weights="" \
+  student.pretrained_weights="${PRETRAINED}" \
   "train.dataset_path=MixedSatelliteDataset:\
 intelinair_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/intelinair/intelinair.h5:\
 maid_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/maid:\
@@ -93,7 +116,7 @@ naip_weight=1.0" \
   train.prefetch_factor=8 \
   train.cache_dataset=false \
   train.compile=true \
-  train.distributed_strategy=ddp \
+  train.distributed_strategy=fsdp2 \
   train.checkpointing="${CHECKPOINTING}" \
   wandb.enabled=false \
   evaluation.eval_period_iterations=40 \
@@ -103,4 +126,4 @@ echo ""
 echo "=== ${RUN_TAG} complete: $(date) ==="
 echo ""
 echo "Extract memory profile results with:"
-echo "  grep '\[MEMPROFILE\]' /mnt/weka/adovlatyan/logs/memprof-ddp-${SLURM_JOB_ID}.out | grep 'rank=0'"
+echo "  grep '\[MEMPROFILE\]' /mnt/weka/adovlatyan/logs/memprof-fsdp2-${SLURM_JOB_ID}.out | grep 'rank=0'"

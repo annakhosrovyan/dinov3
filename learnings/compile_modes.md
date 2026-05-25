@@ -65,7 +65,7 @@ Triton caches autotuning results in `~/.cache/torch/inductor/`, keyed on:
 - Hardware type (H100)
 - PyTorch + Triton version
 
-**Warmup procedure** (implemented in `scripts/screening_compile_modes.sh`):
+**Warmup procedure** (implemented in `scripts/screening/screening_compile_modes.sh`):
 
 1. **Phase 1**: `CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=1 ... train.OFFICIAL_EPOCH_LENGTH=2`
    — triggers compilation and autotuning on a single GPU. Only one rank benchmarks at a time,

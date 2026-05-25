@@ -1,17 +1,20 @@
 #!/bin/bash
-# DDP screening with PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-# Usage: sbatch scripts/screening_ddp_expandseg.sh <batch_size> [checkpointing]
-# Example: sbatch scripts/screening_ddp_expandseg.sh 128 false
+# FSDP2 no-release (reshard_after_forward=false) screening — bs=256, no expandable_segments.
+# Hypothesis: DDP-equivalent communication with FSDP2 state sharding; should close the 0.4 pp
+# MFU gap vs DDP+ES (23.9%) measured with ZeRO-3 FSDP2 (23.5%).
 #
-#SBATCH --job-name=dinov3-ddp-es
+# Usage: sbatch scripts/screening/screening_fsdp2_norelease.sh [batch_size]
+# Default: bs=256
+#
+#SBATCH --job-name=dinov3-fsdp2-nr
 #SBATCH --nodes=1
 #SBATCH --partition=research
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
 #SBATCH --gres=gpu:h100:8
 #SBATCH --time=01:00:00
-#SBATCH --output=/mnt/weka/adovlatyan/logs/ddp-es-%j.out
-#SBATCH --error=/mnt/weka/adovlatyan/logs/ddp-es-%j.err
+#SBATCH --output=/mnt/weka/adovlatyan/logs/fsdp2-norelease-%j.out
+#SBATCH --error=/mnt/weka/adovlatyan/logs/fsdp2-norelease-%j.err
 
 export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
 export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"
@@ -23,24 +26,20 @@ export PYTHONPATH=.
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-BATCH_SIZE="${1:-64}"
-CHECKPOINTING="${2:-false}"
+BATCH_SIZE="${1:-256}"
 
-RUN_TAG="ddp_es_bs${BATCH_SIZE}_ckpt${CHECKPOINTING}"
+RUN_TAG="fsdp2_norelease_bs${BATCH_SIZE}"
 OUTPUT_DIR="/mnt/weka/adovlatyan/output_${RUN_TAG}_${SLURM_JOB_ID}"
 
 mkdir -p /mnt/weka/adovlatyan/logs
 
-echo "=== DINOv3 DDP + expandable_segments Screening: ${RUN_TAG} ==="
+echo "=== DINOv3 FSDP2 no-release screening: ${RUN_TAG} ==="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
-echo "GPUs: ${CUDA_VISIBLE_DEVICES}"
 echo "Batch size: ${BATCH_SIZE}"
-echo "Checkpointing: ${CHECKPOINTING}"
-echo "PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF}"
-echo "Output: ${OUTPUT_DIR}"
+echo "fsdp_reshard_after_forward: false (no-release / DDP-like)"
+echo "expandable_segments: not set"
 echo "Date: $(date)"
 
 torchrun --nproc_per_node=8 dinov3/train/train.py \
@@ -66,9 +65,9 @@ naip_weight=1.0" \
   train.prefetch_factor=8 \
   train.cache_dataset=true \
   train.compile=true \
-  train.distributed_strategy=ddp \
-  train.checkpointing="${CHECKPOINTING}" \
+  train.distributed_strategy=fsdp2 \
+  train.fsdp_reshard_after_forward=false \
   wandb.enabled=false \
   checkpointing.period=99999
 
-echo "=== DDP+ES ${RUN_TAG} complete: $(date) ==="
+echo "=== FSDP2 no-release ${RUN_TAG} complete: $(date) ==="

@@ -11,10 +11,10 @@
 # training runs (worst-case memory profiling shows OOM during eval/checkpoint cycles).
 #
 # Usage:
-#   sbatch scripts/nsys_profile.sh                          # default: bs=128
-#   BATCH_SIZE=96  sbatch scripts/nsys_profile.sh           # conservative
-#   BATCH_SIZE=64  sbatch scripts/nsys_profile.sh           # most conservative
-#   NSYS_DELAY=240 NSYS_DURATION=90 sbatch scripts/nsys_profile.sh   # longer window
+#   sbatch scripts/profiling/nsys_profile.sh                          # default: bs=128
+#   BATCH_SIZE=96  sbatch scripts/profiling/nsys_profile.sh           # conservative
+#   BATCH_SIZE=64  sbatch scripts/profiling/nsys_profile.sh           # most conservative
+#   NSYS_DELAY=240 NSYS_DURATION=90 sbatch scripts/profiling/nsys_profile.sh   # longer window
 #
 # Env knobs:
 #   BATCH_SIZE      per-GPU batch size              (default 128; allowed: 64, 96, 128)

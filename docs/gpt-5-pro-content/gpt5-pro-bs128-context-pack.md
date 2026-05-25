@@ -26,24 +26,24 @@ Attach these first. They should be enough for a serious first pass.
 These define the actual knobs, Slurm shape, env vars, node pinning, and isolation assumptions.
 
 1. `run.sh`
-2. `scripts/fsdp2_bs128_reshT_sel_resoak.sh`
-3. `scripts/fsdp2_bs128_reshF_sel.sh`
-4. `scripts/fsdp2_bs128_ac_selective.sh`
-5. `scripts/fsdp2_bs128_ac_full.sh`
-6. `scripts/fsdp2_bs128_memprofile.sh`
-7. `scripts/fsdp2_bs128_singlegpu_sel.sh`
-8. `scripts/fsdp2_bs96_ac_selective.sh`
-9. `scripts/fsdp2_bs96_ac_full.sh`
-10. `scripts/fsdp2_bs96_reshT_noAC.sh`
-11. `scripts/fsdp2_bs96_reshF_sel.sh`
-12. `scripts/fsdp2_bs96_reshF_full.sh`
-13. `scripts/fsdp2_bs96_reshF_noAC.sh`
-14. `scripts/fsdp2_bs96_singlegpu_sel.sh`
-15. `scripts/fsdp2_bs96_ncclsweep_stageA.sh`
-16. `scripts/fsdp2_ncclsweep_stageB.sh`
-17. `scripts/fsdp2_ncclsweep_stageC.sh`
-18. `scripts/nsys_profile.sh`
-19. `scripts/nsys_dinov3_summary.py`
+2. `scripts/fsdp2/fsdp2_bs128_reshT_sel_resoak.sh`
+3. `scripts/fsdp2/fsdp2_bs128_reshF_sel.sh`
+4. `scripts/fsdp2/fsdp2_bs128_ac_selective.sh`
+5. `scripts/fsdp2/fsdp2_bs128_ac_full.sh`
+6. `scripts/profiling/fsdp2_bs128_memprofile.sh`
+7. `scripts/fsdp2/fsdp2_bs128_singlegpu_sel.sh`
+8. `scripts/fsdp2/fsdp2_bs96_ac_selective.sh`
+9. `scripts/fsdp2/fsdp2_bs96_ac_full.sh`
+10. `scripts/fsdp2/fsdp2_bs96_reshT_noAC.sh`
+11. `scripts/fsdp2/fsdp2_bs96_reshF_sel.sh`
+12. `scripts/fsdp2/fsdp2_bs96_reshF_full.sh`
+13. `scripts/fsdp2/fsdp2_bs96_reshF_noAC.sh`
+14. `scripts/fsdp2/fsdp2_bs96_singlegpu_sel.sh`
+15. `scripts/fsdp2/fsdp2_bs96_ncclsweep_stageA.sh`
+16. `scripts/fsdp2/fsdp2_ncclsweep_stageB.sh`
+17. `scripts/fsdp2/fsdp2_ncclsweep_stageC.sh`
+18. `scripts/profiling/nsys_profile.sh`
+19. `scripts/profiling/nsys_dinov3_summary.py`
 
 ## Code Files To Attach
 

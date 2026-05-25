@@ -43,7 +43,7 @@ torchrun --nproc_per_node=8 dinov3/train/train.py \
 torchrun ... train.py ... --opts train.output_dir=./output_satellite_s1_s2ab  # finds latest ckpt automatically
 
 # Smoke test (100 iters, no pretrained weights, synthetic data):
-sbatch scripts/mfu_validation_run.sh
+sbatch scripts/smoke/mfu_validation_run.sh
 ```
 
 Config CLI overrides use OmegaConf dot-notation: `section.key=value` pairs passed **directly** (no `--opts` prefix — positional after the required args). Example: `student.pretrained_weights="" train.batch_size_per_gpu=32`.
@@ -68,6 +68,13 @@ Config: `pyproject.toml`. Pylint is scoped to similarities/misc only.
 
 For any file search or grep within the current git-indexed repository, use the `fff` MCP tools first.
 Prefer `mcp__fff__find_files` for file discovery and `mcp__fff__grep` / `mcp__fff__multi_grep` for content search instead of shelling out to `find`, `grep`, or `rg`.
+
+For symbol-level navigation in Python files, prefer the **LSP tool** over grep:
+- `goToDefinition` — jump to a symbol's definition (more precise than grepping for the name)
+- `findReferences` / `incomingCalls` / `outgoingCalls` — trace how a function is called across the codebase
+- `hover` — resolve the type of a variable or expression at a specific location
+
+Use LSP when tracing call chains or verifying signatures; use `fff` when you don't have a specific symbol and are exploring by topic or file pattern.
 
 ## Claude Code Codex Plugin
 

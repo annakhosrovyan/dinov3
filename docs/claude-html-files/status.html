@@ -238,7 +238,7 @@
         <div>
           <div style="font-weight:700;font-size:13px;margin-bottom:8px">Job 39141 — bs=96 (bottleneck baseline) <span class="sb sb-blue" style="margin-left:6px">PRIMARY</span></div>
           <table class="lt" style="font-size:12px">
-            <tr><td style="font-weight:600;width:130px">Script</td><td><code>scripts/nsys_profile.sh</code> — invoked via <code>BATCH_SIZE=96 sbatch scripts/nsys_profile.sh</code></td></tr>
+            <tr><td style="font-weight:600;width:130px">Script</td><td><code>scripts/profiling/nsys_profile.sh</code> — invoked via <code>BATCH_SIZE=96 sbatch scripts/profiling/nsys_profile.sh</code></td></tr>
             <tr><td style="font-weight:600">Node / GPUs</td><td>gpu07 · 8×H100 · single node (<code>--nodes=1</code>)</td></tr>
             <tr><td style="font-weight:600">Date</td><td>2026-05-08 20:54 +04</td></tr>
             <tr><td style="font-weight:600">Batch</td><td>96/GPU · 768 global (8 ranks)</td></tr>
@@ -279,7 +279,7 @@
         <div>
           <div style="font-weight:700;font-size:13px;margin-bottom:8px">Job 39140 — bs=128 (paired profile run)</div>
           <table class="lt" style="font-size:12px">
-            <tr><td style="font-weight:600;width:130px">Script</td><td><code>scripts/nsys_profile.sh</code> — default <code>BATCH_SIZE=128</code></td></tr>
+            <tr><td style="font-weight:600;width:130px">Script</td><td><code>scripts/profiling/nsys_profile.sh</code> — default <code>BATCH_SIZE=128</code></td></tr>
             <tr><td style="font-weight:600">Node / GPUs</td><td>gpu07 · 8×H100 (same node as 39141 — sequential runs)</td></tr>
             <tr><td style="font-weight:600">Date</td><td>2026-05-08 (immediately before 39141)</td></tr>
             <tr><td style="font-weight:600">Batch</td><td>128/GPU · 1024 global</td></tr>
@@ -295,7 +295,7 @@
             · <em>CUDA HW row</em> — each GPU row shows the ~65% duty cycle gaps (NCCL stalls)<br>
             · <em>NVTX row</em> — train_step, forward_backward, optimizer_step annotated<br>
             · <em>NIC/IB row</em> — InfiniBand traffic confirms ring allgather pattern<br><br>
-            Summary script: <code>python scripts/nsys_dinov3_summary.py &lt;sqlite-path&gt;</code><br>
+            Summary script: <code>python scripts/profiling/nsys_dinov3_summary.py &lt;sqlite-path&gt;</code><br>
             SQLite DB: <code>…/dinov3-fsdp2-bs96-39141.sqlite</code><br>
             Pre-generated summary: <code>…/dinov3-fsdp2-bs96-39141.summary.md</code>
           </div>

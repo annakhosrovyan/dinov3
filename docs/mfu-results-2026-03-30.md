@@ -175,7 +175,7 @@ that spec assumes 2:4 structured sparsity that dense training does not use.
 | `dinov3/utils/mfu.py` | Created — MAC counting utilities; `compute_mfu()` applies 2× to get hardware FLOPs |
 | `tests/test_mfu.py` | Created — 14 unit tests, all pass |
 | `dinov3/train/train.py` | Modified — CUDA event timing + MFU logging in `do_train()` |
-| `scripts/mfu_validation_run.sh` | Created — 2-GPU Slurm validation job |
+| `scripts/smoke/mfu_validation_run.sh` | Created — 2-GPU Slurm validation job |
 | `docs/mfu-results-2026-03-30.md` | Created — this file |
 | `/mnt/weka/adovlatyan/synthetic_intelinair.h5` | Created — synthetic dataset for validation |
 
@@ -189,7 +189,7 @@ that spec assumes 2:4 structured sparsity that dense training does not use.
 **GPUs**: 8× H100
 **Config**: ViT-B, 5-channel, bs=64/GPU (global_batch_size=512), 300 iterations, torch.compile=True
 **Dataset**: Real satellite data (Weka): Intelinair (33K) + Sen1 (4.5M) + MAID (2.1M) + NAIP
-**Script**: `scripts/mfu_8gpu_real_data.sh`
+**Script**: `scripts/smoke/mfu_8gpu_real_data.sh`
 
 ### Steady-state results (iters 100–160, post-compile)
 

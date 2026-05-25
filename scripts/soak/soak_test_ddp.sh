@@ -12,10 +12,10 @@
 # Memory profile output is enabled. Extract with:
 #   grep '\[MEMPROFILE\]' <logfile> | grep 'rank=0'
 #
-# Usage: sbatch scripts/soak_test_ddp.sh [batch_size] [expand_segments]
+# Usage: sbatch scripts/soak/soak_test_ddp.sh [batch_size] [expand_segments]
 # Example:
-#   sbatch scripts/soak_test_ddp.sh 256 true     # recommended config
-#   sbatch scripts/soak_test_ddp.sh 128 true     # conservative config
+#   sbatch scripts/soak/soak_test_ddp.sh 256 true     # recommended config
+#   sbatch scripts/soak/soak_test_ddp.sh 128 true     # conservative config
 #
 #SBATCH --job-name=dinov3-soak-ddp
 #SBATCH --nodes=1

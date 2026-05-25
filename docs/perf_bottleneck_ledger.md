@@ -428,7 +428,7 @@ to close this measurement gap conclusively.
 3. **Pretrained weights parameter** added to `memprofile_fsdp2.sh` (4th argument):
    ```bash
    # Closest to colleague's config (adds real pretrained loading path):
-   sbatch scripts/memprofile_fsdp2.sh 128 false false \
+   sbatch scripts/profiling/memprofile_fsdp2.sh 128 false false \
      /auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
    ```
    Compare `post_init_weights` max_reserved_mb with and without pretrained weights.
@@ -443,7 +443,7 @@ to close this measurement gap conclusively.
 
 2. **Run memprofile_fsdp2 with real pretrained weights** (15-min job):
    ```bash
-   sbatch scripts/memprofile_fsdp2.sh 128 false false \
+   sbatch scripts/profiling/memprofile_fsdp2.sh 128 false false \
      /auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
    ```
    Check `post_init_weights` max_reserved_mb vs baseline. Definitively closes the pretrained path.
@@ -451,7 +451,7 @@ to close this measurement gap conclusively.
 3. **Run memfrag_fsdp2 for 4000+ iters** (expensive, ~2–3 hrs):
    To verify fragmentation truly stays flat past the first checkpoint at iter 3750.
    ```bash
-   sbatch scripts/memfrag_fsdp2.sh 128 false 4500 50
+   sbatch scripts/profiling/memfrag_fsdp2.sh 128 false 4500 50
    ```
 
 4. **Accept and move on**: For our own training (DDP bs=256+ES), the OOM risk is fully

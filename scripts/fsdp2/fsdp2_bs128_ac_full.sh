@@ -1,7 +1,7 @@
 #!/bin/bash
-# Phase 5 P5-MATRIX reshF+fullAC: FSDP2 bs=96 with FULL activation checkpointing.
+# Phase 5 P5-AC-full: FSDP2 bs=128 with FULL activation checkpointing.
 #
-# Companion to scripts/fsdp2_bs96_ac_selective.sh — same batch size, same eval+ckpt
+# Companion to scripts/fsdp2/fsdp2_bs96_ac_selective.sh — same batch size, same eval+ckpt
 # overrides, same memory profiling. The ONLY difference is checkpointing_full=true.
 #
 # Goals (per docs/phase5_perf_plan.md §10c, revised 2026-05-14):
@@ -20,15 +20,15 @@
 # The codebase already has gc.disable() + manual gc.collect() every 150 iters
 # (train.py:526, 588) — so we are NOT testing P5-05 (gc.disable) here.
 #
-#SBATCH --job-name=dinov3-fsdp2-bs96-reshF-full
+#SBATCH --job-name=dinov3-fsdp2-bs128-ac-full
 #SBATCH --nodes=1
 #SBATCH --partition=research
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
 #SBATCH --gres=gpu:h100:8
-#SBATCH --time=01:00:00
-#SBATCH --output=/mnt/weka/adovlatyan/logs/fsdp2-bs96-reshF-full-%j.out
-#SBATCH --error=/mnt/weka/adovlatyan/logs/fsdp2-bs96-reshF-full-%j.err
+#SBATCH --time=01:30:00
+#SBATCH --output=/mnt/weka/adovlatyan/logs/fsdp2-bs128-ac-full-%j.out
+#SBATCH --error=/mnt/weka/adovlatyan/logs/fsdp2-bs128-ac-full-%j.err
 
 export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
 export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"
@@ -51,13 +51,13 @@ unset PYTORCH_CUDA_ALLOC_CONF
 export DINOV3_MEMORY_PROFILE=1
 export DINOV3_MEMORY_PROFILE_PERIOD=10
 
-BATCH_SIZE=96
+BATCH_SIZE=128
 RUN_TAG="fsdp2_bs${BATCH_SIZE}_ac_full"
 OUTPUT_DIR="/mnt/weka/adovlatyan/output_${RUN_TAG}_${SLURM_JOB_ID}"
 
 mkdir -p /mnt/weka/adovlatyan/logs
 
-echo "=== DINOv3 FSDP2 bs=96 + FULL AC screening: ${RUN_TAG} ==="
+echo "=== DINOv3 FSDP2 bs=128 + FULL AC screening: ${RUN_TAG} ==="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
 echo "Batch size: ${BATCH_SIZE}"
@@ -92,7 +92,7 @@ naip_weight=1.0" \
   train.cache_dataset=true \
   train.compile=true \
   train.distributed_strategy=fsdp2 \
-  train.fsdp_reshard_after_forward=false \
+  train.fsdp_reshard_after_forward=true \
   train.checkpointing=true \
   train.checkpointing_full=true \
   train.sharded_eval_checkpoint=true \
@@ -102,6 +102,6 @@ naip_weight=1.0" \
 
 echo "=== ${RUN_TAG} complete: $(date) ==="
 echo "--- [MEMPROFILE] summary (rank 0) ---"
-grep "MEMPROFILE.*rank=0" /mnt/weka/adovlatyan/logs/fsdp2-bs96-reshF-full-${SLURM_JOB_ID}.out | tail -20 || true
+grep "MEMPROFILE.*rank=0" /mnt/weka/adovlatyan/logs/fsdp2-bs128-ac-full-${SLURM_JOB_ID}.out | tail -20 || true
 echo "--- [MEMFRAG] summary (rank 0, last 5) ---"
-grep "MEMFRAG.*rank=0" /mnt/weka/adovlatyan/logs/fsdp2-bs96-reshF-full-${SLURM_JOB_ID}.out | tail -5 || true
+grep "MEMFRAG.*rank=0" /mnt/weka/adovlatyan/logs/fsdp2-bs128-ac-full-${SLURM_JOB_ID}.out | tail -5 || true

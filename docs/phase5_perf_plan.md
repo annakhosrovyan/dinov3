@@ -67,7 +67,7 @@
 `perf-ddp-vs-fsdp` carries the pieces this phase needs:
 - MFU instrumentation (`dinov3/utils/mfu.py`, CUDA-event timing in `train.py`)
 - FSDP2 wrapping fixes (`ac_compile_parallelize.py`)
-- Worst-case memory profiling infra (`scripts/memprofile_*.sh`)
+- Worst-case memory profiling infra (`scripts/profiling/memprofile_*.sh`)
 - The validated production config in `run.sh`
 - Compile-mode learnings (max-autotune incompatible with iBOT — closed permanently)
 
@@ -197,8 +197,8 @@ baseline recipe:
 | P5-02 | 2026-05-08 | nsys: FSDP2 ZeRO-3 bs=96 (job 39029) | n/a | n/a | n/a | All 8 ranks captured but only ~18 s of GPU activity in the 60 s window; ~3–5 steps. Compile + pinned-pool warmup not stabilized. NCCL↔compute overlap 0% (rank 0). Re-run needed. |
 | P5-01b | 2026-05-08 | nsys re-run: FSDP2 ZeRO-3 bs=128 — `NSYS_DELAY=360, NSYS_DURATION=120` (job 39140) | n/a (trace-only) | n/a | n/a | **Trace usable.** 8 ranks captured. NCCL=70% of kernel time, NCCL↔compute overlap=16.3% (rank 0). Util 93–95% per non-straggler rank. Hypothesis B confirmed as dominant. |
 | P5-02b | 2026-05-08 | nsys re-run: FSDP2 ZeRO-3 bs=96  — `NSYS_DELAY=360, NSYS_DURATION=120` (job 39141) | n/a (trace-only) | n/a | n/a | **Trace usable.** 8 ranks captured. NCCL=80% of kernel time, overlap=11% (rank 0). Straggler rank changes between runs → non-deterministic. |
-| P5-00 | 2026-05-13 | **bs=96 baseline reference** (FSDP2 ZeRO-3, no overrides) — job 44023, `scripts/fsdp2_bs96_baseline.sh` | **14.67%** (steady, iter≥100) | **335.4** | **24,922 MB** | Done, but later P5-VAR showed this gpu08 run is not representative of gpu01/gpu05 (~7.0-7.4% MFU). Use same-node comparisons for decisions. |
-| P5-03+P5-04 | 2026-05-13 | **Stacked: `reshard_after_forward=False` + `NCCL_ALGO=NVLS` + `NCCL_DEBUG=INFO`** at bs=96 — job 44024, `scripts/fsdp2_bs96_noreshard_nvls.sh` | **6.59%** (steady, iter≥100) | **662.6** | **25,089 MB** | Done. **Large regression vs baseline: −8.1 pp MFU, 2.0× slower step.** Confounded — three knobs changed at once and `NCCL_DEBUG=INFO` produced a 51 MB log. Deconfound only if we revisit NVLS/no-reshard after AC. |
+| P5-00 | 2026-05-13 | **bs=96 baseline reference** (FSDP2 ZeRO-3, no overrides) — job 44023, `scripts/fsdp2/fsdp2_bs96_baseline.sh` | **14.67%** (steady, iter≥100) | **335.4** | **24,922 MB** | Done, but later P5-VAR showed this gpu08 run is not representative of gpu01/gpu05 (~7.0-7.4% MFU). Use same-node comparisons for decisions. |
+| P5-03+P5-04 | 2026-05-13 | **Stacked: `reshard_after_forward=False` + `NCCL_ALGO=NVLS` + `NCCL_DEBUG=INFO`** at bs=96 — job 44024, `scripts/fsdp2/fsdp2_bs96_noreshard_nvls.sh` | **6.59%** (steady, iter≥100) | **662.6** | **25,089 MB** | Done. **Large regression vs baseline: −8.1 pp MFU, 2.0× slower step.** Confounded — three knobs changed at once and `NCCL_DEBUG=INFO` produced a 51 MB log. Deconfound only if we revisit NVLS/no-reshard after AC. |
 | P5-04-clean | tbd | **NCCL_ALGO=NVLS only**, no NCCL_DEBUG, `reshard_after_forward=true` at bs=96 | tbd | tbd | tbd | Parked behind AC. Isolates NVLS effect alone if we return to NCCL algorithm testing. |
 | P5-03-clean | tbd | **`reshard_after_forward=False` only**, no NCCL_DEBUG, default NCCL algo at bs=96 | tbd | tbd | tbd | Deferred. Expected to be in noise around the baseline (Phase 4 bs=256 was −0.3 pp). |
 | P5-AC-selective | 2026-05-14/15 | **Selective AC verified at bs=96** — jobs 44795 and 45280 | **7.00–7.60%** | **577.4** on gpu07 replicate | **14,302 MB** | Done. AC path works and cuts bs=96 peak allocation by ~10.6 GB vs no-AC reference. Preferred throughput default if AC is promoted. |
@@ -240,7 +240,7 @@ current state is summarized in the opening conclusion, §2, §5, §6, and §11.
 ### 2026-05-07 — Branch + plan + first nsys submission
 
 - Created branch `perf-fsdp2-pipeline` off `perf-ddp-vs-fsdp` @ `a281fc8`.
-- Wrote this plan and `scripts/nsys_profile.sh`.
+- Wrote this plan and `scripts/profiling/nsys_profile.sh`.
 - Submitted **job 38829** (FSDP2 bs=128) and **job 38830** (FSDP2 bs=96).
 - **Both failed silently** — empty output dirs. Root cause (`module: command not found`):
   `module` is not available on GPU nodes. `module load nsight-systems` is a no-op; `nsys`
@@ -255,7 +255,7 @@ current state is summarized in the opening conclusion, §2, §5, §6, and §11.
 
 ### 2026-05-08 — First analyzer pass; both traces underwhelming
 
-- Wrote `scripts/nsys_dinov3_summary.py` — reusable DINOv3-specific nsys SQLite analyzer
+- Wrote `scripts/profiling/nsys_dinov3_summary.py` — reusable DINOv3-specific nsys SQLite analyzer
   anchored to the 4 hypotheses (A/B/C/D). Output: markdown report next to each `.sqlite`.
   Coverage: per-device util, union/per-rank gap distribution, kernel-class breakdown,
   top-N kernels, NCCL & H2D kernels, NCCL↔compute and H2D↔compute overlap %, attention-kernel
@@ -272,7 +272,7 @@ current state is summarized in the opening conclusion, §2, §5, §6, and §11.
 
 ### 2026-05-08 — Bump nsys defaults; resubmit; reclaim disk
 
-- `scripts/nsys_profile.sh` defaults: `NSYS_DELAY 180→360 s`, `NSYS_DURATION 60→120 s`,
+- `scripts/profiling/nsys_profile.sh` defaults: `NSYS_DELAY 180→360 s`, `NSYS_DURATION 60→120 s`,
   `ITERS 1000→2000`. Added `--trace-fork-before-exec=true` to nsys for proper torchrun
   child-process attach. (`--process-scope` is not a valid flag in nsys 2026.2.1.)
 - Submitted **job 39140** (FSDP2 bs=128) and **job 39141** (FSDP2 bs=96).
@@ -370,8 +370,8 @@ Reports written:
 
 User correctly noted we have NOT measured **bs=128 + selective AC** or **bs=128 + full AC**. Filling in those cells closes the 2×3 batch×AC matrix and lets us build the affine memory model Codex asked for. Two new jobs submitted 2026-05-15:
 
-- **Job 45363** — `scripts/fsdp2_bs128_ac_selective.sh`. Same template as the bs=96 AC scripts but `train.batch_size_per_gpu=128`. 1.5 h walltime.
-- **Job 45364** — `scripts/fsdp2_bs128_ac_full.sh`. Same but `train.checkpointing_full=true`.
+- **Job 45363** — `scripts/fsdp2/fsdp2_bs128_ac_selective.sh`. Same template as the bs=96 AC scripts but `train.batch_size_per_gpu=128`. 1.5 h walltime.
+- **Job 45364** — `scripts/fsdp2/fsdp2_bs128_ac_full.sh`. Same but `train.checkpointing_full=true`.
 
 Decision deferred until matrix is complete: it is possible bs=128 + AC reaches a *throughput-positive* operating point where the bigger batch overcomes the recompute cost, or it is possible the throughput-negative pattern holds. We'll know once 45363 / 45364 finish.
 
@@ -388,10 +388,10 @@ iter 400–999 means therefore include eval-phase recovery in the bs=96 cells bu
 
 | Cell | Job | Script | Status |
 |---|---|---|---|
-| bs=128 reshT sel | **51069** | `scripts/fsdp2_bs128_reshT_sel_resoak.sh` | PENDING (pinned gpu05) |
-| bs=96  reshT sel | **51165** | `scripts/fsdp2_bs96_reshT_sel_resoak.sh`  | PENDING (unpinned) |
-| bs=96  reshF sel | **51166** | `scripts/fsdp2_bs96_reshF_sel_resoak.sh`  | PENDING (unpinned) |
-| bs=128 reshF sel | 47554 (existing) | `scripts/fsdp2_bs128_reshF_sel.sh` | done (gpu05, 1,341/1,312) |
+| bs=128 reshT sel | **51069** | `scripts/fsdp2/fsdp2_bs128_reshT_sel_resoak.sh` | PENDING (pinned gpu05) |
+| bs=96  reshT sel | **51165** | `scripts/fsdp2/fsdp2_bs96_reshT_sel_resoak.sh`  | PENDING (unpinned) |
+| bs=96  reshF sel | **51166** | `scripts/fsdp2/fsdp2_bs96_reshF_sel_resoak.sh`  | PENDING (unpinned) |
+| bs=128 reshF sel | 47554 (existing) | `scripts/fsdp2/fsdp2_bs128_reshF_sel.sh` | done (gpu05, 1,341/1,312) |
 
 Same-node correctness within the grid was deprioritized — the cluster is saturated (60+ pending jobs from another user as of 2026-05-21), and waiting for gpu05 across three more runs would push wrap-up past several days. Cross-node variance is part of the read; record actual nodes in the analysis.
 
@@ -430,7 +430,7 @@ We have no exact **DDP × bs=96** row. bs=96 is the current safe FSDP2 operating
 
 Allocator: `PYTORCH_CUDA_ALLOC_CONF` unset (no ES) — this run isolates DDP itself; ES is a possible follow-up only if DDP bs=96 is throughput-positive and memory is tight.
 
-If DDP bs=96 is dramatically faster and memory is safe, the strategic question becomes real: **accept DDP for ViT-B-scale production while keeping FSDP2 as the scale-up platform?** Script: `scripts/ddp_bs96_calibration.sh`. Node not pinned (cluster saturated). Awaiting allocation — analysis when it finishes.
+If DDP bs=96 is dramatically faster and memory is safe, the strategic question becomes real: **accept DDP for ViT-B-scale production while keeping FSDP2 as the scale-up platform?** Script: `scripts/screening/ddp_bs96_calibration.sh`. Node not pinned (cluster saturated). Awaiting allocation — analysis when it finishes.
 
 #### Archived DDP reference (pre-Phase-5 screening — NOT current path)
 
@@ -486,7 +486,7 @@ Submitted after the Stage C noise discussion. The `bs=128 × reshF × sel AC` ce
 
 **Node note**: original submit had `--nodelist=gpu07` for same-node anchoring against 45366/46030. gpu07 was occupied (~1.5 day queue wait, abarseghyan job 47330). Resubmitted without nodelist pinning — first available H100 node will pick it up. Cross-node variance is now part of the read; the actual node will be recorded in the post-run analysis. (gpu07 itself showed ~20 % inter-epoch variance Stage A → Stage C, so the same-node argument was weaker than it sounds anyway.)
 
-Script: `scripts/fsdp2_bs128_reshF_sel.sh`. Awaiting allocation.
+Script: `scripts/fsdp2/fsdp2_bs128_reshF_sel.sh`. Awaiting allocation.
 
 ---
 
@@ -558,7 +558,7 @@ The original decision rule was "≥ 1330 → queue +LL128 follow-up." We hit it 
 
 ### 2026-05-18 — NCCL knob sweep Stage C completed (jobs 46029–46031)
 
-All 3 runs completed on gpu07, sequential chain. Same `--job-name=ncclC-<variant>` resolution trick. Eval+ckpt fully OFF (`period=100000`). Script: `scripts/fsdp2_ncclsweep_stageC.sh`.
+All 3 runs completed on gpu07, sequential chain. Same `--job-name=ncclC-<variant>` resolution trick. Eval+ckpt fully OFF (`period=100000`). Script: `scripts/fsdp2/fsdp2_ncclsweep_stageC.sh`.
 
 | Run | Config | iters | log |
 |---|---|---|---|
@@ -819,7 +819,7 @@ Optional pre-B1 rigor (Codex suggested, not mandatory): one more short A2 replic
 
 ### 2026-05-16 — single-GPU bs=96 vs bs=128 disambiguator completed (jobs 45476, 45477)
 
-The Codex-recommended decisive experiment (filed 2026-05-15) is in. Both ran on **gpu07**, sequentially via `--dependency=afterany`, 300 iters each, selective AC, same code path as the 8-GPU runs (FSDP2 with 1 rank). Scripts: `scripts/fsdp2_bs{96,128}_singlegpu_sel.sh`.
+The Codex-recommended decisive experiment (filed 2026-05-15) is in. Both ran on **gpu07**, sequentially via `--dependency=afterany`, 300 iters each, selective AC, same code path as the 8-GPU runs (FSDP2 with 1 rank). Scripts: `scripts/fsdp2/fsdp2_bs{96,128}_singlegpu_sel.sh`.
 
 #### Results (current-iter values, iter 150–299)
 
@@ -1020,7 +1020,7 @@ Restated: the dominant lever at bs=96 ViT-B is **activation working-set size**, 
 
 #### Open follow-ups (not committed)
 
-- **Decisive bs=128 puzzle experiment — submitted 2026-05-15 (jobs 45476, 45477)**: single-GPU bs=96 vs bs=128 + selective AC on **gpu07** (sequential via `--dependency=afterany`), 300 iters each, real Weka data, same code path as the 8-GPU runs (FSDP2 with 1 rank degenerates to no-shard but keeps the wrapping/compile path identical so the comparison is apples-to-apples with the multi-GPU rows). Eval+ckpt disabled (period=10000). Scripts: `scripts/fsdp2_bs{96,128}_singlegpu_sel.sh`.
+- **Decisive bs=128 puzzle experiment — submitted 2026-05-15 (jobs 45476, 45477)**: single-GPU bs=96 vs bs=128 + selective AC on **gpu07** (sequential via `--dependency=afterany`), 300 iters each, real Weka data, same code path as the 8-GPU runs (FSDP2 with 1 rank degenerates to no-shard but keeps the wrapping/compile path identical so the comparison is apples-to-apples with the multi-GPU rows). Eval+ckpt disabled (period=10000). Scripts: `scripts/fsdp2/fsdp2_bs{96,128}_singlegpu_sel.sh`.
 
   **What it disambiguates**: in the 8-GPU matrix, `step_time(bs=128)/step_time(bs=96) ≈ 1.348` vs batch ratio 1.333 — step time scales near-perfectly linearly in batch, so img/s is flat. Codex ruled out DataLoader (data: field sub-ms) and allocator (no `alloc_retries`/`num_ooms`). Remaining candidates split into two groups:
   - **Multi-GPU-only**: NCCL collective cost scaling with batch; FSDP2 prefetch scheduling hidden cost at larger working sets
@@ -1135,9 +1135,9 @@ Mitigations to evaluate later (not part of Phase 5 perf work):
 
 After Codex (gpt-5.5, high effort) flagged 5 issues with the AC-selective decision framing:
 - **(a)** Downgraded "zero MFU cost" / "60+ GB headroom" / "memprofile-v2 done" language in the §9 results entry. Replaced with one-run-paired-on-gpu01 framing, rough-bound projection (no headroom claim), and explicit notes that the bs=96+AC clean fragmentation does NOT diagnose the bs=128 OOM.
-- **(b) Job 45280** — `scripts/fsdp2_bs96_ac_selective.sh` resubmitted. Provides A/B replicate of the selective-AC MFU number on same-node baseline (gpu01-class).
-- **(c) Job 45281** — `scripts/fsdp2_bs96_ac_full.sh` (new). Mirror of selective but `train.checkpointing_full=true`. Provides the selective-vs-full variant comparison at the same batch size — prerequisite for choosing the AC variant at bs=128 (per user direction 2026-05-14).
-- **(d) Job 45282** — `scripts/fsdp2_bs128_memprofile.sh` (new). bs=128 **without** AC, `DINOV3_MEMORY_PROFILE=1`, `DINOV3_MEMORY_PROFILE_PERIOD=10`, 1000 iters with coincident eval+ckpt at iter 400 and 800. Will either OOM (in which case the [MEMPROFILE]/[MEMFRAG] lines up to the failure point categorize the mode: working-set / rank-skew / phase-boundary materialization / fragmentation) or survive 1000 iters (in which case the OOM is longer-horizon than 1000 iters — also data).
+- **(b) Job 45280** — `scripts/fsdp2/fsdp2_bs96_ac_selective.sh` resubmitted. Provides A/B replicate of the selective-AC MFU number on same-node baseline (gpu01-class).
+- **(c) Job 45281** — `scripts/fsdp2/fsdp2_bs96_ac_full.sh` (new). Mirror of selective but `train.checkpointing_full=true`. Provides the selective-vs-full variant comparison at the same batch size — prerequisite for choosing the AC variant at bs=128 (per user direction 2026-05-14).
+- **(d) Job 45282** — `scripts/profiling/fsdp2_bs128_memprofile.sh` (new). bs=128 **without** AC, `DINOV3_MEMORY_PROFILE=1`, `DINOV3_MEMORY_PROFILE_PERIOD=10`, 1000 iters with coincident eval+ckpt at iter 400 and 800. Will either OOM (in which case the [MEMPROFILE]/[MEMFRAG] lines up to the failure point categorize the mode: working-set / rank-skew / phase-boundary materialization / fragmentation) or survive 1000 iters (in which case the OOM is longer-horizon than 1000 iters — also data).
 
 All three jobs use the same `unset PYTORCH_CUDA_ALLOC_CONF` sanitization, same 0.05 s SLURM partition, and `train.distributed_strategy=fsdp2`. Walltime: 1 h for the bs=96 AC pair, 1.5 h for the bs=128 memprofile.
 
@@ -1220,7 +1220,7 @@ To replace the point estimate, an **affine model** from at least two AC batch si
 
 **Submitted**:
 - Jobs **44793, 44794** — P5-VAR reruns of `fsdp2_bs96_baseline.sh` (n=3 baseline sample).
-- Job **44795** — `scripts/fsdp2_bs96_ac_selective.sh` (P5-AC-selective). bs=96 + `train.checkpointing=true, train.checkpointing_full=false`, eval and checkpoint both forced to period=400 → coincident at iter 400 and 800. `DINOV3_MEMORY_PROFILE=1`, `DINOV3_MEMORY_PROFILE_PERIOD=10` → `[MEMPROFILE]` lines at every phase boundary + `[MEMFRAG]` lines every 10 iters. No codebase changes needed — full memory profile infrastructure already exists at `dinov3/utils/profiling.py:141-211` and `train.py:743-767`.
+- Job **44795** — `scripts/fsdp2/fsdp2_bs96_ac_selective.sh` (P5-AC-selective). bs=96 + `train.checkpointing=true, train.checkpointing_full=false`, eval and checkpoint both forced to period=400 → coincident at iter 400 and 800. `DINOV3_MEMORY_PROFILE=1`, `DINOV3_MEMORY_PROFILE_PERIOD=10` → `[MEMPROFILE]` lines at every phase boundary + `[MEMFRAG]` lines every 10 iters. No codebase changes needed — full memory profile infrastructure already exists at `dinov3/utils/profiling.py:141-211` and `train.py:743-767`.
 
 **Side observation**: `train.py:526` already calls `gc.disable()` and `train.py:588` does manual `gc.collect()` every 150 iters. **P5-05 (GC straggler hypothesis) is partially already in effect.** The straggler variance observed in nsys traces must come from another source — re-scope P5-05 to "diagnose why the existing GC strategy isn't fully suppressing rank straggle."
 
@@ -1273,8 +1273,8 @@ Baseline observation worth recording: steady-state MFU at bs=96 ranges 8–20% i
 
 ### 2026-05-13 — Submitted bs=96 baseline + P5-03+P5-04 stacked
 
-- `scripts/fsdp2_bs96_baseline.sh` — job **44023** (FSDP2 ZeRO-3 bs=96, 500 iters, no nsys, no wandb). Established the initial bs=96 reference; later P5-VAR showed this gpu08 run was not representative of gpu01/gpu05.
-- `scripts/fsdp2_bs96_noreshard_nvls.sh` — job **44024** (FSDP2 bs=96 + `reshard_after_forward=False` + `NCCL_ALGO=NVLS`, 500 iters). Both Phase 5 levers stacked in one run; `NCCL_DEBUG=INFO` enabled for NVLS verification.
+- `scripts/fsdp2/fsdp2_bs96_baseline.sh` — job **44023** (FSDP2 ZeRO-3 bs=96, 500 iters, no nsys, no wandb). Established the initial bs=96 reference; later P5-VAR showed this gpu08 run was not representative of gpu01/gpu05.
+- `scripts/fsdp2/fsdp2_bs96_noreshard_nvls.sh` — job **44024** (FSDP2 bs=96 + `reshard_after_forward=False` + `NCCL_ALGO=NVLS`, 500 iters). Both Phase 5 levers stacked in one run; `NCCL_DEBUG=INFO` enabled for NVLS verification.
 - Both scripts explicitly `unset PYTORCH_CUDA_ALLOC_CONF` so no inherited `expandable_segments:True` leaks into the FSDP2 run (Codex adversarial review finding, 2026-05-13).
 - 30-min walltime each, `--partition=research`.
 
@@ -1308,7 +1308,7 @@ important parts of the real memory envelope:
   (jobs 44795/45280/45281). The remaining question is whether bs=128 + AC is fast and
   stable enough to promote.
 - The FSDP2 configuration itself may be subtly incorrect for this setup.
-- `scripts/memprofile_*.sh` (our worst-case memory profiling) did not mimic enough of
+- `scripts/profiling/memprofile_*.sh` (our worst-case memory profiling) did not mimic enough of
   the real memory variation (eval phases, periodic checkpoint, optimizer state in motion).
 
 ### Implications for Phase 5
@@ -1478,5 +1478,5 @@ What changed:
 - `learnings/distributed_training.md` — DDP vs FSDP2, NCCL overlap notes
 - `learnings/profiling_workflow.md` — tool order and diagnostic checklist
 - `~/knowledge-base/important_articles_lectures/` — five articles ingested 2026-05-07
-- `scripts/nsys_profile.sh` — Slurm script to capture an nsys trace
-- `scripts/nsys_dinov3_summary.py` — DINOv3-specific SQLite analyzer (4-hypothesis report)
+- `scripts/profiling/nsys_profile.sh` — Slurm script to capture an nsys trace
+- `scripts/profiling/nsys_dinov3_summary.py` — DINOv3-specific SQLite analyzer (4-hypothesis report)

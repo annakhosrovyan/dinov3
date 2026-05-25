@@ -4,7 +4,7 @@
 # With reshard_after_forward=false, per-block allgather overhead is gone, so ES allocator pressure
 # should be much lower. See pytorch/pytorch#137151 for the ZeRO-3 issue.
 #
-# Usage: sbatch scripts/screening_fsdp2_norelease_es.sh [batch_size]
+# Usage: sbatch scripts/screening/screening_fsdp2_norelease_es.sh [batch_size]
 # Default: bs=256
 #
 #SBATCH --job-name=dinov3-fsdp2-nr-es

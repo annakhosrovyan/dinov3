@@ -15,12 +15,12 @@
 #   are keyed on (op shape, hardware, PyTorch version). Since per-GPU batch size is identical
 #   between nproc=1 and nproc=8, cache entries are valid for both.
 #
-# Usage: sbatch scripts/screening_compile_modes.sh <mode> [batch_size]
+# Usage: sbatch scripts/screening/screening_compile_modes.sh <mode> [batch_size]
 #   mode: "default" or "max-autotune-no-cudagraphs"
 #   batch_size: per-GPU batch size, default 128
 # Example:
-#   sbatch scripts/screening_compile_modes.sh default 128
-#   sbatch scripts/screening_compile_modes.sh max-autotune-no-cudagraphs 128
+#   sbatch scripts/screening/screening_compile_modes.sh default 128
+#   sbatch scripts/screening/screening_compile_modes.sh max-autotune-no-cudagraphs 128
 #
 #SBATCH --job-name=dinov3-compile-mode
 #SBATCH --nodes=1
