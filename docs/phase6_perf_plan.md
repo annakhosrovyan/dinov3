@@ -638,3 +638,88 @@ The OOM is **Slurm cgroup OOM = host RAM**, NOT CUDA VRAM. Evidence:
 | 6.A.4.d OOM | 53739 | 192 | no AC | — | — | host-RAM OOM |
 
 **Total Phase 6.A gain over Phase 5 baseline (job 48312):** +72.6% img/s, +5.76 pp MFU absolute (+72.5% relative). Achieved with two compiler-correctness fixes (`mark_step_begin` + `x[idx]→index_select`) and one config flip (`cudagraphs=true`) + one batch bump.
+
+---
+
+## Phase 6.B — Sustainability Soaks
+
+**Why 6.B exists.** Phase 6.A was throughput screening: 1000-iter runs to find the fastest config. What it didn't answer: *can the champion survive real training?* The FSDP2 bs=128 precedent (passed a 500-iter memprofile at 36.3 GB; OOM'd in a real long run) proves that short screens miss allocator fragmentation, late eval/checkpoint memory spikes, and host-RAM growth over thousands of iterations.
+
+Phase 6.B validates that the Phase 6.A winner is production-viable, and — as a secondary objective — explores whether bs=192 becomes viable once the host-RAM bottleneck is addressed.
+
+### What makes a soak different from a screen
+
+| Property | 6.A screen | 6.B soak |
+|---|---|---|
+| Duration | 1000 iters (~8 min) | 4000 iters (~38 min) |
+| Checkpoint saves | 2 | 8 (period=500) |
+| Eval runs | 1 | 4 (period=1000) |
+| VRAM monitoring | peak from log | `[MEMPROFILE]` at every phase boundary |
+| Host RAM monitoring | none | Shell sidecar → JSONL every 10s |
+| Fragmentation tracking | none | `[MEMFRAG]` every 50 iters |
+| Loader config | num_workers=20, pf=8 | same (or reduced for 6.B.3) |
+
+The key instrument is the combination of `DINOV3_MEMORY_PROFILE=1` (fires `[MEMPROFILE]` markers at `pre_checkpoint`, `checkpoint_complete`, `pre_eval`, `eval_complete`) and a shell background process that samples `/proc/meminfo` + `nvidia-smi` every 10s to a JSONL file. Together they answer: does peak VRAM grow across eval/checkpoint events (fragmentation), and does host RAM grow monotonically (loader leak)?
+
+### Experiment ladder
+
+**6.B.1** `scripts/soak/ddp_bs128_cg_soak.sh` — **MUST RUN FIRST**
+
+| Property | Value |
+|---|---|
+| Config | DDP, bs=128, cudagraphs=true, AC=off |
+| Script | `scripts/soak/ddp_bs128_cg_soak.sh` |
+| Comparator | job 53708 (screen): 2394 img/s, 13.70% MFU, 34.1 GB |
+| Iters | 4000 |
+| Pass criterion | No OOM; max_reserved stable across 8 checkpoint events |
+| Fail criterion | VRAM creep > 2 GB over run, or any OOM |
+| Status | TBD |
+
+**6.B.2** `scripts/soak/ddp_bs128_cg_ac_full_soak.sh`
+
+| Property | Value |
+|---|---|
+| Config | DDP, bs=128, cudagraphs=true, AC=full |
+| Script | `scripts/soak/ddp_bs128_cg_ac_full_soak.sh` |
+| Comparator | job 54000 (screen): 1654 img/s, 9.46% MFU, 12.4 GB |
+| Iters | 4000 |
+| Purpose | Validate AC=full as the safe-mode config (12 GB vs 34 GB) |
+| Status | TBD |
+
+**6.B.3** `scripts/soak/ddp_bs192_cg_soak.sh` — *exploratory, run after 6.B.1*
+
+| Property | Value |
+|---|---|
+| Config | DDP, bs=192, cudagraphs=true, AC=off |
+| Loader | **num_workers=12, prefetch_factor=4** (reduced from 20/8 — see below) |
+| Script | `scripts/soak/ddp_bs192_cg_soak.sh` |
+| Iters | 2000 (exploratory; promote to 4k if clean) |
+| Purpose | Find whether bs=192 is viable once host-RAM bottleneck removed |
+| Status | TBD |
+
+**Why reduce the loader for 6.B.3:** the 6.A.4.d and 6.A.6 OOMs were Slurm cgroup (host RAM), not CUDA. The host RAM working set is `8 ranks × num_workers × prefetch_factor × batch_size × per-sample bytes`. At bs=192 with 20×8=160 batches/rank, this exceeds the cgroup allocation. Reducing to 12×4=48 batches/rank (3.3× less) should clear the ceiling. The risk: if the loader can't feed 8 GPUs at bs=192, `data_time` will grow relative to `step_time` — watch the data_time column in the output. If data stalls appear, the loader-reduction fix costs more throughput than the batch bump gains.
+
+### Decision tree post-6.B.1
+
+```
+6.B.1 passes (VRAM stable, no OOM)
+  → champion confirmed for production
+  → run 6.B.2 in parallel to validate AC=full safe-mode path
+  → then run 6.B.3 (bs=192 exploratory)
+
+6.B.1 OOM (VRAM)
+  → cudagraph workspace grows late; need to characterize with nsys
+  → Phase 6.C: nsys trace at iters 500, 2000, 4000 to catch late growth
+
+6.B.1 OOM (host RAM, same signature as 6.A)
+  → reduce prefetch_factor for bs=128 too (12×4), then retest
+  → note: this trades throughput; quantify with data_time metric
+```
+
+### Results (to be filled as jobs complete)
+
+| Exp | Job | Config | img/s | MFU | Peak VRAM | Host RAM peak | Verdict |
+|---|---|---|---|---|---|---|---|
+| 6.B.1 | TBD | bs=128, no-AC | — | — | — | — | TBD |
+| 6.B.2 | TBD | bs=128, AC=full | — | — | — | — | TBD |
+| 6.B.3 | TBD | bs=192, no-AC, reduced loader | — | — | — | — | TBD |
