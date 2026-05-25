@@ -590,7 +590,30 @@ Per-batch slope from 53999→54000: `(1654 − 1378) / 32 = 8.625 img/s per unit
 
 **Decision:**
 - Stay at **bs=128 no-AC (53708)** as the production high-water mark for now: 2,394 img/s, 13.70% MFU, 34.1 GB.
-- Queue **bs=256 + AC=full + cudagraphs=true** as Phase 6.A.6 — the first config predicted to beat 53708. If it works, it puts the path to ~15-22% MFU on a single DDP node within reach.
-- AC=sel is dominated by AC=full and can be dropped from future work.
+- AC=sel is dominated by AC=full and dropped from future work.
+- Probe AC=full at progressively larger batch with bs=192 first (Phase 6.A.6) — start small to characterize the cudagraph workspace memory slope before risking another bs=256 OOM.
 
 **Important nuance on AC + DDP single-node (Aram, 2026-05-24):** AC's value normally shows up in regimes the satellite ViT-B fork *doesn't* live in — large models where activations dominate memory, or FSDP2/multi-node where the sharded budget makes AC the only path to a usable batch. For DDP single-node + ViT-B, AC only pays off if the batch can grow enough to amortize the ~31% throughput tax. With AC=full freeing ~64% of memory, that *might* be reachable at bs≥256 — but the math is tight and depends on linearity that hasn't been tested past bs=128.
+
+**Realism check on the 30% MFU target (Aram, 2026-05-24):** ViT-B + DINO+iBOT + RoPE + 10 crops on a single H100 node is the *wrong shape* for 30% MFU. Published MFU for similarly-sized models with rich SSL pipelines typically sits in the 15-25% range. Hitting 30% likely requires (a) a much larger model where matmul ops dominate the FLOP budget, (b) multi-node + FSDP2 to amortize comms, or (c) static-shape heads (Phase 6.B). The lab target may be aspirational rather than achievable on this hardware/model combination.
+
+---
+
+### 6.A.6 — bs=192 + AC=full + cudagraphs (RUNNING, job 56131)
+
+**Why bs=192 not bs=256:** the linear extrapolation says bs=256 is the first solid win, but two pieces of evidence argue for a smaller probe step first:
+
+1. **53739 (bs=192 no-AC) OOM'd at >80 GB** despite a 51 GB linear prediction — cudagraph workspace bloat is *non-linear* and uncharacterized.
+2. AC=full freed 64% of activation memory at bs=128 (34.1 → 12.4 GB, Δ -21.7 GB), but we don't know if the cudagraph workspace overhead scales with batch the same way activations do. The workspace holds operand buffers for every captured op across teacher + student-global + student-local sub-graphs; that growth could outpace AC's savings.
+
+**Predictions for bs=192 AC=full:**
+- img/s: ~2,206 (linear slope 8.625 per unit batch from 53999→54000). Still **loses to 53708** (2,394).
+- Peak memory: somewhere between 18 GB (best case, AC saves apply fully to cudagraph workspace) and ~58 GB (worst case, workspace grows at the no-AC slope of +0.72 GB per unit batch from 53708→53739).
+
+**Three discriminating outcomes:**
+
+| Outcome | Implication | Next step |
+|---|---|---|
+| **A.** img/s ≥ 2,394 (beats no-AC bs=128) | AC=full's per-step tax is amortized at bs=192; production path is AC + bigger batch | Push bs=224, then bs=256 |
+| **B.** img/s < 2,394 but mem << 80 GB | Linear slope holds; characterize the trajectory and predict crossover more accurately | Push to bs=256 directly |
+| **C.** OOM | Cudagraph workspace is the wall, not activations; AC's memory savings don't translate at scale | Close the AC-as-batch-unlocker thesis; bs=128 no-AC stays the champion. Switch to Phase 6.B (static-shape heads / iBOT) |
