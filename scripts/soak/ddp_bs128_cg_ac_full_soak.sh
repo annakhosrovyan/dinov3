@@ -32,8 +32,15 @@
 #SBATCH --partition=research
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
+#SBATCH --mem=300G
 #SBATCH --gres=gpu:h100:8
 #SBATCH --time=01:45:00
+#
+# MEMORY NOTE (2026-05-25): job 57799 OOM-killed at --mem=380G during compile
+# warmup before any training iter ran. Cgroup IS strictly enforced. The actual
+# DataLoader+Python heap at bs=128 with 20 workers / prefetch=8 exceeds 380 GB.
+# Mitigation below: reduced loader to 12 workers / prefetch=4 (3.3x less in flight).
+# Expected actual usage: ~150-200 GB, well under the 300 GB cgroup limit.
 #SBATCH --output=/mnt/weka/adovlatyan/logs/soak-bs128-cg-ac-%j.out
 #SBATCH --error=/mnt/weka/adovlatyan/logs/soak-bs128-cg-ac-%j.err
 
@@ -62,19 +69,37 @@ MEMLOG="/mnt/weka/adovlatyan/logs/${RUN_TAG}-${SLURM_JOB_ID}-memlog.jsonl"
 
 mkdir -p /mnt/weka/adovlatyan/logs
 
+# Read THIS job's cgroup memory usage (NOT node-wide /proc/meminfo, which would
+# include other jobs sharing the node and give a misleading view of our usage).
+# Tries cgroup v2 first, falls back to v1. Records both cgroup and node-wide
+# numbers for context.
+read_cgroup_bytes() {
+    local cg_self; cg_self=$(awk -F: '$2 == "" {print $3}' /proc/self/cgroup 2>/dev/null)
+    if [ -r "/sys/fs/cgroup${cg_self}/memory.current" ]; then
+        cat "/sys/fs/cgroup${cg_self}/memory.current"; return
+    fi
+    local cg_v1; cg_v1=$(awk -F: '/memory/{print $3}' /proc/self/cgroup 2>/dev/null)
+    if [ -n "$cg_v1" ] && [ -r "/sys/fs/cgroup/memory${cg_v1}/memory.usage_in_bytes" ]; then
+        cat "/sys/fs/cgroup/memory${cg_v1}/memory.usage_in_bytes"; return
+    fi
+    echo 0
+}
+
 host_ram_monitor() {
     local logfile="$1"
     while true; do
         local ts; ts=$(date +%s)
-        local mem_total mem_avail mem_used
-        mem_total=$(awk '/MemTotal/  {printf "%.0f", $2/1024}' /proc/meminfo)
-        mem_avail=$(awk '/MemAvailable/ {printf "%.0f", $2/1024}' /proc/meminfo)
-        mem_used=$(( mem_total - mem_avail ))
+        local node_total node_avail node_used cgroup_bytes cgroup_mb
+        node_total=$(awk '/MemTotal/  {printf "%.0f", $2/1024}' /proc/meminfo)
+        node_avail=$(awk '/MemAvailable/ {printf "%.0f", $2/1024}' /proc/meminfo)
+        node_used=$(( node_total - node_avail ))
+        cgroup_bytes=$(read_cgroup_bytes)
+        cgroup_mb=$(( cgroup_bytes / 1048576 ))
         local gpu_used
         gpu_used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null \
                    | tr '\n' ',' | sed 's/,$//')
-        printf '{"ts":%d,"host_ram_used_mb":%d,"host_ram_total_mb":%d,"gpu_used_mb":[%s]}\n' \
-               "$ts" "$mem_used" "$mem_total" "$gpu_used" >> "$logfile"
+        printf '{"ts":%d,"cgroup_used_mb":%d,"node_used_mb":%d,"node_total_mb":%d,"gpu_used_mb":[%s]}\n' \
+               "$ts" "$cgroup_mb" "$node_used" "$node_total" "$gpu_used" >> "$logfile"
         sleep 10
     done
 }
@@ -109,11 +134,11 @@ naip_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/satlas-dataset-v1-naip-20
 naip_stats_dir=/mnt/weka/akhosrovyan/re-id/pretraining/satlas_dataset/stats/naip_stats:\
 naip_weight=1.0" \
   train.batch_size_per_gpu=128 \
-  train.num_workers=20 \
+  train.num_workers=12 \
   train.OFFICIAL_EPOCH_LENGTH=4000 \
   optim.epochs=1 \
   train.persistent_workers=true \
-  train.prefetch_factor=8 \
+  train.prefetch_factor=4 \
   train.cache_dataset=true \
   train.compile=true \
   train.cudagraphs=true \
@@ -140,7 +165,9 @@ echo "--- Host RAM memlog: ${MEMLOG} ---"
 python3 -c "
 import json
 data = [json.loads(l) for l in open('${MEMLOG}')]
-peak = max(d['host_ram_used_mb'] for d in data)
-print(f'  Peak host RAM used: {peak:,} MB ({peak/1024:.1f} GB)')
+peak_cg = max(d['cgroup_used_mb'] for d in data)
+peak_node = max(d['node_used_mb'] for d in data)
+print(f'  Peak cgroup (our job): {peak_cg:,} MB ({peak_cg/1024:.1f} GB)')
+print(f'  Peak node-wide:        {peak_node:,} MB ({peak_node/1024:.1f} GB)')
 print(f'  Samples: {len(data)}')
 " 2>/dev/null || true

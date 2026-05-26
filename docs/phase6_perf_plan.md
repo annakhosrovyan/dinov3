@@ -716,10 +716,83 @@ The key instrument is the combination of `DINOV3_MEMORY_PROFILE=1` (fires `[MEMP
   → note: this trades throughput; quantify with data_time metric
 ```
 
-### Results (to be filled as jobs complete)
+### Results
 
-| Exp | Job | Config | img/s | MFU | Peak VRAM | Host RAM peak | Verdict |
+| Exp | Job | Config | Wall img/s | MFU (GPU) | Peak VRAM | cgroup peak | Verdict |
 |---|---|---|---|---|---|---|---|
-| 6.B.1 | TBD | bs=128, no-AC | — | — | — | — | TBD |
-| 6.B.2 | TBD | bs=128, AC=full | — | — | — | — | TBD |
+| 6.B.1 | 57299 | bs=128, no-AC, 20w/8pf, --mem=512G | ~2,020 (partial, MetricLogger) | 11.5% avg | 36.3 GB (stable) | unknown* | partial (1300/4000 iters), rank-6 crash |
+| 6.B.2 attempt 1 | 57799 | bs=128, AC=full, 20w/8pf, --mem=380G | — | — | — | — | OOM during compile (cgroup strict) |
+| 6.B.2 attempt 2 | 58188 | bs=128, AC=full, **12w/4pf**, --mem=300G | **1,158 wall** (2,558 GPU-only) | 14.6% GPU-only | 14.6 GB (AC=full) | **300.0 GB (exactly at limit)** | loader-bound, same rank-6 crash at iter ~1310 |
 | 6.B.3 | TBD | bs=192, no-AC, reduced loader | — | — | — | — | TBD |
+
+*6.B.1 memlog read node-wide `/proc/meminfo`, not cgroup memory — see 6.B.2 memlog fix.
+
+---
+
+### 6.B.2 attempt 2 — what we actually learned about loader sizing (job 58188)
+
+**Cgroup memory truth (cgroup-aware memlog, fixed in this run):**
+
+| Metric | Value |
+|---|---|
+| `--mem` request (cgroup limit) | 300 GB |
+| **Actual cgroup peak** | **300.0 GB (307,183 MB)** — pinned to the wall |
+| Per-worker overhead (inferred) | ~2 GB resident per Python worker process |
+| Per-batch buffers (inferred) | ~46 GB (12 workers × 4 prefetch × 8 ranks × ~240 MB) |
+| Worker process overhead (inferred) | ~192 GB (12 workers × 8 ranks × ~2 GB) |
+| Other (Python/CUDA pinned/page cache) | ~62 GB |
+
+**The earlier "92 GB" loader-memory estimate was wrong by ~3×.** I treated host RAM as if only batches in flight mattered. In reality the dominant fixed cost is `num_workers × 8 ranks × ~2 GB of persistent Python interpreter + library caches`. So the relationship is:
+
+```
+host_RAM ≈ 2GB × workers × 8 + 240MB × workers × prefetch × 8 + ~60GB baseline
+```
+
+Per-worker overhead dominates the formula. **Reducing prefetch alone barely moves the needle** — what cuts memory is reducing `num_workers`.
+
+**Throughput truth (GPU was idle 61% of the wall time):**
+
+| Metric | p10 | p50 | p90 |
+|---|---|---|---|
+| step_time (GPU event, ms) | 323 | 346 | 382 |
+| data_time (s) | 0.001 | 0.099 | 0.297 |
+| wall iter_time (s) | 0.644 | 0.884 | 1.036 |
+| data / iter ratio | 0.1% | **10.8%** | **34.1%** |
+
+At p50 the GPU is doing 346 ms of compute and the iter takes 884 ms — the GPU is *idle 538 ms* (61%) waiting for the loader, NCCL, GC, or framework overhead. p90 data ratio of 34% says the loader is the visible cause for a large fraction of iters.
+
+**Wall-clock throughput: 1,158 img/s. MetricLogger reported 2,558.** The MetricLogger field reports `1024 / step_time_ms_only`, i.e. *what throughput would be if the GPU never waited.* It overstates real throughput by ~2× under loader stall conditions.
+
+This invalidates earlier MFU comparisons that relied on MetricLogger numbers across different loader configs — they were comparing peak GPU rates, not delivered rates.
+
+### The corrected loader-sizing model
+
+**Was: "20w/8pf is 99× over-provisioned because data_time was 3 ms vs 500 ms step."**
+
+The 3-ms-data observation was correct, but the inference (huge headroom to cut workers) was wrong. data_time being low does not mean num_workers is the slack variable — most of the "headroom" is the loader being asleep between requests, not unused decode capacity. Two effects we underweighted:
+
+1. **Tail latency, not mean.** Cutting workers from 20→12 (40% reduction) made the *mean* worker rate still safely above demand, but exposed *p90 latencies* from H5 reads / augmentation outliers. With pf=8 these were absorbed in the queue; with pf=4 the queue empties before the slow worker finishes.
+2. **Workers also smooth tile-cache misses.** First-touch latencies on Weka-cached tiles vary widely. More workers means more parallel in-flight tile reads from the page cache.
+
+**Implication: the 20w/8pf default is approximately throughput-optimal for ViT-B + 10 crops + Mixed-satellite dataset.** It's not "wastefully large." It's the right size; the issue is the cgroup is too small to hold it.
+
+### Pareto frontier for bs=128 on this cluster
+
+| Config | Workers in flight | host RAM (est) | data wait | Wall throughput |
+|---|---|---|---|---|
+| 20w / 8pf | 160 batches/rank | ~512 GB | ~0–5 ms | best (~1654-2400 img/s) |
+| **12w / 4pf (tested)** | 48 batches/rank | **300 GB exact** | 100–300 ms | ~1,158 img/s (~30% below optimal) |
+| 16w / 6pf (untested middle) | 96 batches/rank | ~410 GB | guess: 30–80 ms | probably ~1,500 img/s |
+| 8w / 2pf | 16 batches/rank | ~190 GB | likely 300+ ms | severely loader-bound |
+
+**The 12w/4pf point is at the cgroup wall AND at the loader-stall wall.** There is no smaller config that doesn't lose more throughput, and there is no bigger config that fits 300 GB. Going from 12/4 → 12/8 (the obvious next try) would help variance absorption at modest extra memory (~+24 GB for extra batches in queue), but does NOT help mean throughput because the bottleneck is decode rate (worker count), not queue depth.
+
+### Recommended next experiments
+
+1. **6.B.2.b** — bs=128, AC=full, 16w/4pf, `--mem=380G`. Adds workers (more decode throughput), keeps prefetch modest. Should land at ~340 GB cgroup. If wall throughput jumps to >1,400 img/s, we've validated that worker count was the binding constraint, not prefetch.
+
+2. **6.B.1 retry** — re-submit no-AC bs=128 with same 20w/8pf at `--mem=512G`, but only after a node with enough free RAM is available. The 6.B.1 partial run was clean memory-wise; the rank-6 crash is its own problem.
+
+3. **Rank-6 deterministic crash** — both 57299 and 58188 died at rank 6 around iter ~1310 with exit code 1 and no traceback, on gpu03. This is now a confirmed reproducible pattern, NOT a transient infrastructure flake. Worth investigating: is there a specific dataset shard accessed by rank 6 at iter ~1310 that hits an HDF5 bug or Weka I/O timeout? Short-term mitigation: try a different node assignment (`--exclude=gpu03`) to see if it follows the rank or the node.
+
+4. **Reframe Phase 6.B.3 (bs=192)** — the loader-reduction trick was the entire motivation, but we now see worker count is what matters. At bs=192 with even modest workers, the per-rank decode work is 50% larger; the throughput hit from reducing workers will be worse. **Probably not worth running 6.B.3 until we resolve the bs=128 Pareto first.**
