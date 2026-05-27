@@ -722,10 +722,20 @@ The key instrument is the combination of `DINOV3_MEMORY_PROFILE=1` (fires `[MEMP
 |---|---|---|---|---|---|---|---|
 | 6.B.1 | 57299 | bs=128, no-AC, 20w/8pf, --mem=512G | ~2,020 (partial, MetricLogger) | 11.5% avg | 36.3 GB (stable) | unknown* | partial (1300/4000 iters), rank-6 crash |
 | 6.B.2 attempt 1 | 57799 | bs=128, AC=full, 20w/8pf, --mem=380G | — | — | — | — | OOM during compile (cgroup strict) |
-| 6.B.2 attempt 2 | 58188 | bs=128, AC=full, **12w/4pf**, --mem=300G | **1,158 wall** (2,558 GPU-only) | 14.6% GPU-only | 14.6 GB (AC=full) | **300.0 GB (exactly at limit)** | loader-bound, same rank-6 crash at iter ~1310 |
-| 6.B.3 | TBD | bs=192, no-AC, reduced loader | — | — | — | — | TBD |
+| 6.B.2 attempt 2 | 58188 | bs=128, AC=full, **12w/4pf**, --mem=300G | **1,158 wall** (2,558 GPU-only) | 14.6% GPU-only | 14.6 GB (AC=full) | **300.0 GB (= limit)** | loader-bound, rank-6 crash at iter ~1310 (gpu03) |
+| 6.B.2.b | 59273 | bs=128, AC=full, **16w/4pf**, --mem=430G | ~940–980 wall (~2,070 GPU-only) | — | 12.7 GB (AC=full) | **430.0 GB (= limit)** | loader-bound, rank-6 crash at iter ~1310 (gpu07) |
+| 6.B.2.c | 59274 | bs=128, AC=full, **16w/8pf**, --mem=540G | **~1,110–1,150 wall** (~2,070 GPU-only) | — | 12.7 GB (AC=full) | **539.8 GB (= limit)** | data fully hidden (data_time≈0), rank-6 crash at iter ~1310 (gpu07) |
+| 6.B.3 | — | bs=192, no-AC, reduced loader | — | — | — | — | **deprioritized** (see below) |
 
 *6.B.1 memlog read node-wide `/proc/meminfo`, not cgroup memory — see 6.B.2 memlog fix.
+
+> **Headline (2026-05-27):** every cgroup-aware soak pegs `memory.current` at *exactly* its
+> `--mem` (300/300, 430/430, 540/540). The cgroup number is dominated by **reclaimable page
+> cache that expands to fill the limit** — it is NOT a measurement of the job's true memory
+> need. The "1.75 GB/worker, 300 GB exact" model from 58188 was an artifact and is retracted
+> below. Separately, all four bs=128 soaks (57299, 58188, 59273, 59274) died at **rank 6,
+> iter ~1310, across two nodes (gpu03 + gpu07)** — a data-deterministic crash that is now the
+> #1 blocker: no bs=128 soak has ever passed 1310/4000 iters.
 
 ---
 
@@ -733,22 +743,19 @@ The key instrument is the combination of `DINOV3_MEMORY_PROFILE=1` (fires `[MEMP
 
 **Cgroup memory truth (cgroup-aware memlog, fixed in this run):**
 
+> **⚠️ The per-worker memory breakdown below was RETRACTED on 2026-05-27** after 16w/4pf and
+> 16w/8pf also pegged at their (different) `--mem` limits. cgroup `memory.current` is
+> page-cache-dominated and fills whatever limit you set; it does not reveal a fixed per-worker
+> anon cost. See "RETRACTED: the corrected loader-sizing model" below. The `--mem`-peak fact
+> (300.0 GB = limit) is real; the inferred decomposition into per-worker / per-batch terms is not.
+
 | Metric | Value |
 |---|---|
 | `--mem` request (cgroup limit) | 300 GB |
-| **Actual cgroup peak** | **300.0 GB (307,183 MB)** — pinned to the wall |
-| Per-worker overhead (inferred) | ~2 GB resident per Python worker process |
-| Per-batch buffers (inferred) | ~46 GB (12 workers × 4 prefetch × 8 ranks × ~240 MB) |
-| Worker process overhead (inferred) | ~192 GB (12 workers × 8 ranks × ~2 GB) |
-| Other (Python/CUDA pinned/page cache) | ~62 GB |
-
-**The earlier "92 GB" loader-memory estimate was wrong by ~3×.** I treated host RAM as if only batches in flight mattered. In reality the dominant fixed cost is `num_workers × 8 ranks × ~2 GB of persistent Python interpreter + library caches`. So the relationship is:
-
-```
-host_RAM ≈ 2GB × workers × 8 + 240MB × workers × prefetch × 8 + ~60GB baseline
-```
-
-Per-worker overhead dominates the formula. **Reducing prefetch alone barely moves the needle** — what cuts memory is reducing `num_workers`.
+| **Actual cgroup peak** | **300.0 GB (307,183 MB)** — pinned to the limit (page-cache fill) |
+| ~~Per-worker overhead (inferred)~~ | ~~~2 GB resident per Python worker process~~ — retracted |
+| ~~Per-batch buffers (inferred)~~ | ~~~46 GB~~ — retracted |
+| ~~Worker process overhead (inferred)~~ | ~~~192 GB~~ — retracted |
 
 **Throughput truth (GPU was idle 61% of the wall time):**
 
@@ -765,34 +772,93 @@ At p50 the GPU is doing 346 ms of compute and the iter takes 884 ms — the GPU 
 
 This invalidates earlier MFU comparisons that relied on MetricLogger numbers across different loader configs — they were comparing peak GPU rates, not delivered rates.
 
-### The corrected loader-sizing model
+### RETRACTED: "the corrected loader-sizing model" (58188)
 
-**Was: "20w/8pf is 99× over-provisioned because data_time was 3 ms vs 500 ms step."**
+The 58188 write-up claimed a fixed `~2 GB × workers × 8 ranks` anonymous-memory cost and
+concluded "20w/8pf is throughput-optimal, the cgroup is just too small." **The 16w/4pf and
+16w/8pf runs disprove the memory half of that.**
 
-The 3-ms-data observation was correct, but the inference (huge headroom to cut workers) was wrong. data_time being low does not mean num_workers is the slack variable — most of the "headroom" is the loader being asleep between requests, not unused decode capacity. Two effects we underweighted:
+**What actually happens to cgroup memory.** Three runs, three different `--mem` limits, each
+peaks at *exactly* its limit:
 
-1. **Tail latency, not mean.** Cutting workers from 20→12 (40% reduction) made the *mean* worker rate still safely above demand, but exposed *p90 latencies* from H5 reads / augmentation outliers. With pf=8 these were absorbed in the queue; with pf=4 the queue empties before the slow worker finishes.
-2. **Workers also smooth tile-cache misses.** First-touch latencies on Weka-cached tiles vary widely. More workers means more parallel in-flight tile reads from the page cache.
-
-**Implication: the 20w/8pf default is approximately throughput-optimal for ViT-B + 10 crops + Mixed-satellite dataset.** It's not "wastefully large." It's the right size; the issue is the cgroup is too small to hold it.
-
-### Pareto frontier for bs=128 on this cluster
-
-| Config | Workers in flight | host RAM (est) | data wait | Wall throughput |
+| Job | Config | `--mem` | cgroup peak | OOM? |
 |---|---|---|---|---|
-| 20w / 8pf | 160 batches/rank | ~512 GB | ~0–5 ms | best (~1654-2400 img/s) |
-| **12w / 4pf (tested)** | 48 batches/rank | **300 GB exact** | 100–300 ms | ~1,158 img/s (~30% below optimal) |
-| 16w / 6pf (untested middle) | 96 batches/rank | ~410 GB | guess: 30–80 ms | probably ~1,500 img/s |
-| 8w / 2pf | 16 batches/rank | ~190 GB | likely 300+ ms | severely loader-bound |
+| 58188 | 12w/4pf | 300 GB | 300.0 GB | no |
+| 59273 | 16w/4pf | 430 GB | 430.0 GB | no |
+| 59274 | 16w/8pf | 540 GB | 539.8 GB | no |
+| 57799 | 20w/8pf | 380 GB | — | **yes, during compile warmup** |
 
-**The 12w/4pf point is at the cgroup wall AND at the loader-stall wall.** There is no smaller config that doesn't lose more throughput, and there is no bigger config that fits 300 GB. Going from 12/4 → 12/8 (the obvious next try) would help variance absorption at modest extra memory (~+24 GB for extra batches in queue), but does NOT help mean throughput because the bottleneck is decode rate (worker count), not queue depth.
+If the job had a fixed anonymous footprint (e.g. 300 GB), the 430 GB and 540 GB runs would
+have peaked near ~300 GB, not at their limits. They peaked at the limit because
+`cgroup.memory.current` counts **reclaimable file-backed page cache** (the HDF5/tile reads
+off Weka), and page cache expands to fill whatever room you give it, then gets reclaimed
+under pressure instead of triggering OOM. So the per-worker formula was reverse-fit from one
+coincidence (300 GB happened to equal the limit) and is **retracted**.
+
+**What we genuinely know about the true (anonymous, unreclaimable) floor:**
+
+- 12w/4pf anon < 300 GB · 16w/4pf anon < 430 GB · 16w/8pf anon < 540 GB (none OOM'd)
+- 20w/8pf anon > 380 GB (OOM'd during compile warmup, before any iter)
+
+That's all the data constrains. The 16w configs are unbounded *below* — we never probed how
+low they can go. **To find the real floor we need `memory.stat` (anon vs file split) or a
+step-down `--mem` sweep** (e.g. 16w/4pf at 250G, 200G, 150G until it OOMs). Until then, do
+not quote a specific GB requirement for any 16w config — the old "16w/4pf needs ~387 GB"
+prediction was the same artifact and is also retracted.
+
+> **`sacct MaxRSS` is unusable here.** It reported 883 GB (59273) and 988 GB (59274) — both
+> far above the 430/540 GB cgroup limits — because it sums per-task RSS and double-counts
+> copy-on-write fork pages and shared mmaps across 130+ worker processes. Use cgroup
+> `memory.current` (or `memory.stat`), never sacct MaxRSS, for this accounting.
+
+### What the loader sweep DID establish (throughput)
+
+Caveat: every run crashed at iter ~1310, so these are short steady-state windows
+(iters ~1000–1300) and the cross-config orderings are noisy. The robust signals:
+
+| Config | data_time (loader stall) | Wall img/s (p50) | GPU-only img/s |
+|---|---|---|---|
+| 12w/4pf (58188) | visible (~10–30%+) | ~1,158 | 2,558 |
+| 16w/4pf (59273) | **high — loader-bound** | ~940–980 | ~2,070 |
+| 16w/8pf (59274) | **≈0 (p50 ~2 ms) — fully hidden** | ~1,110–1,150 | ~2,070 |
+
+1. **Prefetch depth, not worker count, is what hid the loader.** Both 16w runs have the same
+   worker count; only the pf=8 run drove data_time to ~0. At 16 workers, pf=4 is too shallow
+   (queue drains, GPU stalls); pf=8 keeps it full. This is the opposite of the retracted
+   "worker count is the binding knob" claim.
+2. **AC=full is compute-capped near ~1,110–1,150 wall img/s at bs=128.** In 59274 the loader
+   is no longer the bottleneck (data_time≈0) yet throughput tops out there — that's the AC
+   recompute tax (~31%), the price for 12.7 GB VRAM vs ~34 GB no-AC. For raw throughput the
+   no-AC Phase 6.A champion (53708) remains the path; AC is the VRAM-budget mode.
+3. **A large wall↔GPU gap remains even with data_time≈0.** In 59274, GPU-event step ≈430 ms
+   but wall iter ≈890–920 ms — roughly 2×. With the loader excluded, this ~450 ms/iter is
+   CPU-side per-iter overhead (collate/cast, H2D launch, EMA, GC, Python, cudagraph replay).
+   **This is the next optimization lever once the loader is non-binding** — and MetricLogger's
+   GPU-only img/s hides it entirely (overstates delivered throughput ~2×).
 
 ### Recommended next experiments
 
-1. **6.B.2.b** — bs=128, AC=full, 16w/4pf, `--mem=380G`. Adds workers (more decode throughput), keeps prefetch modest. Should land at ~340 GB cgroup. If wall throughput jumps to >1,400 img/s, we've validated that worker count was the binding constraint, not prefetch.
+1. **FIX THE RANK-6 CRASH FIRST — blocks all of Phase 6.C.** Four jobs, two nodes (gpu03,
+   gpu07), all die at rank 6 around iter ~1310 with exit code 1 and **no traceback** (the
+   elastic `error_file` is `<N/A>`, so the actual exception is lost). Following the rank
+   across nodes rules out a node-hardware fault and points at **rank 6's data stream** hitting
+   a bad sample / HDF5 read at that data index. Concrete steps:
+   - `export TORCHELASTIC_ERROR_FILE=/mnt/weka/adovlatyan/logs/elastic-err-%j-rank%r.json`
+     and route per-rank stderr so the next crash captures the real exception (currently every
+     soak produces a useless `<NO_OTHER_FAILURES>`).
+   - Once captured, inspect the offending sample (rank 6's shard, ~global iter 1310 × its
+     data index) for a corrupt/zero-byte tile or an out-of-range value.
+   Until this is fixed, **no bs=128 soak can validate sustainability** — they all die at 1/3
+   of the 4000-iter target.
 
-2. **6.B.1 retry** — re-submit no-AC bs=128 with same 20w/8pf at `--mem=512G`, but only after a node with enough free RAM is available. The 6.B.1 partial run was clean memory-wise; the rank-6 crash is its own problem.
+2. **Find the real memory floor** — step-down `--mem` sweep on one config (e.g. 16w/8pf at
+   450G, 400G, 350G) or add `memory.stat` anon/file logging to the sidecar. This replaces the
+   retracted per-worker model with a measured number.
 
-3. **Rank-6 deterministic crash** — both 57299 and 58188 died at rank 6 around iter ~1310 with exit code 1 and no traceback, on gpu03. This is now a confirmed reproducible pattern, NOT a transient infrastructure flake. Worth investigating: is there a specific dataset shard accessed by rank 6 at iter ~1310 that hits an HDF5 bug or Weka I/O timeout? Short-term mitigation: try a different node assignment (`--exclude=gpu03`) to see if it follows the rank or the node.
+3. **Production loader candidate: 16w/8pf** is the only config that drove data_time to ~0.
+   Once rank-6 is fixed, confirm it sustains over 4000 iters; if its true anon floor turns out
+   to fit a node's free RAM, it's the AC=full production config.
 
-4. **Reframe Phase 6.B.3 (bs=192)** — the loader-reduction trick was the entire motivation, but we now see worker count is what matters. At bs=192 with even modest workers, the per-rank decode work is 50% larger; the throughput hit from reducing workers will be worse. **Probably not worth running 6.B.3 until we resolve the bs=128 Pareto first.**
+4. **Phase 6.B.3 (bs=192) stays deprioritized.** Its motivation was the loader-reduction
+   trick; with the loader story now resolved (prefetch depth, page-cache-bound cgroup), and
+   bs=128 still unable to complete a soak, bs=192 is not worth running until rank-6 is fixed.

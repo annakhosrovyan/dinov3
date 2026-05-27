@@ -158,8 +158,114 @@ pin_memory=False, non_blocking=False: 0.646s
 
 ## Decision Implication for DINOv3
 
-DINOv3 already has `num_workers=20`, `pin_memory=True`, `persistent_workers=True`, `prefetch_factor=8` in `run.sh`. This is a well-configured baseline.
+DINOv3 already has `num_workers=20`, `pin_memory=True`, `persistent_workers=True`, `prefetch_factor=8` in `run.sh`. This was a reasonable starting baseline.
 
-**If profiling shows data pipeline is NOT the bottleneck** (likely): focus on kernel-level optimizations (batch size, mixed precision, torch.compile).
+**Phase 6.B.1 update (2026-05-26)**: the 20/8 config was empirically over-provisioned for Weka+HDF5 data. Phase 6.B.1 (job 58188) measured `data_time ≈ 0.002–0.004s` vs `step_time ≈ 0.44–0.50s` — the loader was idle 99% of the time. More importantly, 20 workers × pf=8 × 8 ranks created ~307 GB host-RAM pressure that directly caused the bs≥192 OOM in Phase 6.A.6 (Slurm cgroup exhausted). The config has since been reduced to `num_workers=12, prefetch_factor=4`.
 
-**If profiling shows GPU idle at iter start** (possible with real Weka data vs synthetic): try increasing `num_workers` to 32, or check Weka throughput with `iostat` from the compute node.
+**If profiling shows data pipeline is NOT the bottleneck** (likely on Weka): focus on kernel-level optimizations. Use the `data_time / step_time` ratio below to size the loader correctly.
+
+**If profiling shows GPU idle at iter start**: increase `num_workers` first, then `prefetch_factor`. Check Weka throughput with `iostat` from the compute node.
+
+---
+
+## Balanced DataLoader Sizing: The Throughput-Critical Constraint (2026-05-26)
+
+*Derived from Phase 6.B.1 (job 58188, DDP+cudagraphs bs=128 soak on real Weka data).*
+
+### The constraint formula
+
+The loader must produce batches at least as fast as the GPU consumes them:
+
+```
+worker_rate ≥ GPU consumption rate
+num_workers / per_batch_latency_s ≥ 1 / step_time_s
+→ num_workers_needed ≥ per_batch_latency_s / step_time_s
+```
+
+At `step_time ≈ 0.5s` (DDP+cudagraphs bs=128): if a single worker produces one batch in ~0.5–1.0s (typical for 10-crop PIL augmentation on Weka), the theoretical minimum is **1–2 workers**; everything above absorbs timing variance only.
+
+**Per-batch latency** is not directly logged — proxy it from a loader-only timing loop (`for batch in loader: pass`) or infer from `data_time` at `num_workers=1`. It includes: file read (Weka seek + HDF5 decode), all augmentations (Albumentations multi-crop), mask generation in `collate_data_and_cast()`, and crop stacking.
+
+### Primary diagnostic: `data_time / step_time`
+
+`data_time` is logged per-iteration by `MetricLogger` (`dinov3/logging/helpers.py:65-133`). Check it after the compile warmup clears (iter > ~30).
+
+| data_time / step_time | Interpretation                 | Action                                         |
+|-----------------------|-------------------------------|------------------------------------------------|
+| < 5%                  | Loader massively over-provisioned | Can reduce num_workers and/or prefetch_factor |
+| 5–15%                 | Well-matched, healthy          | Hold current settings                          |
+| 15–40%                | Approaching saturation         | Don't reduce; monitor jitter                   |
+| > 40%                 | Loader is the bottleneck       | Increase num_workers first, then prefetch_factor |
+
+Phase 6.B.1 measured < 1% → the 20/8 config had 10–50× more loader capacity than needed.
+
+### Memory math: batches in flight across the node
+
+With DDP, each rank runs its own DataLoader. Total batches held in pinned host memory:
+
+```
+batches_in_flight_per_rank = num_workers × prefetch_factor
+node_total_batches = batches_in_flight_per_rank × num_ranks
+```
+
+For DINOv3 DDP bs=128 (10 crops, ~240 MB per batch in pinned host RAM):
+
+| Config                     | Batches/rank | Node batches (8 ranks) | Approx host RAM |
+|----------------------------|--------------|------------------------|-----------------|
+| 20 × 8 (original run.sh)   | 160          | 1280                   | ~307 GB         |
+| 12 × 4 (Phase 6.B.1)       | 48           | 384                    | ~92 GB          |
+| 8 × 2 (aggressive)         | 16           | 128                    | ~30 GB          |
+| 4 × 2 (conservative)       | 8            | 64                     | ~15 GB          |
+| 2 × 2 (theoretical floor)  | 4            | 32                     | ~8 GB           |
+
+**The 20×8 config was the root cause of bs≥192 host-RAM OOM** (Phase 6.A.6). The Slurm cgroup memory limit was hit by DataLoader prefetch alone, not VRAM.
+
+`persistent_workers=True` adds a fixed baseline of ~500 MB–1 GB per worker (Python interpreter + HDF5 mmap + decoded buffers) on top of the prefetch queue. Going from 20→12 workers saves ~4–15 GB from this baseline alone.
+
+### Prefetch factor minimum: pf ≥ 2
+
+`non_blocking=True` in `.to(device)` only creates actual async H2D overlap when the next batch is already in **pinned host memory** when the GPU reaches it. With `pf=1`, no batch is ready at that moment → the H2D copy becomes synchronous and blocks the next step.
+
+**`prefetch_factor=2` is the hard minimum** for `non_blocking=True` to be effective. `pf=4` provides a safety margin against augmentation variance spikes. Never go below 2.
+
+### What to use
+
+| Scenario                                | num_workers | prefetch_factor | Notes                              |
+|-----------------------------------------|--------------|-----------------|------------------------------------|
+| DDP bs=128, normal training             | 8            | 2               | ~30 GB host RAM; validated safe    |
+| DDP bs=128, tight Slurm cgroup          | 4            | 2               | ~15 GB; wide margin                |
+| FSDP2 bs=96 (run.sh)                   | 12           | 4               | Reduced from 20/8; Phase 6.B.1     |
+| Any config, profiling soak              | 4            | 2               | Minimize loader noise in profiles  |
+
+**Verification workflow**: after submitting a job, check the `data:` column in training logs at iters 30–100 (past compile warmup). Compute `data_time / step_time`. If < 5%, you can reduce further. If > 15%, increase workers.
+
+### CORRECTION (2026-05-27): cgroup memory ≠ the host-RAM table above
+
+The "Approx host RAM" estimates above are **batch-buffer arithmetic only** and do NOT match
+what the Slurm cgroup actually reports. Measured fact from three bs=128 + AC=full soaks
+(jobs 58188 / 59273 / 59274): cgroup `memory.current` peaks at **exactly the `--mem` limit
+every time** (300/300, 430/430, 540/540 GB). Reason: `memory.current` counts **reclaimable
+file-backed page cache** (HDF5/tile reads off Weka), which expands to fill whatever limit you
+give it and is reclaimed under pressure instead of OOM-killing. So:
+
+- **Do not read cgroup `memory.current` as "the job needs this much RAM."** It's an upper
+  bound set by your own `--mem`, not a measurement. To find the true (anonymous) floor, log
+  `memory.stat` (anon vs file split) or step `--mem` down until OOM.
+- **`sacct MaxRSS` is useless here** — it sums per-task RSS and double-counts COW fork pages
+  across 100+ workers (reported 883 GB / 988 GB against 430/540 GB limits).
+- OOM happens on **anonymous** memory, and notably **during torch.compile warmup before iter
+  0** (job 57799: 20w/8pf OOM'd at `--mem=380G`). 16w configs did not OOM at 430–540G.
+
+### CORRECTION: prefetch depth, not worker count, hid the loader (16w sweep)
+
+Earlier note claimed "worker count is the binding throughput knob." The 16w/4pf vs 16w/8pf
+runs (same workers) show the opposite at this scale: only **pf=8** drove `data_time` to ~0
+(p50 ≈ 2 ms); pf=4 at 16 workers stayed loader-bound. At 16 workers, a 4-deep queue drains
+between steps; an 8-deep queue absorbs the tail. **When the GPU step is long (AC=full ≈
+430 ms GPU event), deepen prefetch before adding workers.**
+
+Also: with the loader fully hidden (data_time≈0), wall iter (~900 ms) was still ~2× the
+GPU-event step (~430 ms). That residual is CPU-side per-iter overhead (collate/cast, H2D
+launch, EMA, GC, cudagraph replay) — the next lever after the loader is non-binding.
+MetricLogger `images_per_sec` (= 1024 / GPU-step-ms) hides it and overstates delivered
+throughput ~2×; always cross-check against the wall `time:` column.
