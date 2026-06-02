@@ -17,31 +17,35 @@ from dinov3.data.datasets.channel_utils import validate_channel_count
 logger = logging.getLogger("dinov3")
 
 # ---------------------------------------------------------------------------
-# Aram-specific bad-tile error-log redirect (added 2026-05-28, adovlatyan)
+# Bad-tile error-log destination (configurable).
 #
-# WHY THIS EXISTS — this is only relevant when running as a user who does NOT
-# own the satellite datasets. The Sen1/Sen2/NAIP data live under another
-# researcher's Weka space (e.g. /mnt/weka/akhosrovyan/re-id/pretraining/...),
-# which I (adovlatyan) can READ but cannot WRITE.
+# WHY THIS EXISTS — it matters when training as a user who does NOT own the
+# satellite datasets. The Sen1/Sen2/NAIP data often live under another
+# researcher's Weka space (e.g. /mnt/weka/<owner>/re-id/pretraining/...), which
+# a different user can READ but not WRITE.
 #
 # Upstream `SatlasDataset.save_error_path()` logged each undecodable tile by
 # appending to a file *inside the dataset directory itself*. For the dataset
-# owner that is fine; for me it raises `PermissionError: [Errno 13]`. That
-# exception is raised inside a DataLoader worker, is uncaught, and is re-raised
-# in the main process — which kills the rank and aborts the whole DDP job.
-#
-# This was the root cause of the deterministic "rank 6 dies at iter ~1310"
-# soak crashes (jobs 57299/58188/59273/59274): a corrupt NAIP PNG triggered the
+# owner that is fine; for a read-only consumer it raises
+# `PermissionError: [Errno 13]`. That exception is raised inside a DataLoader
+# worker, is uncaught, and is re-raised in the main process — which kills the
+# rank and aborts the whole DDP job. This was the root cause of deterministic
+# "rank 6 dies at iter ~1310" soak crashes: a corrupt NAIP PNG triggered the
 # error-logging path, and the read-only write turned a *recoverable* bad tile
-# into a *fatal* crash. Full write-up: scripts/debug/rank6_root_cause.md and
-# docs/phase6_perf_plan.md §6.B.
+# into a *fatal* crash.
 #
-# FIX: redirect the bad-tile log to a directory I own. Override the location
-# with the env var DINOV3_ERROR_LOG_DIR; the default points at my Weka logs.
-# The dataset owner can set DINOV3_ERROR_LOG_DIR="" to restore the original
-# in-place behavior (the write is guarded either way, so it is never fatal).
+# FIX: redirect the bad-tile log to a writable directory and guard the write
+# (see save_error_path below — it is best-effort and never fatal).
+#   - Default: a per-run subdir under the system temp dir (always writable,
+#     owner-agnostic — safe for any user on any node).
+#   - Override with DINOV3_ERROR_LOG_DIR=/some/durable/dir to keep the logs
+#     (e.g. point it at your own Weka logs dir for post-run inspection).
+#   - Set DINOV3_ERROR_LOG_DIR="" to restore the original in-place behavior
+#     (log beside the dataset — only works if you own/can write the dataset dir).
 # ---------------------------------------------------------------------------
-_ERROR_LOG_DIR = os.environ.get("DINOV3_ERROR_LOG_DIR", "/mnt/weka/adovlatyan/logs/dataset_errors")
+_ERROR_LOG_DIR = os.environ.get(
+    "DINOV3_ERROR_LOG_DIR", os.path.join(tempfile.gettempdir(), "dinov3_dataset_errors")
+)
 
 
 class SatlasDataset(Dataset):
@@ -101,7 +105,8 @@ class SatlasDataset(Dataset):
         """
         fname = f"{os.path.basename(self.data_path)}_error_paths.txt"
         if _ERROR_LOG_DIR:
-            # Aram-specific redirect: write to a directory I own, not the read-only dataset dir.
+            # Redirect to a writable directory (default: temp dir), not the (possibly
+            # read-only) dataset dir. See the _ERROR_LOG_DIR comment at module top.
             save_path = os.path.join(_ERROR_LOG_DIR, fname)
         else:
             # Original upstream behavior (dataset owner only): log beside the dataset.

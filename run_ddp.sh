@@ -43,12 +43,23 @@
 #   EVAL_PERIOD            eval every N     (default 12500, config default)
 #   To shrink for a quick functional check: OFFICIAL_EPOCH_LENGTH=50 EPOCHS=1 sbatch run_ddp.sh
 #
+# PORTABILITY (env-overridable so a different user need not edit this file):
+#   DINOV3_ENV          conda env prefix (default adovlatyan's test-conda-slurm)
+#   DINOV3_OUTPUT_ROOT  root for outputs + logs (default /mnt/weka/adovlatyan)
+#   DINOV3_LOG_DIR      log dir (default $DINOV3_OUTPUT_ROOT/logs)
+#   student.pretrained_weights below points at Anna's weights; override on CLI if needed.
+#   (The #SBATCH --output/--error lines can't read env vars — edit them directly if not adovlatyan.)
+#
 # Optional profiling (off by default, zero-overhead when unset):
 #   export DINOV3_MEMORY_PROFILE=1          # per-phase + periodic VRAM markers
 #   export DINOV3_MEMORY_PROFILE_PERIOD=50  # fragmentation log cadence
 
-export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
-export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"
+# Conda env is overridable: a different user just exports DINOV3_ENV to their own
+# env (torch >= 2.6) instead of editing this file. Activated via PATH-prepend
+# (NOT `conda activate`, which fails on the bare-metal GPU nodes).
+DINOV3_ENV="${DINOV3_ENV:-/home/adovlatyan/.conda/envs/test-conda-slurm}"
+export PATH="${DINOV3_ENV}/bin:$PATH"
+export CONDA_PREFIX="${DINOV3_ENV}"
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
@@ -73,9 +84,15 @@ BATCH_SIZE="${BATCH_SIZE:-128}"
 CKPT_PERIOD="${CKPT_PERIOD:-3750}"
 MAX_TO_KEEP="${MAX_TO_KEEP:-3}"
 EVAL_PERIOD="${EVAL_PERIOD:-12500}"
-OUTPUT_DIR="/mnt/weka/adovlatyan/output_ddp_cg_${SLURM_JOB_ID}"
+# Output/log roots are overridable (DINOV3_OUTPUT_ROOT) so a different user can
+# point them at storage they own. NOTE: the #SBATCH --output/--error lines above
+# cannot read env vars (Slurm parses them before the shell runs) — a non-adovlatyan
+# user must also edit those two lines to a directory they can write.
+OUTPUT_ROOT="${DINOV3_OUTPUT_ROOT:-/mnt/weka/adovlatyan}"
+OUTPUT_DIR="${OUTPUT_ROOT}/output_ddp_cg_${SLURM_JOB_ID}"
+LOG_DIR="${DINOV3_LOG_DIR:-${OUTPUT_ROOT}/logs}"
 
-mkdir -p /mnt/weka/adovlatyan/logs
+mkdir -p "${LOG_DIR}"
 
 echo "=== DINOv3 Satellite Training — DDP + CUDA graphs ==="
 echo "Job ID:   ${SLURM_JOB_ID}"
