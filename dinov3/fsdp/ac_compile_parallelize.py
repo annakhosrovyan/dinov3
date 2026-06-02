@@ -62,64 +62,102 @@ def activation_checkpoint_transformer(cfg, model: nn.Module):
         model.blocks[block_id] = _checkpointing_wrapper(b)
 
 
-def wrap_compile_block(module: nn.Module, use_cuda_graphs: bool, is_backbone_block: bool) -> nn.Module:
+def wrap_compile_block(
+    module: nn.Module,
+    use_cuda_graphs: bool,
+    is_backbone_block: bool,
+    compile_mode: str | None = None,
+) -> nn.Module:
     if use_cuda_graphs and is_backbone_block:
         module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})
+    elif compile_mode is not None:
+        module.compile(mode=compile_mode)
     else:
         module.compile()
     return module
 
 
+def _get_compile_mode(cfg) -> str | None:
+    """Return the compile mode string, or None for PyTorch default."""
+    mode = getattr(cfg.train, "compile_mode", None)
+    return None if (mode is None or mode == "default") else str(mode)
+
+
+def _compile_path_desc(use_cuda_graphs: bool, is_backbone_block: bool, compile_mode: str | None) -> str:
+    """Human-readable description of which wrap_compile_block branch will run."""
+    if use_cuda_graphs and is_backbone_block:
+        return "fullgraph=True, dynamic=False, triton.cudagraphs=True"
+    elif compile_mode is not None:
+        return f"mode={compile_mode!r}"
+    else:
+        return "default (module.compile(), dynamic=True)"
+
+
 def compile_convnext(cfg, model: nn.Module):
+    compile_mode = _get_compile_mode(cfg)
+    use_cuda_graphs = getattr(cfg.train, "cudagraphs", False)
+    n_stages = len(model.stages)
+    n_dsl = len(model.downsample_layers)
+    logger.info(
+        "[COMPILE] compile_convnext: %d stages + %d downsample layers → path: %s",
+        n_stages, n_dsl, _compile_path_desc(use_cuda_graphs, is_backbone_block=False, compile_mode=compile_mode),
+    )
     assert isinstance(model.stages, nn.ModuleList)
     # Compile at stage level
     for stage_id, stage in enumerate(model.stages):
-        model.stages[stage_id] = wrap_compile_block(stage, cfg.train.cudagraphs, is_backbone_block=False)
+        model.stages[stage_id] = wrap_compile_block(stage, use_cuda_graphs, is_backbone_block=False, compile_mode=compile_mode)
     assert isinstance(model.downsample_layers, nn.ModuleList)
     for dsl_id, dsl in enumerate(model.downsample_layers):
-        model.downsample_layers[dsl_id] = wrap_compile_block(dsl, cfg.train.cudagraphs, is_backbone_block=False)
+        model.downsample_layers[dsl_id] = wrap_compile_block(dsl, use_cuda_graphs, is_backbone_block=False, compile_mode=compile_mode)
 
 
 def compile_transformer(cfg, model: nn.Module):
+    compile_mode = _get_compile_mode(cfg)
+    use_cuda_graphs = getattr(cfg.train, "cudagraphs", False)
+    n_blocks = len(model.blocks)
+    logger.info(
+        "[COMPILE] compile_transformer: %d backbone blocks → path: %s  (cudagraphs=%s, compile_mode=%s)",
+        n_blocks,
+        _compile_path_desc(use_cuda_graphs, is_backbone_block=True, compile_mode=compile_mode),
+        use_cuda_graphs,
+        compile_mode,
+    )
     assert isinstance(model.blocks, nn.ModuleList)
     for block_id, block in enumerate(model.blocks):
-        model.blocks[block_id] = wrap_compile_block(block, cfg.train.cudagraphs, is_backbone_block=True)
+        model.blocks[block_id] = wrap_compile_block(block, use_cuda_graphs, is_backbone_block=True, compile_mode=compile_mode)
 
 
-def fsdp_convnext(fsdp_config: Dict[str, Any], model: nn.Module):
+def fsdp_convnext(fsdp_config: Dict[str, Any], model: nn.Module, reshard_after_forward: bool = True):
     stages = model.stages
     assert isinstance(stages, nn.ModuleList)
     # FSDP wrap at stage level
     for stage_id, stage in enumerate(stages):
-        stage_reshard: int | bool = True
-        stages[stage_id] = fully_shard(stage, **fsdp_config, reshard_after_forward=stage_reshard)
+        stages[stage_id] = fully_shard(stage, **fsdp_config, reshard_after_forward=reshard_after_forward)
     downsample_layers = model.downsample_layers
     assert isinstance(downsample_layers, nn.ModuleList)
     for dsl_id, dsl in enumerate(downsample_layers):
-        dsl_reshard: int | bool = True
-        downsample_layers[dsl_id] = fully_shard(dsl, **fsdp_config, reshard_after_forward=dsl_reshard)
+        downsample_layers[dsl_id] = fully_shard(dsl, **fsdp_config, reshard_after_forward=reshard_after_forward)
     dsl: FSDPState
     stage: FSDPState
     for dsl, stage in zip(downsample_layers, stages):
         dsl.set_modules_to_forward_prefetch([stage])
         stage.set_modules_to_backward_prefetch([dsl])
-    fully_shard(model, **fsdp_config, reshard_after_forward=True)
+    fully_shard(model, **fsdp_config, reshard_after_forward=reshard_after_forward)
     register_fsdp_forward_method(model, "get_intermediate_layers")
 
 
-def fsdp_transformer(fsdp_config: Dict[str, Any], model: nn.Module):
+def fsdp_transformer(fsdp_config: Dict[str, Any], model: nn.Module, reshard_after_forward: bool = True):
     # Backbone - FSDP every block
     blocks = model.blocks
     assert isinstance(blocks, nn.ModuleList)
     for block_id, block in enumerate(blocks):
-        block_reshard: int | bool = True
-        blocks[block_id] = fully_shard(block, **fsdp_config, reshard_after_forward=block_reshard)
+        blocks[block_id] = fully_shard(block, **fsdp_config, reshard_after_forward=reshard_after_forward)
     prev_block: FSDPState
     next_block: FSDPState
     for prev_block, next_block in zip(blocks, blocks[1:]):
         prev_block.set_modules_to_forward_prefetch([next_block])
         next_block.set_modules_to_backward_prefetch([prev_block])
-    fully_shard(model, **fsdp_config, reshard_after_forward=True)
+    fully_shard(model, **fsdp_config, reshard_after_forward=reshard_after_forward)
     register_fsdp_forward_method(model, "get_intermediate_layers")
 
 
@@ -134,12 +172,15 @@ def ac_compile_parallelize(
     Order of the wrappers:
     1/ Activation checkpointing on blocks
     2/ Compile blocks
-    3/ FSDP blocks + global model
+    3/ FSDP blocks + global model  (or DDP if cfg.train.distributed_strategy == "ddp")
     """
     assert (
         isinstance(trained_model, nn.ModuleDict) and "backbone" in trained_model.keys()
     ), f"{trained_model} does not contain a backbone?"
-    logger.info("DISTRIBUTED FSDP -- preparing model for distributed training")
+
+    distributed_strategy = str(getattr(cfg.train, "distributed_strategy", "fsdp2")).lower()
+    logger.info("DISTRIBUTED %s -- preparing model for distributed training", distributed_strategy.upper())
+
     if utils.has_batchnorms(trained_model):
         raise NotImplementedError
 
@@ -174,12 +215,57 @@ def ac_compile_parallelize(
     else:
         all_pgs = [trained_model_process_group] + inference_only_models_process_groups
     if cfg.train.compile:
+        compile_mode = _get_compile_mode(cfg)
+        use_cuda_graphs = getattr(cfg.train, "cudagraphs", False)
+        logger.info(
+            "[COMPILE] torch.compile enabled — cudagraphs=%s, compile_mode=%s",
+            use_cuda_graphs, compile_mode,
+        )
         for model in all_models:
             for k in model.keys():
                 if k == "backbone":
                     ARCH_TYPE_MAP[type(model[k])]["compile_fn"](cfg, model[k])
                 else:
-                    model[k] = wrap_compile_block(model[k], use_cuda_graphs=False, is_backbone_block=False)
+                    logger.info(
+                        "[COMPILE] head '%s' → path: %s",
+                        k, _compile_path_desc(use_cuda_graphs=False, is_backbone_block=False, compile_mode=compile_mode),
+                    )
+                    model[k] = wrap_compile_block(model[k], use_cuda_graphs=False, is_backbone_block=False, compile_mode=compile_mode)
+
+    if distributed_strategy == "ddp":
+        _ac_compile_parallelize_ddp(
+            trained_model=trained_model,
+            inference_only_models=inference_only_models,
+            cfg=cfg,
+            trained_model_process_group=trained_model_process_group,
+            inference_only_models_process_groups=inference_only_models_process_groups,
+        )
+    else:
+        _ac_compile_parallelize_fsdp(
+            trained_model=trained_model,
+            inference_only_models=inference_only_models,
+            cfg=cfg,
+            all_models=all_models,
+            all_pgs=all_pgs,
+        )
+
+
+def _ac_compile_parallelize_fsdp(
+    trained_model: nn.ModuleDict,
+    inference_only_models: List[nn.ModuleDict],
+    cfg: Any,
+    all_models: List[nn.ModuleDict],
+    all_pgs: list,
+) -> None:
+    """FSDP2 distributed wrapping (original path)."""
+    from dinov3.models.convnext import ConvNeXt
+    from dinov3.models.vision_transformer import DinoVisionTransformer
+
+    ARCH_TYPE_MAP = {
+        ConvNeXt: dict(fsdp_fn=fsdp_convnext),
+        DinoVisionTransformer: dict(fsdp_fn=fsdp_transformer),
+    }
+
     DTYPE_MAP = {
         "fp16": torch.float16,
         "bf16": torch.bfloat16,
@@ -189,6 +275,8 @@ def ac_compile_parallelize(
         param_dtype=DTYPE_MAP[cfg.compute_precision.param_dtype],
         reduce_dtype=DTYPE_MAP[cfg.compute_precision.reduce_dtype],
     )
+    reshard = bool(getattr(cfg.train, "fsdp_reshard_after_forward", True))
+    inference_only_set = set(id(m) for m in inference_only_models)
     for model, pg in zip(all_models, all_pgs):
         if pg is None:
             world_mesh = init_device_mesh(
@@ -199,17 +287,22 @@ def ac_compile_parallelize(
         else:
             world_mesh = DeviceMesh.from_group(pg, "cuda")
         fsdp_config = {"mesh": world_mesh, "mp_policy": mp_policy}
+        # Inference-only models (teacher, EMA) always reshard after forward: they get no
+        # throughput benefit from no-release mode, and always resharding keeps their params
+        # as sharded DTensors — required so update_ema sees consistent types with the student
+        # (which reshards during its backward pass regardless of reshard_after_forward).
+        effective_reshard = reshard if id(model) not in inference_only_set else True
         for k in model.keys():
             if k == "backbone":
-                ARCH_TYPE_MAP[type(model[k])]["fsdp_fn"](fsdp_config, model[k])
+                ARCH_TYPE_MAP[type(model[k])]["fsdp_fn"](fsdp_config, model[k], effective_reshard)
             else:
-                model[k] = fully_shard(model[k], **fsdp_config, reshard_after_forward=True)
+                model[k] = fully_shard(model[k], **fsdp_config, reshard_after_forward=effective_reshard)
 
-    # 4/ Move to `cuda` device
+    # Move to `cuda` device
     for model in all_models:
         model.to_empty(device="cuda")
 
-    # 5/ FSDP2: Reshard immediately after forward for inference-only models
+    # FSDP2: Reshard immediately after forward for inference-only models
     for model in inference_only_models:
         for k in model.keys():
             fsdp_state: FSDPState = model[k]._get_fsdp_state()
@@ -218,3 +311,47 @@ def ac_compile_parallelize(
             mi = fsdp_state._fsdp_param_group.post_forward_mesh_info
             fsdp_state._lazy_init()
             fsdp_state._fsdp_param_group.post_forward_mesh_info = mi
+
+
+def _ac_compile_parallelize_ddp(
+    trained_model: nn.ModuleDict,
+    inference_only_models: List[nn.ModuleDict],
+    cfg: Any,
+    trained_model_process_group: dist.ProcessGroup | None = None,
+    inference_only_models_process_groups: List[dist.ProcessGroup] | None = None,
+) -> None:
+    """DDP distributed wrapping — no sharding, just all-reduce gradients.
+
+    ViT-B is ~172 MB in BF16 and fits trivially on 80 GB H100. DDP avoids the
+    all_gather / reduce_scatter overhead of FSDP2 and replaces it with a single
+    gradient all-reduce per step.
+    """
+    all_models = [trained_model] + inference_only_models
+
+    # Move all models to CUDA first
+    for model in all_models:
+        model.to_empty(device="cuda")
+
+    # Cast parameters to the configured dtype (bf16 by default)
+    DTYPE_MAP = {
+        "fp16": torch.float16,
+        "bf16": torch.bfloat16,
+        "fp32": torch.float32,
+    }
+    param_dtype = DTYPE_MAP[cfg.compute_precision.param_dtype]
+    for model in all_models:
+        model.to(param_dtype)
+
+    # Wrap each student sub-model with DDP
+    pg = trained_model_process_group
+    for k in trained_model.keys():
+        trained_model[k] = nn.parallel.DistributedDataParallel(
+            trained_model[k],
+            process_group=pg,
+            gradient_as_bucket_view=True,
+            static_graph=True,
+        )
+    logger.info("DDP wrapping complete for student sub-models: %s", list(trained_model.keys()))
+
+    # Inference-only models (teacher, EMA, gram) don't need DDP — no gradients
+    # They just need to be on CUDA with correct dtype (already done above)
