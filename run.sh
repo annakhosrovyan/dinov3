@@ -6,8 +6,8 @@
 #SBATCH --gres=gpu:h100:8
 #SBATCH --partition=research
 #SBATCH --time=7-00:00:00
-#SBATCH --output=/mnt/weka/adovlatyan/logs/dinov3-%j.out
-#SBATCH --error=/mnt/weka/adovlatyan/logs/dinov3-%j.err
+#SBATCH --output=slurm-%j.out
+#SBATCH --error=slurm-%j.err
 
 # Production config — revised 2026-05-12 (Phase 5)
 # ==================================================
@@ -27,8 +27,13 @@
 #   - train.distributed_strategy=ddp, train.batch_size_per_gpu=256
 #   - DO NOT use for a real long training run until the FSDP2 OOM is understood.
 
-export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
-export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"
+# >>> SET YOUR CONDA ENV (torch >= 2.6) <<<
+#   export DINOV3_ENV=/home/<you>/.conda/envs/<your-env>   before sbatch,
+#   or hardcode your path on the line below. PATH-prepend (NOT `conda activate`,
+#   which fails on the bare-metal GPU nodes). Fails fast if unset.
+DINOV3_ENV="${DINOV3_ENV:?Set DINOV3_ENV to your conda env prefix (torch>=2.6), e.g. /home/$(whoami)/.conda/envs/dinov3}"
+export PATH="${DINOV3_ENV}/bin:$PATH"
+export CONDA_PREFIX="${DINOV3_ENV}"
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
@@ -51,7 +56,10 @@ unset PYTORCH_CUDA_ALLOC_CONF
 # per topology; on this DGX H100 + NVSwitch node that usually means NVLS for all-gather /
 # reduce-scatter. Use `NCCL_DEBUG=INFO` in a probe run to confirm.
 
-mkdir -p /mnt/weka/adovlatyan/logs
+# Output root auto-derives the submitting user ($(whoami)) so this file has no
+# hardcoded username; override with DINOV3_OUTPUT_ROOT to point at storage you own.
+OUTPUT_ROOT="${DINOV3_OUTPUT_ROOT:-/mnt/weka/$(whoami)}"
+mkdir -p "${OUTPUT_ROOT}"
 
 echo "=== DINOv3 Satellite Training ==="
 echo "Job ID: ${SLURM_JOB_ID}"
@@ -67,7 +75,7 @@ echo "-------------------------------------"
 
 torchrun --nproc_per_node=8 dinov3/train/train.py \
   --config-file dinov3/configs/ssl_default_config.yaml \
-  --output-dir /mnt/weka/adovlatyan/output_satellite_${SLURM_JOB_ID} \
+  --output-dir "${OUTPUT_ROOT}/output_satellite_${SLURM_JOB_ID}" \
   student.arch=vit_base \
   student.in_chans=5 \
   teacher.in_chans=5 \

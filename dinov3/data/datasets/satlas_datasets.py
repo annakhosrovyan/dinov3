@@ -1,3 +1,4 @@
+import getpass
 import logging
 import math
 import os
@@ -36,15 +37,20 @@ logger = logging.getLogger("dinov3")
 #
 # FIX: redirect the bad-tile log to a writable directory and guard the write
 # (see save_error_path below — it is best-effort and never fatal).
-#   - Default: a per-run subdir under the system temp dir (always writable,
-#     owner-agnostic — safe for any user on any node).
-#   - Override with DINOV3_ERROR_LOG_DIR=/some/durable/dir to keep the logs
-#     (e.g. point it at your own Weka logs dir for post-run inspection).
+#   - Default: /mnt/weka/<you>/dinov3_dataset_errors — derived from the running
+#     user (getpass.getuser()), so each user logs into their OWN writable Weka
+#     space. This keeps the logs discoverable AND, by construction, sidesteps the
+#     read-only-dataset-dir PermissionError that was the root cause above (you
+#     can always write to a dir under your own user). The try/except in
+#     save_error_path is then just belt-and-suspenders for the odd unwritable case.
+#   - Override with DINOV3_ERROR_LOG_DIR=/some/other/dir (e.g. point it under a
+#     run's output dir for post-run inspection).
 #   - Set DINOV3_ERROR_LOG_DIR="" to restore the original in-place behavior
 #     (log beside the dataset — only works if you own/can write the dataset dir).
 # ---------------------------------------------------------------------------
 _ERROR_LOG_DIR = os.environ.get(
-    "DINOV3_ERROR_LOG_DIR", os.path.join(tempfile.gettempdir(), "dinov3_dataset_errors")
+    "DINOV3_ERROR_LOG_DIR",
+    os.path.join("/mnt/weka", getpass.getuser(), "dinov3_dataset_errors"),
 )
 
 

@@ -6,8 +6,8 @@
 #SBATCH --gres=gpu:h100:8
 #SBATCH --partition=research
 #SBATCH --time=7-00:00:00
-#SBATCH --output=/mnt/weka/adovlatyan/logs/dinov3-ddp-%j.out
-#SBATCH --error=/mnt/weka/adovlatyan/logs/dinov3-ddp-%j.err
+#SBATCH --output=slurm-ddp-%j.out
+#SBATCH --error=slurm-ddp-%j.err
 
 # Production training recipe — DDP + torch.compile + CUDA graphs (bs=128)
 # ======================================================================
@@ -44,20 +44,21 @@
 #   To shrink for a quick functional check: OFFICIAL_EPOCH_LENGTH=50 EPOCHS=1 sbatch run_ddp.sh
 #
 # PORTABILITY (env-overridable so a different user need not edit this file):
-#   DINOV3_ENV          conda env prefix (default adovlatyan's test-conda-slurm)
-#   DINOV3_OUTPUT_ROOT  root for outputs + logs (default /mnt/weka/adovlatyan)
-#   DINOV3_LOG_DIR      log dir (default $DINOV3_OUTPUT_ROOT/logs)
+#   DINOV3_ENV          conda env prefix — REQUIRED, no default (set it to YOUR env)
+#   DINOV3_OUTPUT_ROOT  root for outputs (default /mnt/weka/$(whoami))
 #   student.pretrained_weights below points at Anna's weights; override on CLI if needed.
-#   (The #SBATCH --output/--error lines can't read env vars — edit them directly if not adovlatyan.)
+#   (The #SBATCH --output/--error lines can't read env vars — they land in the
+#    submit dir as slurm-ddp-<jobid>.out; edit those two lines if you want them elsewhere.)
 #
 # Optional profiling (off by default, zero-overhead when unset):
 #   export DINOV3_MEMORY_PROFILE=1          # per-phase + periodic VRAM markers
 #   export DINOV3_MEMORY_PROFILE_PERIOD=50  # fragmentation log cadence
 
-# Conda env is overridable: a different user just exports DINOV3_ENV to their own
-# env (torch >= 2.6) instead of editing this file. Activated via PATH-prepend
-# (NOT `conda activate`, which fails on the bare-metal GPU nodes).
-DINOV3_ENV="${DINOV3_ENV:-/home/adovlatyan/.conda/envs/test-conda-slurm}"
+# >>> SET YOUR CONDA ENV (torch >= 2.6) <<<
+#   export DINOV3_ENV=/home/<you>/.conda/envs/<your-env>   before sbatch,
+#   or hardcode your path on the line below. Activated via PATH-prepend (NOT
+#   `conda activate`, which fails on the bare-metal GPU nodes). Fails fast if unset.
+DINOV3_ENV="${DINOV3_ENV:?Set DINOV3_ENV to your conda env prefix (torch>=2.6), e.g. /home/$(whoami)/.conda/envs/dinov3}"
 export PATH="${DINOV3_ENV}/bin:$PATH"
 export CONDA_PREFIX="${DINOV3_ENV}"
 
@@ -84,15 +85,14 @@ BATCH_SIZE="${BATCH_SIZE:-128}"
 CKPT_PERIOD="${CKPT_PERIOD:-3750}"
 MAX_TO_KEEP="${MAX_TO_KEEP:-3}"
 EVAL_PERIOD="${EVAL_PERIOD:-12500}"
-# Output/log roots are overridable (DINOV3_OUTPUT_ROOT) so a different user can
-# point them at storage they own. NOTE: the #SBATCH --output/--error lines above
-# cannot read env vars (Slurm parses them before the shell runs) — a non-adovlatyan
-# user must also edit those two lines to a directory they can write.
-OUTPUT_ROOT="${DINOV3_OUTPUT_ROOT:-/mnt/weka/adovlatyan}"
+# Output root auto-derives the submitting user ($(whoami)) so this file has no
+# hardcoded username; override with DINOV3_OUTPUT_ROOT to point at any storage
+# you own. (The #SBATCH --output/--error lines above can't read env vars — Slurm
+# parses them before the shell runs — so they land relative to the submit dir.)
+OUTPUT_ROOT="${DINOV3_OUTPUT_ROOT:-/mnt/weka/$(whoami)}"
 OUTPUT_DIR="${OUTPUT_ROOT}/output_ddp_cg_${SLURM_JOB_ID}"
-LOG_DIR="${DINOV3_LOG_DIR:-${OUTPUT_ROOT}/logs}"
 
-mkdir -p "${LOG_DIR}"
+mkdir -p "${OUTPUT_ROOT}"
 
 echo "=== DINOv3 Satellite Training — DDP + CUDA graphs ==="
 echo "Job ID:   ${SLURM_JOB_ID}"
