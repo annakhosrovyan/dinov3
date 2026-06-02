@@ -33,7 +33,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
 #SBATCH --gres=gpu:h100:8
-#SBATCH --time=01:30:00
+#SBATCH --time=04:00:00
 #SBATCH --output=/mnt/weka/adovlatyan/logs/soak-bs128-cg-%j.out
 #SBATCH --error=/mnt/weka/adovlatyan/logs/soak-bs128-cg-%j.err
 

@@ -453,3 +453,43 @@ For a newer-PyTorch experiment, test both:
 
 The win condition for the overlap/bucketing branch should be a clear gain over FSDP2 no-release and
 DDP+ES after warmup, not just parity with the current ZeRO-3 baseline.
+
+---
+
+## Phase 6.A Empirical Verdict: DDP strictly dominates FSDP2 at single-node ViT-B scale (2026-05-25)
+
+The April 2026 framing above — "both are fine if both fit," FSDP2 no-release likely the better default — did not survive empirical testing. Phase 6.A ran a controlled comparison on 8×H100 with ViT-B and the result is a strict ordering:
+
+| Config | img/s | MFU | Job |
+|---|---|---|---|
+| FSDP2 ZeRO-3, bs=96 (baseline) | 1,387 | 7.94% | 48312 |
+| **DDP, cudagraphs=true, bs=128** | **2,394** | **13.70%** | **53708** |
+
+**+72.6% throughput, +5.76 pp MFU.** Not a marginal gap: a structural one.
+
+### Why DDP strictly wins here
+
+Two reasons compound:
+
+1. **FSDP2 ZeRO-3 overhead is pure waste when the model fits.** nsys-confirmed: ~70–80% of GPU kernel time was NCCL collectives under FSDP2 ZeRO-3. When all 8 ranks can hold the full ViT-B (~85M params, ~170 MB BF16) locally, the per-block all-gather / reshard cycle has zero memory benefit and only costs communication. DDP reduces this to one gradient all-reduce per backward — a fraction of the FSDP2 collective volume.
+
+2. **CUDA graphs are incompatible with FSDP2 shard state, but work cleanly under DDP.** FSDP2's dynamic shard assembly produces graph breaks that prevent `fullgraph=True` backbone capture. DDP's simpler static execution graph captures cleanly after fixing two blockers (see `cuda_graphs.md`). CUDA graphs alone added +44.8% img/s; the combined effect with DDP is the +72.6% above.
+
+### The mental model (user-phrased)
+
+> "One of those few cases where FSDP2 < DDP strictly."
+
+The condition for this to be true: **the model fits fully on each GPU AND CUDA graphs are on the table.** Both conditions hold for ViT-B on 8×H100 with this recipe. When either condition breaks (model too large to fit → need sharding; CUDA graphs not viable → no amplification), FSDP2 no-release is likely competitive again.
+
+### When FSDP2 would recover
+
+- Multi-node training where gradient all-reduce costs grow with node count — FSDP2's gradient/optimizer sharding then pays off.
+- Models larger than ~1–2B params that don't fit per GPU.
+- Workloads where CUDA graphs are not viable (dynamic shapes throughout, not just in heads).
+
+### Practical guidance (supersedes April 2026 section above)
+
+- **`run.sh` stays FSDP2 bs=96** as the conservative long-run path until DDP+cudagraphs is validated on long-run convergence.
+- **Phase 6.B throughput work uses DDP + `cudagraphs=true` + bs=128** (the Phase 6.A champion).
+- Do not revisit FSDP2 no-release vs DDP for this model/node configuration. The question is closed empirically.
+- The FSDP2 vs DDP question remains open at multi-node scale or larger models — this conclusion is single-node ViT-B specific.

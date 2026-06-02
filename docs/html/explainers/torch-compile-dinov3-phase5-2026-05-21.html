@@ -190,11 +190,11 @@
     <h1>Torch Compile + CUDA Graphs — DINOv3 Phase 6 Log</h1>
     <p class="muted">Living document. Covers the compile infrastructure as it existed in Phase 5, what Phase 6.A proved, and what Phase 6.B still needs to change to make DINO/iBOT heads graph-capturable.</p>
     <p class="small">
-      <strong>Last updated:</strong> 2026-05-25 &nbsp;·&nbsp;
+      <strong>Last updated:</strong> 2026-06-01 &nbsp;·&nbsp;
       <strong>Branch:</strong> <code>perf-ddp-fullgraph</code> &nbsp;·&nbsp;
       <strong>Baseline job:</strong> 48312 (1,387 img/s, 7.94 % MFU) &nbsp;·&nbsp;
       <strong>Phase 6.A champion:</strong> job 53708 (2,394 img/s, 13.70 % MFU, +72.6 %) &nbsp;·&nbsp;
-      <strong>Next:</strong> Phase 6.B static-shape heads / iBOT
+      <strong>Phase 6.B:</strong> closed ✅ — job 60959, 4000/4000 iters, VRAM flat, fix validated
     </p>
   </header>
 
@@ -203,7 +203,7 @@
        ═══════════════════════════════════════════ -->
   <section class="band ok">
     <h2>Where We Are Right Now</h2>
-    <p>Phase 6.A is closed. The simplest DDP + backbone CUDA-graphs path worked after two compiler-correctness fixes, then the clean batch bump to <code>bs=128</code> produced the current champion. <strong>Job 53708 delivered 2,394 img/s and 13.70 % MFU</strong> — a +72.6 % throughput gain over the Phase 5 DDP calibration baseline. Further batch growth is blocked by host RAM / DataLoader prefetch pressure, not by GPU activation memory, so the next useful lever is Phase 6.B: static-shape DINO/iBOT heads and loss.</p>
+    <p><strong>Phase 6 is closed.</strong> Phase 6.A found and fixed two CUDA-graph blockers in the backbone, produced a +72.6 % throughput gain at bs=128, and hit the host-RAM ceiling for larger batches. Phase 6.B pivoted from static-shape-heads work to sustainability validation: does the Phase 6.A champion survive a real-length training run without VRAM growth, crashes, or data-pipeline failures? <strong>Job 60959 answered yes</strong> — 4000/4000 iters completed, VRAM dead-flat at 36.3 GB, one corrupt-tile event self-heals. The honest sustained throughput is ~1,830 img/s run-average (–23.5% vs the 2,394 screening number; only the late-run tail reaches ~2,055 img/s).</p>
     <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:14px">
       <div class="card" style="border-left:4px solid #22c55e">
         <strong>Baseline</strong><br>
@@ -227,16 +227,16 @@
       </div>
       <div class="card" style="border-left:4px solid #eab308">
         <strong>6.A.4.a — bs=128, cudagraphs=on</strong><br>
-        <span class="badge badge-baseline" style="background:#dcfce7;color:#166534">CHAMPION +72.6 %</span><br>
-        <span class="small">Job 53708 · <strong>2,394 img/s · 13.70 % MFU</strong><br>34.1 GB peak · no AC</span>
+        <span class="badge badge-baseline" style="background:#dcfce7;color:#166534">SCREEN CHAMP +72.6 %</span><br>
+        <span class="small">Job 53708 · 2,394 img/s · 13.70 % MFU (screen)<br>Sustained: ~1,830 avg / ~2,055 late · 34.1 GB</span>
       </div>
-      <div class="card" style="border-left:4px solid #a78bfa">
-        <strong>6.B — Static iBOT shapes</strong><br>
-        <span class="badge" style="background:#f3f4f6;color:#6b7280">QUEUED</span><br>
-        <span class="small">Pad / static-shape the dynamic-K iBOT path<br>Gate: Phase 6.A closed ✓</span>
+      <div class="card" style="border-left:4px solid #22c55e">
+        <strong>6.B — Sustainability soak</strong><br>
+        <span class="badge badge-baseline">CLOSED ✅ job 60959</span><br>
+        <span class="small">4000/4000 iters · VRAM flat 36.3 GB · crash fix validated<br><strong>Honest sustained: ~1,830 img/s / ~2,055 late-steady</strong></span>
       </div>
     </div>
-    <p class="small" style="margin-top:12px">The 7.94 % → 13.70 % MFU jump confirms Armen's diagnosis: per-step Python / kernel-launch overhead was a real bottleneck for ViT-B on one H100 node. The remaining gap is no longer an FSDP2/NCCL question. It is either static-shape graph capture for the heads/loss, a larger-model regime where matmuls dominate more of the step, or a different input pipeline configuration if we intentionally revisit bs&gt;128.</p>
+    <p class="small" style="margin-top:12px">The 7.94 % → 13.70 % MFU jump (screen) / ~10.5–11.8 % (sustained) confirms Armen's diagnosis: per-step Python / kernel-launch overhead was a real bottleneck for ViT-B on one H100 node. The screening number (2,394 img/s) was a favorable short burst; the honest 4000-iter number is ~1,830 avg / ~2,055 late as CUDA graphs and caches stabilize. One open watch-item: host RAM drifts +15 GB/hr from <code>cache_dataset=true</code> page cache — safe at 4000 iters but worth monitoring on multi-hour runs.</p>
   </section>
 
   <!-- ═══════════════════════════════════════════
@@ -492,6 +492,139 @@ metrics_dict = {}</code></pre>
         </div>
       </div>
 
+      <!-- ─── Phase 6.B pivot ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot" style="background:#6366f1"></div>
+        <div class="tl-card fix">
+          <div class="tl-header">
+            <span class="tl-title">Phase 6.B — Pivot to Sustainability Soaks</span>
+            <span class="badge badge-fix">SCOPE CHANGE</span>
+            <span class="muted small">2026-05-24</span>
+          </div>
+          <p>Phase 6.A established a performance champion (job 53708, bs=128, no-AC, cudagraphs=on). Phase 6.B was originally scoped as static-shape iBOT heads to extend CUDA-graph capture to the loss path. But the FSDP2 precedent — a champion that passed short screens but OOM'd in a real long run — made sustainability the higher-priority question before any new optimization work. Phase 6.B became: <em>does job 53708's config survive 4000 iters without VRAM growth, data-pipeline failures, or crashes?</em></p>
+          <p class="small">Soaks add: 4000 iters (~38 min), 8 checkpoint saves, 4 eval runs, <code>DINOV3_MEMORY_PROFILE=1</code> markers, per-rank log redirection, and a shell sidecar sampling <code>/proc/meminfo</code> every 10s to JSONL.</p>
+        </div>
+      </div>
+
+      <!-- ─── 6.B soaks — rank-6 crash series ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot crashed"></div>
+        <div class="tl-card crashed">
+          <div class="tl-header">
+            <span class="tl-title">6.B.1–6.B.2.c — Four soaks, all crash at iter ~1310 (rank 6)</span>
+            <span class="badge badge-crashed">JOBS 57299 / 57799 / 58188 / 59273 / 59274 — BLOCKED</span>
+            <span class="muted small">2026-05-24–27 · gpu03, gpu07</span>
+          </div>
+          <p>Every bs=128 soak — across two nodes, three different loader configs (12w/4pf, 16w/4pf, 16w/8pf), with and without AC — died at <strong>rank 6, iter ~1310</strong>, reproducibly. The same crash signature on gpu03 and gpu07 ruled out node-specific hardware. Prior jobs reported <code>error_file: &lt;N/A&gt;</code> because <code>main()</code> lacked the TorchElastic <code>@record</code> decorator; no traceback was ever surfaced.</p>
+
+          <p style="margin-top:10px"><strong>What the loader sweep did establish (before all jobs crashed):</strong></p>
+          <table style="margin-top:8px">
+            <thead><tr><th>Config</th><th>data_time (stall)</th><th>Wall img/s (p50)</th><th>GPU-only img/s</th></tr></thead>
+            <tbody>
+              <tr><td>12w/4pf (58188)</td><td>visible (~10–30 %)</td><td class="num">~1,158</td><td class="num">2,558</td></tr>
+              <tr><td>16w/4pf (59273)</td><td>high — loader-bound</td><td class="num">~940–980</td><td class="num">~2,070</td></tr>
+              <tr style="background:#f0fdf4"><td>16w/8pf (59274)</td><td>≈0 (p50 ~2 ms) — hidden</td><td class="num">~1,110–1,150</td><td class="num">~2,070</td></tr>
+            </tbody>
+          </table>
+          <div class="note" style="margin-top:10px">
+            <strong>Key loader finding: prefetch depth, not worker count, hides the loader.</strong>
+            Both 16w runs have the same worker count; only pf=8 drove data_time to ~0. There is also a large wall↔GPU gap even with data_time≈0 in 59274 (GPU-event step ≈430 ms, wall iter ≈890–920 ms — ~2×). With the loader excluded, this ~450 ms/iter is CPU-side per-iter overhead (collate/cast, H2D launch, EMA, GC, Python, CUDA-graph replay) — the next optimization lever once a soak completes. MetricLogger's GPU-only img/s hides it entirely.
+          </div>
+          <div class="note" style="margin-top:8px">
+            <strong>Cgroup memory lesson (retracted earlier model).</strong>
+            Three soaks with different <code>--mem</code> limits each peaked at exactly their limit (300/430/540 GB). <code>cgroup.memory.current</code> is dominated by reclaimable file-backed page cache that expands to fill any room given. A per-worker fixed-anon-cost model was fit from one data point and retracted. The real memory floor is unmeasured — requires <code>memory.stat</code> anon/file split or a step-down sweep.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── 6.B.4 root cause ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot fix"></div>
+        <div class="tl-card fix">
+          <div class="tl-header">
+            <span class="tl-title">6.B.4 — Rank-6 crash: root cause found + fix (job 59847)</span>
+            <span class="badge badge-fix">ROOT CAUSE + CODE CHANGE</span>
+            <span class="muted small">satlas_datasets.py · 2026-05-28</span>
+          </div>
+          <p><strong>How it was caught.</strong> Capture job 59847 added <code>@record</code> to <code>main()</code> + <code>torchrun --redirects=3 --tee=3 --log-dir</code> (per-rank stdout/stderr). Rank 6's per-rank log finally held the real exception:</p>
+          <pre><code>libpng error: Read Error
+PermissionError: Caught PermissionError in DataLoader worker process 11.
+  mixed_satlas_dataset.py:169   self.datasets[i][base_idx]
+  satlas_datasets.py:342        self.save_error_path(tci_path)
+  satlas_datasets.py:58         with open(save_path, "a") as f:
+PermissionError: [Errno 13] Permission denied:
+  '/mnt/weka/akhosrovyan/re-id/pretraining/satlas-dataset-v1-naip-2020/naip_error_paths.txt'</code></pre>
+          <p><strong>Chain:</strong> a corrupt/truncated NAIP PNG → <code>cv2.imread</code> returns <code>None</code> → the dataset's self-heal recovery calls <code>save_error_path()</code> → which appended the bad path to a log file <em>inside akhosrovyan's dataset directory</em>. <code>adovlatyan</code> has read-but-not-write access there → uncaught <code>PermissionError</code> → kills the DataLoader worker → kills rank 6 → kills the job. The dataset <em>wanted</em> to skip the bad tile and continue; the only fatal element was the log write into a read-only dir.</p>
+          <div class="note">
+            <strong>Why deterministic (rank 6, iter ~1310, across 4 jobs / 2 nodes).</strong>
+            Workers inherit the rank's main-process numpy state seeded by <code>fix_random_seeds(seed+rank)</code>. The <code>_sample_ok_index</code> random-walk is reproducible run-to-run and reaches the same corrupt tile at the same global step.
+          </div>
+          <p style="margin-top:10px"><strong>Fix</strong> — <code>dinov3/data/datasets/satlas_datasets.py</code>, <code>save_error_path()</code>:</p>
+          <ul class="small">
+            <li><strong>Redirect</strong> the bad-tile log to a writable dir (<code>_ERROR_LOG_DIR</code>, env-overridable via <code>DINOV3_ERROR_LOG_DIR</code>, default <code>/mnt/weka/adovlatyan/logs/dataset_errors</code>).</li>
+            <li><strong>Guard</strong> the write in <code>try/except OSError</code> (warn + continue) so bad-tile <em>logging</em> can never again be fatal to training.</li>
+          </ul>
+          <p class="small">Regression test: <code>scripts/debug/test_save_error_path_fix.py</code> (3/3 pass). Full write-up: <code>scripts/debug/rank6_root_cause.md</code>.</p>
+          <div class="note-green" style="margin-top:8px">
+            <strong>Not an iBOT / CUDA-graph issue.</strong>
+            The crash has nothing to do with the compiler stack, DDP, or the batch size. It is a dataset-layer bug that triggered at a deterministic global step because of reproducible numpy RNG seeding.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── 6.B.5 validation ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot baseline"></div>
+        <div class="tl-card baseline">
+          <div class="tl-header">
+            <span class="tl-title">6.B.5 — Fix validation soaks: jobs 60590 (interim) + 60959 (FULL ✅)</span>
+            <span class="badge badge-baseline" style="background:#dcfce7;color:#166534">JOB 60959 — 4000/4000 COMPLETE</span>
+            <span class="muted small">gpu06 · 2026-05-29–30</span>
+          </div>
+          <p>Re-ran the 53708 recipe at 4000 iters (bs=128, no-AC, DDP, cudagraphs, 20w/8pf) with the <code>save_error_path</code> fix in the working tree. Interim run 60590 reached iter 3770/4000 before Slurm killed it on walltime (01:30:00 too short). Resubmitted at 4h → job 60959.</p>
+          <p><strong>Training Total time: 1:53:44</strong>, gpu06. Logs: <code>/mnt/weka/adovlatyan/logs/soak-bs128-cg-60959.{out,err}</code>; memlog <code>soak_ddp_bs128_cg-60959-memlog.jsonl</code>.</p>
+
+          <div class="two" style="margin-top:12px">
+            <div>
+              <p><strong>VRAM — dead-flat, zero fragmentation</strong></p>
+              <table>
+                <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td><code>[MEMPROFILE] max_reserved_mb</code></td><td class="num">36,266 MB (dead-flat across all 8 ckpts + 4 evals)</td></tr>
+                  <tr><td>One-time warmup spike</td><td class="num">36,454 MB at iter 0 only</td></tr>
+                  <tr><td>fragmentation_ratio</td><td class="num">0.040 (flat iter 49→3999)</td></tr>
+                  <tr><td>alloc_retries / num_ooms</td><td class="num">0 / 0 throughout</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <p><strong>Throughput — honest sustained numbers</strong></p>
+              <table>
+                <thead><tr><th>Window</th><th>Median img/s</th><th>Median MFU</th></tr></thead>
+                <tbody>
+                  <tr><td>early (iter 200–1000)</td><td class="num">1,636</td><td class="num">9.4 %</td></tr>
+                  <tr><td>mid (iter 1500–2500)</td><td class="num">1,857</td><td class="num">10.6 %</td></tr>
+                  <tr style="background:#f0fdf4;font-weight:700"><td>late (iter 3000–3999)</td><td class="num">2,055</td><td class="num">11.8 %</td></tr>
+                  <tr><td>all steady (≥100)</td><td class="num">1,830</td><td class="num">10.5 %</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="note-green" style="margin-top:12px">
+            <strong>Success criteria met.</strong> No OOM, no crash, max_reserved non-increasing across all checkpoint and eval events. The FSDP2 "short screen passes / long run OOMs" failure mode does <em>not</em> reproduce for DDP+cudagraphs. The single <code>libpng error: Read Error</code> in <code>60959.err</code> self-heals — the §6.B.4 fix executing end-to-end.
+          </div>
+          <div class="note" style="margin-top:8px">
+            <strong>Throughput correction vs screening champion.</strong>
+            The 53708 "champion" of 2,394 img/s / 13.70 % MFU was a 1000-iter screen on a fresh GPU — a favorable short-burst window. The honest 4000-iter sustained figure is <strong>~1,830 img/s run-avg / 10.5 % MFU (–23.5 %)</strong>. Throughput <em>improves</em> over the run as CUDA graphs stabilize and caches warm (1,636 early → 2,055 late) — it does not thermally throttle. Early slow iters (53 iters &gt;650 ms) are concentrated before iter 1000 (32/53) — CUDA-graph/thermal ramp, not iBOT mask-count variance.
+          </div>
+          <div class="warn" style="margin-top:8px">
+            <strong>Open watch-item: host RAM +15 GB/hr drift.</strong>
+            Peak 612.8 GB of ~2 TB node. The stable window regresses at ~+15 GB/hr (above the 8 GB page-cache noise floor) — almost certainly <code>train.cache_dataset=true</code> filling the dataset cache, not an active leak. At this rate an 8h run reaches ~695 GB — safe headroom, but worth monitoring on multi-hour production runs. Not a blocker.
+          </div>
+        </div>
+      </div>
+
     </div><!-- /timeline -->
   </section>
 
@@ -691,16 +824,28 @@ metrics_dict = {}</code></pre>
           <td>Both attempts hit Slurm cgroup OOM. The limiter is DataLoader/prefetch host memory, not activation VRAM.</td>
         </tr>
         <tr>
-          <td><strong>6.B.1</strong></td>
-          <td>Static-shape DINO/iBOT heads and loss</td>
-          <td><span class="badge" style="background:#ede9fe;color:#5b21b6">NEXT — gate cleared ✓</span></td>
-          <td>Fix dynamic-K iBOT path, then extend fullgraph/CUDA graphs beyond the backbone. Gate is now Phase 6.A closure, not just 6.A.3.</td>
+          <td><strong>6.B.1–2.c</strong></td>
+          <td>bs=128 sustainability soaks (20w/8pf, 12w/4pf, 16w/4pf, 16w/8pf)</td>
+          <td><span class="badge badge-crashed">CRASHED iter ~1310 — jobs 57299/58188/59273/59274</span></td>
+          <td>All four soaks died at rank 6, iter ~1310, deterministically across two nodes. Root cause not yet known at this stage.</td>
+        </tr>
+        <tr>
+          <td><strong>6.B.4</strong></td>
+          <td>Capture run + fix: <code>save_error_path()</code> in <code>satlas_datasets.py</code></td>
+          <td><span class="badge badge-fix">ROOT CAUSE FOUND + FIXED — job 59847</span></td>
+          <td>Corrupt NAIP PNG → <code>save_error_path()</code> tries to write to akhosrovyan's read-only dir → <code>PermissionError</code> kills DataLoader worker → kills rank 6. Fix: redirect log + <code>try/except OSError</code> guard.</td>
+        </tr>
+        <tr style="background:#f0fdf4">
+          <td><strong>6.B.5</strong></td>
+          <td>bs=128 no-AC cudagraphs, 4000 iters, fix applied</td>
+          <td><span class="badge badge-baseline" style="background:#dcfce7;color:#166534">✅ COMPLETE — job 60959</span></td>
+          <td><strong>4000/4000 iters.</strong> VRAM dead-flat 36.3 GB (no growth across 8 ckpts + 4 evals). Sustained ~1,830 img/s / 10.5 % MFU avg; late-steady ~2,055 img/s / 11.8 %. One <code>libpng</code> error self-heals. Host RAM +15 GB/hr drift (cache, not leak).</td>
         </tr>
       </tbody>
     </table>
-    <div class="note" style="margin-top:12px">
-      <strong>Phase 6.A conclusion</strong>
-      Batch size helped until bs=128, but bs=192 is blocked by host RAM from the DataLoader/prefetch working set. Activation checkpointing did not break fullgraph capture, but it cost about 31 % throughput and only saved GPU memory, which was not the limiting resource. The practical default is bs=128 no-AC with cudagraphs enabled; Phase 6.B is the next optimization path.
+    <div class="note ok" style="margin-top:12px">
+      <strong>Phase 6 conclusion</strong>
+      DDP + bs=128 + cudagraphs (no AC) is <strong>production-sustainable</strong> — VRAM flat at 36.3 GB, no crash over a full 4000-iter soak with the <code>save_error_path</code> fix. The honest sustained throughput is ~1,830 img/s run-avg / ~2,055 late-steady (10.5–11.8 % MFU). One open watch-item: host-RAM +15 GB/hr drift (<code>cache_dataset=true</code>) on runs ≫4000 iters. The screening champion (2,394 img/s) was a favorable short-burst window — the production planning number is ~2,055 img/s late-run.
     </div>
   </section>
 
@@ -894,6 +1039,10 @@ mask_indices_list = collated_masks.flatten()
       <li><a href="perf_experiment_log.md">perf_experiment_log.md:646-650</a> — Phase 4 compile-mode screening (max-autotune incompatibility history)</li>
       <li><span class="muted">/mnt/weka/adovlatyan/logs/ddp-bs96-cudagraphs-53655.err</span> — job 53655 crash trace (buffer aliasing)</li>
       <li><span class="muted">/mnt/weka/adovlatyan/logs/ddp-bs96-cudagraphs-53672.err</span> — job 53672 stderr (<code>skipping cudagraphs</code> warnings)</li>
+      <li><span class="muted">/mnt/weka/adovlatyan/logs/rank6-capture-59847-perrank/…/6/stderr.log</span> — per-rank log from capture job 59847; holds the real <code>PermissionError</code> traceback</li>
+      <li><a href="../../scripts/debug/rank6_root_cause.md">scripts/debug/rank6_root_cause.md</a> — full root-cause write-up: corrupt NAIP PNG chain, determinism mechanism, Codex adversarial review, fix C open item</li>
+      <li><span class="muted">/mnt/weka/adovlatyan/logs/soak-bs128-cg-60959.{out,err}</span> — job 60959 full soak log (4000 iters, gpu06, 2026-05-30)</li>
+      <li><span class="muted">/mnt/weka/adovlatyan/logs/soak_ddp_bs128_cg-60959-memlog.jsonl</span> — 10s host-RAM sidecar (753 samples); source for +15 GB/hr drift analysis</li>
     </ul>
   </section>
 

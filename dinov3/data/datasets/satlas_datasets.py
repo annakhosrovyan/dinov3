@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import random
@@ -12,6 +13,36 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from dinov3.data.datasets.channel_utils import validate_channel_count
+
+logger = logging.getLogger("dinov3")
+
+# ---------------------------------------------------------------------------
+# Aram-specific bad-tile error-log redirect (added 2026-05-28, adovlatyan)
+#
+# WHY THIS EXISTS — this is only relevant when running as a user who does NOT
+# own the satellite datasets. The Sen1/Sen2/NAIP data live under another
+# researcher's Weka space (e.g. /mnt/weka/akhosrovyan/re-id/pretraining/...),
+# which I (adovlatyan) can READ but cannot WRITE.
+#
+# Upstream `SatlasDataset.save_error_path()` logged each undecodable tile by
+# appending to a file *inside the dataset directory itself*. For the dataset
+# owner that is fine; for me it raises `PermissionError: [Errno 13]`. That
+# exception is raised inside a DataLoader worker, is uncaught, and is re-raised
+# in the main process — which kills the rank and aborts the whole DDP job.
+#
+# This was the root cause of the deterministic "rank 6 dies at iter ~1310"
+# soak crashes (jobs 57299/58188/59273/59274): a corrupt NAIP PNG triggered the
+# error-logging path, and the read-only write turned a *recoverable* bad tile
+# into a *fatal* crash. Full write-up: scripts/debug/rank6_root_cause.md and
+# docs/phase6_perf_plan.md §6.B.
+#
+# FIX: redirect the bad-tile log to a directory I own. Override the location
+# with the env var DINOV3_ERROR_LOG_DIR; the default points at my Weka logs.
+# The dataset owner can set DINOV3_ERROR_LOG_DIR="" to restore the original
+# in-place behavior (the write is guarded either way, so it is never fatal).
+# ---------------------------------------------------------------------------
+_ERROR_LOG_DIR = os.environ.get("DINOV3_ERROR_LOG_DIR", "/mnt/weka/adovlatyan/logs/dataset_errors")
+
 
 class SatlasDataset(Dataset):
     def __init__(
@@ -54,9 +85,39 @@ class SatlasDataset(Dataset):
         return np.load(stats_path, allow_pickle=True).item()
 
     def save_error_path(self, error_path: str) -> None:
-        save_path = os.path.join(os.path.dirname(self.data_path), f"{os.path.basename(self.data_path)}_error_paths.txt")
-        with open(save_path, "a") as f:
-            f.write(f"{error_path}\n")
+        """Record an undecodable/corrupt tile path to an error log. Best-effort, NEVER fatal.
+
+        See the module-level comment above ``_ERROR_LOG_DIR``: when running against a
+        read-only dataset (datasets owned by another user), the upstream behavior of
+        writing this log *into the dataset directory* raises PermissionError inside a
+        DataLoader worker and crashes the whole rank. We therefore:
+
+          1. Redirect the log to a writable directory (``_ERROR_LOG_DIR``, overridable
+             via the ``DINOV3_ERROR_LOG_DIR`` env var). Each dataset keeps its own file,
+             keyed by the dataset basename, so Sen1/Sen2/NAIP errors stay separable.
+          2. Guard the write in try/except — a corrupt tile is *already* handled by the
+             caller (``_invalidate_index`` + resample), so failing merely to *log* it must
+             not take down training. We warn and continue.
+        """
+        fname = f"{os.path.basename(self.data_path)}_error_paths.txt"
+        if _ERROR_LOG_DIR:
+            # Aram-specific redirect: write to a directory I own, not the read-only dataset dir.
+            save_path = os.path.join(_ERROR_LOG_DIR, fname)
+        else:
+            # Original upstream behavior (dataset owner only): log beside the dataset.
+            save_path = os.path.join(os.path.dirname(self.data_path), fname)
+        try:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            with open(save_path, "a") as f:
+                f.write(f"{error_path}\n")
+        except OSError as e:
+            # Non-fatal by design: never let bad-tile *logging* crash a DataLoader worker.
+            logger.warning(
+                "save_error_path: could not record bad tile %r to %r (%s); continuing without logging",
+                error_path,
+                save_path,
+                e,
+            )
 
     def _manifest_candidates(self, filename: str) -> List[str]:
         data_manifest = os.path.join(self.data_path, filename)

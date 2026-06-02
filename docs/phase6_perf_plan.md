@@ -726,6 +726,8 @@ The key instrument is the combination of `DINOV3_MEMORY_PROFILE=1` (fires `[MEMP
 | 6.B.2.b | 59273 | bs=128, AC=full, **16w/4pf**, --mem=430G | ~940–980 wall (~2,070 GPU-only) | — | 12.7 GB (AC=full) | **430.0 GB (= limit)** | loader-bound, rank-6 crash at iter ~1310 (gpu07) |
 | 6.B.2.c | 59274 | bs=128, AC=full, **16w/8pf**, --mem=540G | **~1,110–1,150 wall** (~2,070 GPU-only) | — | 12.7 GB (AC=full) | **539.8 GB (= limit)** | data fully hidden (data_time≈0), rank-6 crash at iter ~1310 (gpu07) |
 | 6.B.3 | — | bs=192, no-AC, reduced loader | — | — | — | — | **deprioritized** (see below) |
+| 6.B.5 (fix validation, interim) | 60590 | bs=128, no-AC, 20w/8pf, **save_error_path fix applied** | ~1,940 avg / ~2,000–2,600 steady | 11.1% avg | 37.9 GB reserved (flat iter 49→3770) | ~570 GB host | crash GONE — reached iter 3770, killed by TIME LIMIT (walltime too short). See §6.B.5 |
+| **6.B.5 (fix validation, FULL)** | **60959** | bs=128, no-AC, 20w/8pf, fix applied, **--time=4h** | **1,830 run-avg / 2,055 late-median (max 2,658)** | **10.5% avg / 11.8% late** | **36.3 GB reserved (dead-flat iter 49→3999, frag 0.040, 0 OOM/retry)** | 613 GB peak, **+15 GB/hr drift** | **✅ FULL 4000/4000 — fix validated end-to-end. See §6.B.5** |
 
 *6.B.1 memlog read node-wide `/proc/meminfo`, not cgroup memory — see 6.B.2 memlog fix.
 
@@ -736,6 +738,27 @@ The key instrument is the combination of `DINOV3_MEMORY_PROFILE=1` (fires `[MEMP
 > below. Separately, all four bs=128 soaks (57299, 58188, 59273, 59274) died at **rank 6,
 > iter ~1310, across two nodes (gpu03 + gpu07)** — a data-deterministic crash that is now the
 > #1 blocker: no bs=128 soak has ever passed 1310/4000 iters.
+>
+> **UPDATE (2026-05-28): the rank-6 crash is SOLVED and fixed.** Capture job 59847 (with
+> `@record` + per-rank logs) caught the real traceback: a corrupt NAIP PNG triggers the
+> dataset's bad-tile error logger, which tried to write *into akhosrovyan's read-only Weka
+> dir* → `PermissionError` killed the worker → killed rank 6. Not an iBOT/CUDA-graph issue.
+> Fixed by redirecting the error log to a writable dir + a non-fatal guard. See §6.B.4 below;
+> full write-up in `scripts/debug/rank6_root_cause.md`.
+>
+> **VALIDATED END-TO-END (2026-05-30): job 60959 completed the FULL 4000/4000 iterations**
+> (4h walltime). The single `libpng error: Read Error` event self-heals instead of killing
+> rank 6; VRAM is dead-flat at **36.3 GB reserved** across all 8 checkpoints + 4 evals
+> (`frag=0.040`, `alloc_retries=0`, `num_ooms=0` the entire run). The 6.B sustainability
+> question is now closed: **the champion config is production-sustainable.** The interim run
+> 60590 reached iter 3770 but was killed by a too-short walltime; 60959 supersedes it. See §6.B.5.
+>
+> **Throughput correction (Codex-reviewed):** sustained throughput is **~1,830 img/s run-avg
+> (–23.5% vs the 53708 1000-iter screening "champion" of 2,394)**; only the late-stage median
+> (~2,055 img/s, iter 3000–3999) approaches that range. The screening number was a favorable
+> short-burst window — the honest long-run figure is lower. Throughput *improves* over the run
+> (early ~1,636 → late ~2,055 img/s) as CUDA graphs stabilize and caches warm; it does **not**
+> thermally throttle.
 
 ---
 
@@ -838,18 +861,11 @@ Caveat: every run crashed at iter ~1310, so these are short steady-state windows
 
 ### Recommended next experiments
 
-1. **FIX THE RANK-6 CRASH FIRST — blocks all of Phase 6.C.** Four jobs, two nodes (gpu03,
-   gpu07), all die at rank 6 around iter ~1310 with exit code 1 and **no traceback** (the
-   elastic `error_file` is `<N/A>`, so the actual exception is lost). Following the rank
-   across nodes rules out a node-hardware fault and points at **rank 6's data stream** hitting
-   a bad sample / HDF5 read at that data index. Concrete steps:
-   - `export TORCHELASTIC_ERROR_FILE=/mnt/weka/adovlatyan/logs/elastic-err-%j-rank%r.json`
-     and route per-rank stderr so the next crash captures the real exception (currently every
-     soak produces a useless `<NO_OTHER_FAILURES>`).
-   - Once captured, inspect the offending sample (rank 6's shard, ~global iter 1310 × its
-     data index) for a corrupt/zero-byte tile or an out-of-range value.
-   Until this is fixed, **no bs=128 soak can validate sustainability** — they all die at 1/3
-   of the 4000-iter target.
+1. ~~**FIX THE RANK-6 CRASH FIRST — blocks all of Phase 6.C.**~~ **✅ DONE (2026-05-28) — see
+   §6.B.4 below.** Root cause was a corrupt NAIP PNG whose bad-tile error-logger tried to write
+   into a read-only dataset dir (`PermissionError`), not a data-value/HDF5 issue. Fixed in
+   `dinov3/data/datasets/satlas_datasets.py`. **Next: re-run a clean bs=128 soak to validate
+   it now passes iter 1310 and completes 4000 iters.**
 
 2. **Find the real memory floor** — step-down `--mem` sweep on one config (e.g. 16w/8pf at
    450G, 400G, 350G) or add `memory.stat` anon/file logging to the sidecar. This replaces the
@@ -862,3 +878,159 @@ Caveat: every run crashed at iter ~1310, so these are short steady-state windows
 4. **Phase 6.B.3 (bs=192) stays deprioritized.** Its motivation was the loader-reduction
    trick; with the loader story now resolved (prefetch depth, page-cache-bound cgroup), and
    bs=128 still unable to complete a soak, bs=192 is not worth running until rank-6 is fixed.
+
+---
+
+### 6.B.4 — Rank-6 / iter-~1310 crash: ROOT CAUSE + FIX (job 59847, 2026-05-28) ✅
+
+**How it was caught.** The four prior soaks reported `error_file: <N/A>` with no traceback
+because `main()` was not decorated with torchelastic's `@record`. Capture job **59847** added
+`@record` + `torchrun --redirects=3 --tee=3 --log-dir` (per-rank stdout/stderr) and reproduced
+the crash at iter ~1310. Rank 6's per-rank log
+(`/mnt/weka/adovlatyan/logs/rank6-capture-59847-perrank/none_okz52y0h/attempt_0/6/stderr.log`)
+finally held the real exception.
+
+**Root cause — a corrupt NAIP PNG + a read-only error-log write (NOT iBOT / CUDA graphs):**
+
+```
+libpng error: Read Error
+PermissionError: Caught PermissionError in DataLoader worker process 11.
+  mixed_satlas_dataset.py:169   self.datasets[i][base_idx]
+  satlas_datasets.py:342        self.save_error_path(tci_path)
+  satlas_datasets.py:58         with open(save_path, "a") as f:
+PermissionError: [Errno 13] Permission denied:
+  '/mnt/weka/akhosrovyan/re-id/pretraining/satlas-dataset-v1-naip-2020/naip_error_paths.txt'
+```
+
+Chain: a corrupt/truncated NAIP PNG → `cv2.imread` returns `None` (`satlas_datasets.py:338`) →
+the dataset's self-heal recovery calls `save_error_path()` (`:342`) → which appended the bad
+path to a log file **inside akhosrovyan's dataset directory** (`:56-59`). `adovlatyan` has
+read-but-not-write access there → uncaught `PermissionError` → kills the DataLoader worker →
+kills rank 6 → kills the job. The dataset *wanted* to skip the bad tile and continue; the only
+fatal element was the log write into a read-only dir.
+
+**Why deterministic (rank 6, iter ~1310, 4 jobs / 2 nodes):** observed fact. Mechanism: the SSL
+loader supplies no `worker_init_fn` (`loaders.py:210,250`), so forked workers inherit the rank's
+main-process numpy state seeded by `fix_random_seeds(seed+rank)` (`config.py:165,206`). The
+`_sample_ok_index` `np.random.randint` walk (`satlas_datasets.py:111-114`) is thus reproducible
+run-to-run and reaches the same corrupt tile at the same global step. (Fragile to fork→spawn or
+torch-version changes; the crash *class* is robust, the exact iter is not.)
+
+**Why the CPU repro (job 59814) gave a false negative:** it replayed only the outer
+`ShardedInfiniteSampler` index stream and called `ds[idx]`. It did not model the NAIP internal
+*ok-index pool* remapping (`__getitem__:332-333`) nor the per-worker numpy RNG state, so it
+sampled different tiles and never hit the corrupt PNG. Lesson: reproducing the sampler stream ≠
+reproducing the dataset's internal stochastic index selection.
+
+**Independent review:** Codex reviewed the analysis (PARTIALLY AGREE — it confirmed the chain
+from source but could not read the Weka traceback). It corrected my determinism wording (no
+per-worker numpy seeding; it's fork-inheritance of the rank seed) and flagged a latent
+`while True` recovery-loop DDP-deadlock risk if a whole shard is unreadable (`satlas_datasets.py`
+`:179` Sen1, `:257` Sen2, `:334` NAIP). That loop-bound (Codex's "fix C") is **not yet
+implemented** — tracked as a follow-up.
+
+**The fix (commit pending):** `dinov3/data/datasets/satlas_datasets.py`, `save_error_path()` —
+the method is defined **once** on the base `SatlasDataset` and inherited by Sen1/Sen2/NAIP, so a
+single edit covers all three. Two changes:
+- **Redirect** the bad-tile log to a writable dir (`_ERROR_LOG_DIR`, env-overridable via
+  `DINOV3_ERROR_LOG_DIR`, default `/mnt/weka/adovlatyan/logs/dataset_errors`). Aram-specific and
+  documented as such in the source — the dataset owner can set `DINOV3_ERROR_LOG_DIR=""` to
+  restore in-place logging.
+- **Guard** the write in `try/except OSError` (warn + continue) so bad-tile *logging* can never
+  again be fatal to training.
+
+Regression test: `scripts/debug/test_save_error_path_fix.py` (3/3 pass — reproduces the original
+crash, proves the redirect, proves the guard survives an unwritable target). No GPU needed.
+
+**Next:** ~~re-run a clean bs=128 soak (no-AC, 53708 recipe at 4000 iters) to confirm it now
+passes iter 1310 and completes~~ — ✅ **DONE (job 60590, 2026-05-29). The crash is gone; see
+§6.B.5 below.** Follow-ups: (a) implement Codex's loop-bound (C) to remove the shard-unreadable
+deadlock risk; (b) the wall↔GPU ~2× gap (finding #3 above) is the next throughput lever once a
+soak completes.
+
+### 6.B.5 — Fix validation soak (jobs 60590 interim + 60959 FULL, 2026-05-29/30) ✅ CLOSED
+
+Re-ran the 53708 recipe at 4000 iters (bs=128, no-AC, DDP, cudagraphs, 20w/8pf) with the
+`save_error_path` fix in the working tree (`config.py` logged `sha: 55014c6, status: has
+uncommited changes` — confirms the uncommitted fix was live). Script:
+`scripts/soak/ddp_bs128_cg_soak.sh`. Logs: `/mnt/weka/adovlatyan/logs/soak-bs128-cg-60590.{out,err}`.
+
+**Verdict: the rank-6 / iter-~1310 crash is SOLVED in a real run.**
+
+1. **It passed the crash point.** Every prior soak (57299/58188/59273/59274) died at iter
+   ~1310. This run reached **iter 3770/4000** before Slurm killed it on `TIME LIMIT` — *not* a
+   fault, not an OOM, no traceback, no `[STEPDIAG]` trip.
+2. **The smoking gun: `libpng error: Read Error` appears once in `60590.err` and training
+   continues.** That is the *same* corrupt-NAIP-tile event class that used to raise the fatal
+   `PermissionError` at `satlas_datasets.py:342→:58`. With the fix, the bad tile is logged to the
+   redirected writable path (or silently skipped if even that fails), `_invalidate_index` +
+   resample run, and the loop continues. This is the §6.B.4 fix executing end-to-end.
+3. **Memory is rock-stable** — the FSDP2-style "short screen passes, long run OOMs" failure mode
+   does **not** reproduce for DDP+cudagraphs. `[MEMFRAG] current_reserved_mb=37908` is *flat* from
+   iter 49 → 3749; `fragmentation_ratio=0.032` flat; `alloc_retries=0`, `num_ooms=0` throughout.
+   `[MEMPROFILE]` shows `max_reserved_mb=37908` constant across all 8 checkpoint saves and 4 eval
+   runs (`steady_state` peak `max_alloc_mb=34097`). **SUCCESS CRITERION met** (no OOM,
+   max_reserved non-increasing).
+4. **Host RAM plateaus.** The 10s sidecar (`soak_ddp_bs128_cg-60590-memlog.jsonl`, 533 samples)
+   ramps to ~560–590 GB and holds (q0.25=564, q0.5=560, q0.75=572, q1.0=577 GB of 2 TB node
+   RAM) — page-cache/prefetch working set, not unbounded growth.
+5. **Throughput consistent with the champion.** Running avg ~1,940 img/s over 4000 iters,
+   11.1% MFU avg; individual steady iters spike to 2,000–2,600 img/s. The average is below the
+   53708 1000-iter screen (2,394 img/s) as expected — a 4000-iter soak amortizes compile warmup
+   over more iters but also pays 8 checkpoint saves + 4 eval runs that the short screen never hit.
+
+**Caveat (interim run 60590) — did not *complete* 4000 iters.** Walltime was `01:30:00`; the
+full run needs ~1h54m. Re-submitted at `--time=04:00:00` → job 60959 below.
+
+---
+
+#### FULL COMPLETION — job 60959 (2026-05-30), Codex-reviewed ✅ 6.B CLOSED
+
+Re-ran identical config with a 4h walltime. **Completed the FULL 4000/4000 iterations**
+(`Training Total time: 1:53:44`, gpu06). Logs: `/mnt/weka/adovlatyan/logs/soak-bs128-cg-60959.{out,err}`,
+memlog `soak_ddp_bs128_cg-60959-memlog.jsonl`. A Codex adversarial second-opinion pass
+confirmed all findings below and corrected two of my initial numbers (folded in).
+
+1. **Crash fix validated end-to-end.** 4000/4000 iters, no crash, no OOM, no NaN, no worker
+   restart, no traceback. Exactly **one** `libpng error: Read Error` in `60959.err` — it
+   self-heals and training continues (the §6.B.4 fix in production). Prior soaks all died at
+   iter ~1310; this passed it cleanly and ran to completion.
+2. **VRAM dead-flat and sustainable.** `[MEMPROFILE] max_reserved_mb=36266` identical across
+   all 8 checkpoint saves + 4 eval runs (one-time warmup spike to 36454 at iter 0, then 36266
+   for the rest). `[MEMFRAG] fragmentation_ratio=0.040`, `alloc_retries=0`, `num_ooms=0` at
+   every marker iter 49→3999. The FSDP2 "short screen passes / long run OOMs" failure mode
+   does **not** reproduce for DDP+cudagraphs. **SUCCESS CRITERION met** (reserved
+   non-increasing, zero OOM).
+3. **Throughput — honest sustained number is below the screening champion.** Run-avg
+   **~1,830 img/s / 10.5% MFU** (median over all steady iters ≥100). This is **–23.5% vs the
+   53708 1000-iter screen (2,394 img/s / 13.70%)** — the screening "champion" was a favorable
+   short-burst window, not a sustained rate. Throughput *improves* over the run as CUDA graphs
+   stabilize and caches warm — it does **not** thermally throttle:
+
+   | window | median img/s | median MFU | vs 2,394 |
+   |---|---|---|---|
+   | early (iter 200–1000) | 1,636 | 9.4% | –31.7% |
+   | mid (iter 1500–2500) | 1,857 | 10.6% | –22.4% |
+   | late (iter 3000–3999) | **2,055** | **11.8%** | –14.2% |
+   | all steady (≥100) | 1,830 | 10.5% | –23.5% |
+
+   Per-iter step_time ranges 375–575ms+. Codex's slow-iter analysis (53 iters >650ms):
+   only 5 are data stalls (a NAIP cache-fill burst around iter 240–300, `data_s>0.1`); the
+   other 48 are compute stalls **concentrated before iter 1000** (32/53) and nearly absent
+   after iter 2000 — i.e. early CUDA-graph/thermal ramp, **not** iBOT mask-count variance
+   (which would be uniform). The late-stage **~2,055 img/s is the truest sustained number.**
+4. **Host RAM — not a flat plateau; a slow drift.** Peak **612.8 GB** of a ~2 TB node. The
+   stable window (t+10→t+115min) regresses at **+15 GB/hr** (1.8× the 8 GB page-cache noise
+   floor) — almost certainly `train.cache_dataset=true` filling the dataset cache, not an
+   active leak. At this rate an 8h real run reaches ~695 GB — **safe headroom, but worth
+   monitoring** on multi-hour production runs. **Open question, not a blocker.**
+5. **Convergence note (not a soak-validity issue):** `koleo_loss` goes slightly negative late
+   (iter 3999 instantaneous –0.117, window-avg +0.196). KoLeo is a diversity regularizer;
+   negative values indicate representations spreading out — likely healthy learning, flag for
+   convergence analysis on real training, not a stability concern.
+
+**6.B verdict: CLOSED.** DDP + bs=128 + cudagraphs (no AC) is **production-sustainable** — VRAM
+flat at 36.3 GB, no crash over a full 4000-iter soak with the `save_error_path` fix. The honest
+sustained throughput is **~1,830 img/s run-avg / ~2,055 late-steady (10.5–11.8% MFU)**, below
+the optimistic 2,394 screening number. One open watch-item: host-RAM +15 GB/hr drift
+(`cache_dataset=true`) on runs ≫4000 iters.

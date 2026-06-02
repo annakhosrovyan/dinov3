@@ -17,6 +17,7 @@ from pathlib import Path
 import torch
 import torch.distributed
 from torch.distributed._tensor import DTensor
+from torch.distributed.elastic.multiprocessing.errors import record
 
 import dinov3.distributed as distributed
 from dinov3.checkpointer import (
@@ -604,7 +605,27 @@ def do_train(cfg, model, resume=False):
         step_start_event.record()
         optimizer.zero_grad(set_to_none=True)
         with nvtx("forward_backward"):
-            total_loss, metrics_dict = model.forward_backward(data, teacher_temp=teacher_temp, iteration=it)
+            try:
+                total_loss, metrics_dict = model.forward_backward(data, teacher_temp=teacher_temp, iteration=it)
+            except BaseException:
+                _r = distributed.get_rank()
+                logger.error("[STEPDIAG] exception in forward_backward iter=%d rank=%d", it, _r)
+                _items = list(data.items()) if isinstance(data, dict) else []
+                for _k, _v in _items:  # CPU metadata first (no CUDA ops)
+                    if torch.is_tensor(_v):
+                        logger.error("[STEPDIAG]  %s shape=%s dtype=%s dev=%s", _k, tuple(_v.shape), _v.dtype, _v.device)
+                    else:
+                        logger.error("[STEPDIAG]  %s = %r", _k, _v)
+                for _k, _v in _items:  # CUDA stats second (guarded — may be wedged)
+                    if torch.is_tensor(_v):
+                        try:
+                            _f = _v.detach().float()
+                            logger.error("[STEPDIAG]  %s nan=%s inf=%s min=%.4g max=%.4g sum=%.4g",
+                                         _k, bool(torch.isnan(_f).any()), bool(torch.isinf(_f).any()),
+                                         _f.min().item(), _f.max().item(), _f.sum().item())
+                        except BaseException as _e:
+                            logger.error("[STEPDIAG]  %s stats unavailable: %s", _k, _e)
+                raise
 
         # Gradient clipping
         with nvtx("grad_clip"):
@@ -780,6 +801,7 @@ def do_train(cfg, model, resume=False):
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
+@record
 def main(argv=None):
     if argv is None:
         args = get_args_parser().parse_args()
