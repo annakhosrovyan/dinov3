@@ -1,3 +1,5 @@
+import getpass
+import logging
 import math
 import os
 import random
@@ -12,6 +14,45 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from dinov3.data.datasets.channel_utils import validate_channel_count
+
+logger = logging.getLogger("dinov3")
+
+# ---------------------------------------------------------------------------
+# Bad-tile error-log destination (configurable).
+#
+# WHY THIS EXISTS — it matters when training as a user who does NOT own the
+# satellite datasets. The Sen1/Sen2/NAIP data often live under another
+# researcher's Weka space (e.g. /mnt/weka/<owner>/re-id/pretraining/...), which
+# a different user can READ but not WRITE.
+#
+# Upstream `SatlasDataset.save_error_path()` logged each undecodable tile by
+# appending to a file *inside the dataset directory itself*. For the dataset
+# owner that is fine; for a read-only consumer it raises
+# `PermissionError: [Errno 13]`. That exception is raised inside a DataLoader
+# worker, is uncaught, and is re-raised in the main process — which kills the
+# rank and aborts the whole DDP job. This was the root cause of deterministic
+# "rank 6 dies at iter ~1310" soak crashes: a corrupt NAIP PNG triggered the
+# error-logging path, and the read-only write turned a *recoverable* bad tile
+# into a *fatal* crash.
+#
+# FIX: redirect the bad-tile log to a writable directory and guard the write
+# (see save_error_path below — it is best-effort and never fatal).
+#   - Default: /mnt/weka/<you>/dinov3_dataset_errors — derived from the running
+#     user (getpass.getuser()), so each user logs into their OWN writable Weka
+#     space. This keeps the logs discoverable AND, by construction, sidesteps the
+#     read-only-dataset-dir PermissionError that was the root cause above (you
+#     can always write to a dir under your own user). The try/except in
+#     save_error_path is then just belt-and-suspenders for the odd unwritable case.
+#   - Override with DINOV3_ERROR_LOG_DIR=/some/other/dir (e.g. point it under a
+#     run's output dir for post-run inspection).
+#   - Set DINOV3_ERROR_LOG_DIR="" to restore the original in-place behavior
+#     (log beside the dataset — only works if you own/can write the dataset dir).
+# ---------------------------------------------------------------------------
+_ERROR_LOG_DIR = os.environ.get(
+    "DINOV3_ERROR_LOG_DIR",
+    os.path.join("/mnt/weka", getpass.getuser(), "dinov3_dataset_errors"),
+)
+
 
 class SatlasDataset(Dataset):
     def __init__(
@@ -54,9 +95,40 @@ class SatlasDataset(Dataset):
         return np.load(stats_path, allow_pickle=True).item()
 
     def save_error_path(self, error_path: str) -> None:
-        save_path = os.path.join(os.path.dirname(self.data_path), f"{os.path.basename(self.data_path)}_error_paths.txt")
-        with open(save_path, "a") as f:
-            f.write(f"{error_path}\n")
+        """Record an undecodable/corrupt tile path to an error log. Best-effort, NEVER fatal.
+
+        See the module-level comment above ``_ERROR_LOG_DIR``: when running against a
+        read-only dataset (datasets owned by another user), the upstream behavior of
+        writing this log *into the dataset directory* raises PermissionError inside a
+        DataLoader worker and crashes the whole rank. We therefore:
+
+          1. Redirect the log to a writable directory (``_ERROR_LOG_DIR``, overridable
+             via the ``DINOV3_ERROR_LOG_DIR`` env var). Each dataset keeps its own file,
+             keyed by the dataset basename, so Sen1/Sen2/NAIP errors stay separable.
+          2. Guard the write in try/except — a corrupt tile is *already* handled by the
+             caller (``_invalidate_index`` + resample), so failing merely to *log* it must
+             not take down training. We warn and continue.
+        """
+        fname = f"{os.path.basename(self.data_path)}_error_paths.txt"
+        if _ERROR_LOG_DIR:
+            # Redirect to a writable directory (default: temp dir), not the (possibly
+            # read-only) dataset dir. See the _ERROR_LOG_DIR comment at module top.
+            save_path = os.path.join(_ERROR_LOG_DIR, fname)
+        else:
+            # Original upstream behavior (dataset owner only): log beside the dataset.
+            save_path = os.path.join(os.path.dirname(self.data_path), fname)
+        try:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            with open(save_path, "a") as f:
+                f.write(f"{error_path}\n")
+        except OSError as e:
+            # Non-fatal by design: never let bad-tile *logging* crash a DataLoader worker.
+            logger.warning(
+                "save_error_path: could not record bad tile %r to %r (%s); continuing without logging",
+                error_path,
+                save_path,
+                e,
+            )
 
     def _manifest_candidates(self, filename: str) -> List[str]:
         data_manifest = os.path.join(self.data_path, filename)
