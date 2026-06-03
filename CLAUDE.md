@@ -8,12 +8,18 @@ Satellite-specialized fork of Meta's DINOv3 self-supervised vision foundation mo
 
 ## Environment Setup
 
-**Working env (2026-03-30)**: `~/.conda/envs/test-conda-slurm` — torch 2.6.0+cu124, all deps installed.
+**Canonical testing env (use this going forward, 2026-06-03)**:
+`/mnt/weka/adovlatyan/.conda/envs/dinov3_env_210clone` — torch **2.10.0+cu128**, triton 3.6.0,
+all deps. It is a clone of Anna's production `dinov3_env`, so testing here matches the **exact
+stack her full-dataset runs use** (`/mnt/weka/akhosrovyan/.conda/envs/dinov3_env`). It is
+adovlatyan-owned (no cross-user permission friction), and its console-script shebangs were
+repaired after cloning so `torchrun` runs directly.
 
 ```bash
 # In Slurm scripts — use PATH prepend, NOT conda activate (fails on GPU nodes):
-export PATH="/home/adovlatyan/.conda/envs/test-conda-slurm/bin:$PATH"
-export CONDA_PREFIX="/home/adovlatyan/.conda/envs/test-conda-slurm"
+export PATH="/mnt/weka/adovlatyan/.conda/envs/dinov3_env_210clone/bin:$PATH"
+export CONDA_PREFIX="/mnt/weka/adovlatyan/.conda/envs/dinov3_env_210clone"
+export PYTHONNOUSERSITE=1   # keep ~/.local out of the env (avoids cv2/numpy import conflicts)
 
 # Required env vars
 export PYTHONPATH=.
@@ -21,7 +27,13 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export OMP_NUM_THREADS=8
 ```
 
-**Requires PyTorch >= 2.6** (not 2.1 — the codebase uses `register_fsdp_forward_method` added in 2.6).
+**Original validation env (torch 2.6)**: `~/.conda/envs/test-conda-slurm` (torch 2.6.0+cu124).
+The DDP+cudagraphs recipe and the 4000-iter soak (job 60959) were validated here; the same
+recipe also passes on torch 2.10 (smoke job 63752), ~10% faster. Use 2.6 only to reproduce
+historical results — otherwise default to the 2.10 env above so testing tracks Anna's stack.
+
+**Requires PyTorch >= 2.6** (not 2.1 — the codebase uses `register_fsdp_forward_method` added in
+2.6). Validated on both 2.6 and 2.10.
 
 **The shared Weka env `/mnt/weka/shared-cache/miniforge3/envs/dinov3` does NOT have torch installed** — do not use it for running jobs.
 
