@@ -391,16 +391,18 @@ def _get_backbone_in_chans(model: torch.nn.Module) -> int:
     return backbone.patch_embed.proj.weight.shape[1]
 
 
-def _state_dict_uses_ddp_prefix(model: torch.nn.Module) -> bool:
-    return any(".module." in key for key in model.state_dict().keys())
+def _state_dict_uses_ddp_prefix(model_keys: set[str]) -> bool:
+    return any(".module." in key for key in model_keys)
 
 
 def _remap_checkpoint_keys_for_ddp(
-    state: dict[str, torch.Tensor], model: torch.nn.Module
+    state: dict[str, torch.Tensor], model_keys: set[str]
 ) -> dict[str, torch.Tensor]:
-    model_keys = set(model.state_dict().keys())
-    if not _state_dict_uses_ddp_prefix(model):
-        return state
+    # model_keys is the caller-computed set(model.state_dict().keys()). Accepting it as
+    # a parameter avoids re-calling state_dict() here (a rank-synchronizing op for
+    # distributed models). The caller only invokes this when the model uses the DDP
+    # ".module." prefix, so no internal guard is needed: for a non-DDP model every key
+    # already matches model_keys and the loop below returns the state unchanged anyway.
     remapped: dict[str, torch.Tensor] = {}
     for key, value in state.items():
         if key in model_keys:
@@ -478,8 +480,12 @@ def init_fsdp_model_from_checkpoint(
             raise ValueError(f"Unsupported checkpoint format at {checkpoint_path}")
         chkpt = _normalize_checkpoint_keys_for_model(chkpt, model)
         chkpt = adapt_patch_embed_input_channels(chkpt, _get_backbone_in_chans(model))
-        if _state_dict_uses_ddp_prefix(model):
-            chkpt = _remap_checkpoint_keys_for_ddp(chkpt, model)
+        # Compute the model's parameter keys once. A single state_dict() call drives the
+        # DDP detection, the key remap, and the final matched-keys check below — state_dict()
+        # is a rank-synchronizing op for distributed models, so we avoid redundant calls.
+        model_keys = set(model.state_dict().keys())
+        if _state_dict_uses_ddp_prefix(model_keys):
+            chkpt = _remap_checkpoint_keys_for_ddp(chkpt, model_keys)
             filtered_state = {
                 key: tensor.cuda()
                 for key, tensor in chkpt.items()
@@ -512,8 +518,7 @@ def init_fsdp_model_from_checkpoint(
                 for key, tensor in distributed_chkpt.items()
                 if not any(skip_load_key in key for skip_load_key in skip_load_keys)
             }
-        model_state_keys = set(model.state_dict().keys())
-        matched_keys = [k for k in filtered_state.keys() if k in model_state_keys]
+        matched_keys = [k for k in filtered_state.keys() if k in model_keys]
         if len(matched_keys) == 0:
             raise RuntimeError(
                 f"No checkpoint keys matched model keys for {checkpoint_path}. "

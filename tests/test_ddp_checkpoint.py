@@ -53,6 +53,11 @@ class _Backbone(nn.Module):
         self.norm = nn.LayerNorm(8)
 
 
+def _keys(model: nn.Module) -> set:
+    """The parameter-key set the loading path computes once and passes to the helpers."""
+    return set(model.state_dict().keys())
+
+
 class _Student(nn.Module):
     """Stand-in for the SSLMetaArch student container: holds a backbone that may or
     may not be DDP-wrapped."""
@@ -102,13 +107,13 @@ class TestGetBackboneInChans:
 class TestStateDictUsesDdpPrefix:
     def test_true_when_ddp_wrapped(self):
         model = _Student(ddp=True)
-        assert _state_dict_uses_ddp_prefix(model) is True
+        assert _state_dict_uses_ddp_prefix(_keys(model)) is True
         # sanity: the wrapper really does inject ".module." into keys
         assert any(".module." in k for k in model.state_dict().keys())
 
     def test_false_when_plain(self):
         model = _Student(ddp=False)
-        assert _state_dict_uses_ddp_prefix(model) is False
+        assert _state_dict_uses_ddp_prefix(_keys(model)) is False
 
 
 class TestRemapCheckpointKeysForDdp:
@@ -121,7 +126,7 @@ class TestRemapCheckpointKeysForDdp:
             "backbone.norm.weight": torch.randn(8),
             "backbone.norm.bias": torch.randn(8),
         }
-        remapped = _remap_checkpoint_keys_for_ddp(state, model)
+        remapped = _remap_checkpoint_keys_for_ddp(state, _keys(model))
         for k in state:
             ddp_key = k.replace("backbone.", "backbone.module.", 1)
             assert ddp_key in remapped, f"expected {ddp_key} in remapped keys"
@@ -132,14 +137,14 @@ class TestRemapCheckpointKeysForDdp:
         model = _Student(ddp=True)
         w = torch.randn(8)
         state = {"backbone.module.norm.weight": w}
-        remapped = _remap_checkpoint_keys_for_ddp(state, model)
+        remapped = _remap_checkpoint_keys_for_ddp(state, _keys(model))
         assert "backbone.module.norm.weight" in remapped
         assert remapped["backbone.module.norm.weight"] is w
 
     def test_passthrough_for_keys_without_ddp_counterpart(self):
         model = _Student(ddp=True)
         state = {"extra.unrelated.weight": torch.randn(3)}
-        remapped = _remap_checkpoint_keys_for_ddp(state, model)
+        remapped = _remap_checkpoint_keys_for_ddp(state, _keys(model))
         # No matching DDP key in the model → key is preserved unchanged.
         assert "extra.unrelated.weight" in remapped
 
@@ -151,14 +156,14 @@ class TestRemapCheckpointKeysForDdp:
             "backbone.norm.weight": torch.randn(8),
             "backbone.norm.bias": torch.randn(8),
         }
-        remapped = _remap_checkpoint_keys_for_ddp(state, model)
+        remapped = _remap_checkpoint_keys_for_ddp(state, _keys(model))
         assert len(remapped) == len(state)
 
     def test_values_preserved_by_reference(self):
         model = _Student(ddp=True)
         w = torch.randn(8, 5, 2, 2)
         state = {"backbone.patch_embed.proj.weight": w}
-        remapped = _remap_checkpoint_keys_for_ddp(state, model)
+        remapped = _remap_checkpoint_keys_for_ddp(state, _keys(model))
         assert remapped["backbone.module.patch_embed.proj.weight"] is w
 
     def test_non_ddp_model_returns_unchanged(self):
@@ -167,7 +172,7 @@ class TestRemapCheckpointKeysForDdp:
             "backbone.patch_embed.proj.weight": torch.randn(8, 5, 2, 2),
             "backbone.norm.weight": torch.randn(8),
         }
-        remapped = _remap_checkpoint_keys_for_ddp(state, model)
+        remapped = _remap_checkpoint_keys_for_ddp(state, _keys(model))
         assert set(remapped.keys()) == set(state.keys())
         for k in state:
             assert remapped[k] is state[k]
