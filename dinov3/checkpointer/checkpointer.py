@@ -574,7 +574,12 @@ def init_model_from_checkpoint_for_evals(
     state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
     # remove `backbone.` prefix induced by multicrop wrapper
     state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
-    state_dict = adapt_patch_embed_input_channels(state_dict, model.patch_embed.proj.weight.shape[1])
+    # This eval path is non-distributed by design, but unwrap defensively: a DDP-wrapped
+    # module has no direct .patch_embed attribute (DDP does not proxy sub-attributes), so
+    # `model.patch_embed` would raise AttributeError exactly like the training-path bug.
+    state_dict = adapt_patch_embed_input_channels(
+        state_dict, _unwrap_module(model).patch_embed.proj.weight.shape[1]
+    )
     msg = model.load_state_dict(state_dict, strict=False)
     logger.info("Pretrained weights found at {} and loaded with msg: {}".format(pretrained_weights, msg))
 
