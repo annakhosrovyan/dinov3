@@ -380,6 +380,42 @@ def _is_int(s: str) -> bool:
         return False
 
 
+def _unwrap_module(module: torch.nn.Module) -> torch.nn.Module:
+    return module.module if hasattr(module, "module") else module
+
+
+def _get_backbone_in_chans(model: torch.nn.Module) -> int:
+    if not hasattr(model, "backbone"):
+        raise AttributeError("Model has no backbone for patch-embed channel adaptation")
+    backbone = _unwrap_module(model.backbone)
+    return backbone.patch_embed.proj.weight.shape[1]
+
+
+def _state_dict_uses_ddp_prefix(model: torch.nn.Module) -> bool:
+    return any(".module." in key for key in model.state_dict().keys())
+
+
+def _remap_checkpoint_keys_for_ddp(
+    state: dict[str, torch.Tensor], model: torch.nn.Module
+) -> dict[str, torch.Tensor]:
+    model_keys = set(model.state_dict().keys())
+    if not _state_dict_uses_ddp_prefix(model):
+        return state
+    remapped: dict[str, torch.Tensor] = {}
+    for key, value in state.items():
+        if key in model_keys:
+            remapped[key] = value
+            continue
+        if "." in key:
+            root, rest = key.split(".", 1)
+            ddp_key = f"{root}.module.{rest}"
+            if ddp_key in model_keys:
+                remapped[ddp_key] = value
+                continue
+        remapped[key] = value
+    return remapped
+
+
 # Initialize a FSDP2 model from DCP or PyTorch standard checkpoint
 def init_fsdp_model_from_checkpoint(
     model: torch.nn.Module,
@@ -441,34 +477,41 @@ def init_fsdp_model_from_checkpoint(
         else:
             raise ValueError(f"Unsupported checkpoint format at {checkpoint_path}")
         chkpt = _normalize_checkpoint_keys_for_model(chkpt, model)
-        _backbone = model.backbone
-        _backbone = _backbone.module if hasattr(_backbone, "module") else _backbone
-        chkpt = adapt_patch_embed_input_channels(chkpt, _backbone.patch_embed.proj.weight.shape[1])
-        from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
-
-        if process_group is None:
-            world_mesh = init_device_mesh(
-                "cuda",
-                mesh_shape=(dist.get_world_size(),),
-                mesh_dim_names=("dp",),
-            )
+        chkpt = adapt_patch_embed_input_channels(chkpt, _get_backbone_in_chans(model))
+        if _state_dict_uses_ddp_prefix(model):
+            chkpt = _remap_checkpoint_keys_for_ddp(chkpt, model)
+            filtered_state = {
+                key: tensor.cuda()
+                for key, tensor in chkpt.items()
+                if isinstance(tensor, torch.Tensor)
+                and not any(skip_load_key in key for skip_load_key in skip_load_keys)
+            }
         else:
-            world_mesh = DeviceMesh.from_group(process_group, "cuda")
-        distributed_chkpt = {}
-        for key, tensor in chkpt.items():
-            if not isinstance(tensor, torch.Tensor):
-                continue
-            if any(key_not_sharded in key for key_not_sharded in keys_not_sharded):
-                distributed_chkpt[key] = tensor
-            else:
-                distributed_chkpt[key] = torch.distributed.tensor.distribute_tensor(
-                    tensor, world_mesh, src_data_rank=None
+            from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
+
+            if process_group is None:
+                world_mesh = init_device_mesh(
+                    "cuda",
+                    mesh_shape=(dist.get_world_size(),),
+                    mesh_dim_names=("dp",),
                 )
-        filtered_state = {
-            key: tensor
-            for key, tensor in distributed_chkpt.items()
-            if not any(skip_load_key in key for skip_load_key in skip_load_keys)
-        }
+            else:
+                world_mesh = DeviceMesh.from_group(process_group, "cuda")
+            distributed_chkpt = {}
+            for key, tensor in chkpt.items():
+                if not isinstance(tensor, torch.Tensor):
+                    continue
+                if any(key_not_sharded in key for key_not_sharded in keys_not_sharded):
+                    distributed_chkpt[key] = tensor
+                else:
+                    distributed_chkpt[key] = torch.distributed.tensor.distribute_tensor(
+                        tensor, world_mesh, src_data_rank=None
+                    )
+            filtered_state = {
+                key: tensor
+                for key, tensor in distributed_chkpt.items()
+                if not any(skip_load_key in key for skip_load_key in skip_load_keys)
+            }
         model_state_keys = set(model.state_dict().keys())
         matched_keys = [k for k in filtered_state.keys() if k in model_state_keys]
         if len(matched_keys) == 0:
