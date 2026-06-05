@@ -5,6 +5,7 @@
 #SBATCH --cpus-per-task=64
 #SBATCH --gres=gpu:h100:8
 #SBATCH --partition=research
+#SBATCH --partition=research
 #SBATCH --time=7-00:00:00
 #SBATCH --output=/mnt/weka/adovlatyan/logs/dinov3-%j.out
 #SBATCH --error=/mnt/weka/adovlatyan/logs/dinov3-%j.err
@@ -81,6 +82,15 @@ naip_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/satlas-dataset-v1-naip-20
 naip_stats_dir=/mnt/weka/akhosrovyan/re-id/pretraining/satlas_dataset/stats/naip_stats:\
 naip_weight=1.0" \
   train.batch_size_per_gpu=96 \
+  "train.dataset_path=MixedSatelliteDataset:\
+intelinair_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/intelinair/intelinair.h5:\
+maid_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/maid:\
+sen1_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/satlas_dataset/sentinel1:\
+sen1_stats_dir=/mnt/weka/akhosrovyan/re-id/pretraining/satlas_dataset/stats/sentinel1_stats:\
+naip_data_path=/mnt/weka/akhosrovyan/re-id/pretraining/satlas-dataset-v1-naip-2020/naip:\
+naip_stats_dir=/mnt/weka/akhosrovyan/re-id/pretraining/satlas_dataset/stats/naip_stats:\
+naip_weight=1.0" \
+  train.batch_size_per_gpu=96 \
   train.num_workers=20 \
   train.OFFICIAL_EPOCH_LENGTH=23412 \
   optim.epochs=10 \
@@ -91,8 +101,16 @@ naip_weight=1.0" \
   train.distributed_strategy=fsdp2 \
   train.fsdp_reshard_after_forward=true \
   train.sharded_eval_checkpoint=true \
+  train.compile=true \
+  train.distributed_strategy=fsdp2 \
+  train.fsdp_reshard_after_forward=true \
+  train.sharded_eval_checkpoint=true \
   wandb.enabled=true \
   wandb.project=dinov3-satellite \
+  wandb.run_name=satellite_fsdp2_bs96_${SLURM_JOB_ID} \
+  wandb.group=satellite_fsdp2
+
+echo "=== Training complete: $(date) ==="
   wandb.run_name=satellite_fsdp2_bs96_${SLURM_JOB_ID} \
   wandb.group=satellite_fsdp2
 

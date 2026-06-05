@@ -540,7 +540,7 @@ With the broken-graph path taking eager fallback inside an otherwise capture-att
 | ID      | bs  | AC  | cudagraphs | Status | Job | Purpose |
 |---------|-----|-----|------------|--------|-----|---------|
 | 6.A.4.a | 128 | off | true       | **DONE — WIN** (53708) | 53708 | bs=128: 2,394 img/s, 13.70% MFU, 34.1 GB peak. +19.2% img/s vs 53681. No OOM. Loss matches baseline. |
-| 6.A.4.d | 192 | off | true       | **OOM** (53739) | 53739 | Predicted ~51 GB linear; actual exceeded 80 GB. cudagraph workspace scales non-linearly past bs=128. **AC is now the path to bs≥192**, not a deprioritized option. |
+| 6.A.4.d | 192 | off | true       | **OOM** (53739) | 53739 | ~~Predicted ~51 GB linear; actual exceeded 80 GB; cudagraph workspace scales non-linearly.~~ **DISPROVEN by §6.B.6 (job 64979): bs=192 VRAM is only 56.4 GB — this was a host-RAM cgroup OOM, not a CUDA OOM.** VRAM scales linearly; the bottleneck is the DataLoader host footprint. |
 | 6.A.4.b | 128 | sel | true       | superseded by 6.A.5.c | — | (Moved into the 6.A.5 AC sweep below.) |
 | 6.A.4.c | 128 | off | false      | TBD (diagnostic) | — | Isolates batch-amortization win from cudagraphs win. Only worth running if we need to attribute deltas precisely. |
 
@@ -725,7 +725,10 @@ The key instrument is the combination of `DINOV3_MEMORY_PROFILE=1` (fires `[MEMP
 | 6.B.2 attempt 2 | 58188 | bs=128, AC=full, **12w/4pf**, --mem=300G | **1,158 wall** (2,558 GPU-only) | 14.6% GPU-only | 14.6 GB (AC=full) | **300.0 GB (= limit)** | loader-bound, rank-6 crash at iter ~1310 (gpu03) |
 | 6.B.2.b | 59273 | bs=128, AC=full, **16w/4pf**, --mem=430G | ~940–980 wall (~2,070 GPU-only) | — | 12.7 GB (AC=full) | **430.0 GB (= limit)** | loader-bound, rank-6 crash at iter ~1310 (gpu07) |
 | 6.B.2.c | 59274 | bs=128, AC=full, **16w/8pf**, --mem=540G | **~1,110–1,150 wall** (~2,070 GPU-only) | — | 12.7 GB (AC=full) | **539.8 GB (= limit)** | data fully hidden (data_time≈0), rank-6 crash at iter ~1310 (gpu07) |
-| 6.B.3 | — | bs=192, no-AC, reduced loader | — | — | — | — | **deprioritized** (see below) |
+| 6.B.6 | 64978 | bs=160, no-AC, **16w/8pf** (128/rank) | — (OOM in warmup) | — | 44.8 GB | **512 GB (= cap)** | **host-RAM OOM ~5 min, pre-iter-50.** See §6.B.6 |
+| 6.B.6 | 64979 | bs=192, no-AC, **12w/8pf** (96/rank) | ~1,260 wall (~3,500 GPU-only) | ~20% GPU-only | **56.4 GB** | **512 GB (= cap)** | ran 1260 iters then **host-RAM OOM**; loader-starved (data≫step). See §6.B.6 |
+| **6.B.7** | **67153** | bs=160, no-AC, **24w/8pf**, **--mem=1500G --cpus=192** | **~1,810 wall** (3,410 GPU-only) | **22.0% GPU-only** | **48.3 GB** | anon peak **188.6 GB** (cap 1500) | **✅ FULL 2000/2000, 0 OOM/retry.** Wall flat vs bs=128. See §6.B.7 |
+| **6.B.7** | **67154** | bs=192, no-AC, **24w/8pf**, **--mem=1500G --cpus=192** | **~1,830 wall** (3,740 GPU-only) | **22.6% GPU-only** | **56.6 GB** | anon peak **218.6 GB** (cap 1500) | **✅ FULL 2000/2000, 0 OOM/retry.** Wall flat vs bs=128. See §6.B.7 |
 | 6.B.5 (fix validation, interim) | 60590 | bs=128, no-AC, 20w/8pf, **save_error_path fix applied** | ~1,940 avg / ~2,000–2,600 steady | 11.1% avg | 37.9 GB reserved (flat iter 49→3770) | ~570 GB host | crash GONE — reached iter 3770, killed by TIME LIMIT (walltime too short). See §6.B.5 |
 | **6.B.5 (fix validation, FULL)** | **60959** | bs=128, no-AC, 20w/8pf, fix applied, **--time=4h** | **1,830 run-avg / 2,055 late-median (max 2,658)** | **10.5% avg / 11.8% late** | **36.3 GB reserved (dead-flat iter 49→3999, frag 0.040, 0 OOM/retry)** | 613 GB peak, **+15 GB/hr drift** | **✅ FULL 4000/4000 — fix validated end-to-end. See §6.B.5** |
 
@@ -759,6 +762,161 @@ The key instrument is the combination of `DINOV3_MEMORY_PROFILE=1` (fires `[MEMP
 > short-burst window — the honest long-run figure is lower. Throughput *improves* over the run
 > (early ~1,636 → late ~2,055 img/s) as CUDA graphs stabilize and caches warm; it does **not**
 > thermally throttle.
+
+---
+
+### 6.B.6 — bs=160 / bs=192 memory-validation probe (DONE, jobs 64978/64979) — both host-RAM OOM
+
+**Question (Aram, 2026-06-05):** the bs=128 champion peaks at only **36 GB on an 80 GB H100** —
+can the idle ~44 GB buy a bigger batch? `scripts/soak/ddp_memval_soak.sh` (2000 iters, 8 ckpt +
+4 eval events = same event count as the 4000-iter soak 60959; **cgroup-aware sidecar** that logs
+the job's own `memory.stat` `anon`/`file` + per-GPU VRAM, fixing the node-`/proc/meminfo` confound
+of 6.B.1 and the page-cache-inflated `memory.current` of 6.B.2) probed bs=160 and bs=192 with
+loaders reduced to keep the in-flight buffer pool near the validated bs=128 point.
+
+| Job | bs | Loader (batches/rank) | Peak VRAM | cgroup current peak | Outcome |
+|---|---|---|---|---|---|
+| 64978 | 160 | 16w/8pf (128) | **44.8 GB** | 512 GB (= cap) | **host-RAM OOM in warmup** (~5 min, pre-iter-50) |
+| 64979 | 192 | 12w/8pf (96)  | **56.4 GB** | 512 GB (= cap) | ran 1260 iters, **host-RAM OOM** (3 oom_kill events) |
+
+**Three things are now settled:**
+
+1. **The bs>128 ceiling is host RAM, definitively — not VRAM, and not cudagraph workspace.**
+   These are the FIRST real VRAM numbers above bs=128 (the prior bs=192 runs OOM'd *before*
+   PyTorch reported VRAM). bs=160 → 44.8 GB, bs=192 → 56.4 GB, both with **24–35 GB of headroom**
+   on the 80 GB card. VRAM scales ~linearly from bs=128's 34 GB (≈0.28 GB per sample-of-batch),
+   `fragmentation_ratio=0.015`, `num_ooms=0`, `alloc_retries=0` throughout. **The old "cudagraph
+   workspace exceeds 80 GB / scales non-linearly" theory (6.A.4.d row, job 53739) is disproven
+   and retired** — the corrected §6.A.6 host-RAM diagnosis is now confirmed with measured VRAM.
+
+2. **Loader in-flight working set, not batch size, sets the host-RAM ceiling.** Counter-
+   intuitively the *bigger* batch lasted longer: bs=160 @ 128/rank OOM'd during loader warmup
+   (all prefetch buffers fill at once) while bs=192 @ 96/rank survived 1260 iters. The ordering
+   tracks `w×pf×batch` (128×160=20480 vs 96×192=18432), confirming the prefetch buffer pool — not
+   the model — fills the 512 GB cgroup. (Correction to the "hold w×pf×batch ≈ const" heuristic:
+   even 18432 OOMs eventually; the validated bs=128 point at 20×8×128=20480 fits only because
+   no-AC bs=128 also has the slowest host-RAM drift, and even it ran at +15 GB/hr in 60959.)
+
+3. **Where bs=192 fit memory, it was loader-starved — a net throughput LOSS.** GPU-compute
+   throughput was excellent (CUDA-event ~3,500–4,000 img/s, MFU ~20% — far above bs=128's 13.7%),
+   but `data_time` ≈ 0.7 s vs `step_time` ≈ 0.4 s even at steady state: the 12-worker pool cannot
+   decode fast enough at bs=192. **Wall throughput collapsed to ~1,260 img/s — below the bs=128
+   champion's honest ~1,830 run-avg.** With 64 CPUs / 8 ranks = 8 decode cores/rank, you cannot
+   both (a) cut workers enough to fit host RAM at bs≥160 and (b) keep 8 H100s fed.
+
+**Conclusion (under the 512 GB / 64 CPU constraint): bs=128 @ 20w/8pf stays the champion.**
+Bigger batch is VRAM-feasible but host-RAM-bound *at this provisioning*, and every loader
+reduction that fits 512 GB starves the GPU worse than the batch bump helps. **This conclusion is
+constraint-bound, not fundamental** — see §6.B.7, which re-ran bs=160/192 at **1500 GB / 192 CPU
+/ 24w/8pf** and cleared the OOM entirely (full 2000/2000, 0 OOM, VRAM 48/57 GB). The host-RAM
+ceiling was a provisioning artifact. **What §6.B.7 then revealed is the *real* limit: wall
+throughput is flat across bs=128/160/192 (~1,820 img/s) because the iteration is gated by a
+batch-independent per-iter CPU overhead, not by compute, data, or memory.** So the lever for
+higher throughput is **not** batch size — it is the compute-side **static-shape heads / fullgraph**
+work (which cuts per-iter dispatch/launch overhead). This supersedes the deprioritized 6.B.3 plan.
+
+> **Instrumentation note (refines the §6.B.5 retraction).** The new cgroup sidecar confirmed
+> `memory.current` pegs at the 512 GB cap in BOTH runs while cgroup `anon` peaked at only ~135 GB.
+> The ~380 GB remainder is page cache + DataLoader **shared-memory IPC buffers** (non-reclaimable
+> while a batch is referenced in flight). So `memory.current` is page-cache-inflated *at rest*
+> (the §6.B.5 point stands), but **under the loader's allocation burst that pool becomes
+> unreclaimable and triggers the OOM-kill** — total cgroup occupancy approaching cap, not `anon`
+> alone, is the OOM predictor. To lower it, shrink `w×pf`; to raise the ceiling without starving,
+> you must shrink per-batch host bytes (crops/dtype/caching), not just reshuffle workers.
+
+---
+
+### 6.B.7 — bs=160 / bs=192 re-test with proper provisioning (DONE, jobs 67153/67154) — both PASS, but wall throughput is flat
+
+**Question (Aram, 2026-06-05):** §6.B.6 capped host RAM at 512 GB (= 64 CPU × DefMemPerCPU 8 GB,
+no `--mem` set) and gated decode at 8 cores/rank. But a DGX H100 node has ~2 TB RAM and 224 CPUs.
+Re-run bs=160/192 with the loader **scaled up** (not down) and host RAM no longer the ceiling:
+`--mem=1500G --cpus-per-task=192`, **24w/8pf** (≈ 24 decode cores/rank). Same instrument as §6.B.6
+(cgroup-aware sidecar + `[MEMPROFILE]` markers), same 2000-iter / 8-ckpt / 4-eval schedule.
+
+All metrics below are derived from the **median per-iter** `time:` (wall) and `step_time_ms`
+(CUDA-event) over iters ≥50, so they self-rederive: wall img/s = `global_batch / median(time)`,
+GPU-only = `global_batch / median(step_time)`, MFU from GPU-only (226.4 GMACs/img, 989 TFLOPS).
+
+| Job | bs | Loader | Outcome | Peak VRAM (max/min GPU) | Peak cgroup anon | Wall img/s (median) | GPU-only img/s | MFU (GPU) |
+|---|---|---|---|---|---|---|---|---|
+| 67153 | 160 | 24w/8pf | **✅ FULL 2000/2000, 0 OOM, 0 alloc_retries** | 48.3 / 46.0 GB | 188.6 GB (cap 1500) | **~1,730** (1280/0.741s) | ~3,500 (1280/0.365s) | **~20%** |
+| 67154 | 192 | 24w/8pf | **✅ FULL 2000/2000, 0 OOM, 0 alloc_retries** | 56.6 / 54.3 GB | 218.6 GB (cap 1500) | **~1,810** (1536/0.849s) | ~3,720 (1536/0.413s) | **~21%** |
+
+bs=128 references (both torch **2.6**, NOT directly comparable to each other): job 53708 = 1000-iter
+*screen*, 2,394 img/s / 13.7% MFU; job 60959 = 4000-iter *soak*, ~1,830 wall run-avg / **~11.8% late
+MFU**. The right same-kind comparison for these soaks is **60959's ~11.8%**; job 67639 (bs=128 on
+torch 2.10, same 2000-iter soak) is in flight to remove the torch-version confound entirely.
+
+**What is now settled:**
+
+1. **bs>128 passed a 2000-iter / 8-ckpt / 4-eval memory soak under 1500 GB / 192 CPU — the §6.B.6
+   host-RAM OOM was a provisioning artifact at 512 GB / 64 CPU, removed by proper provisioning.**
+   (Deliberately *not* "proven safe": the FSDP2 bs=128 precedent OOM'd only in a real *long* run,
+   so a 2000-iter soak lowers risk but is not a full-duration proof — see caveats.) Both ran clean
+   to 2000/2000: `num_ooms=0`, `alloc_retries=0`, `fragmentation_ratio≈0.015`, VRAM dead-flat across
+   all 8 ckpt + 4 eval events (48/57 GB peak, 24–34 GB of headroom on the 80 GB card). Host RAM was
+   comfortable *in this soak*: cgroup `anon` peaked at only **188 GB (bs=160) / 219 GB (bs=192)**
+   with no upward trend over 2000 iters (the verdict's "projected anon" is a degenerate
+   negative-slope fit — ignore that number; the signal is peak ≈ 200 GB, ~1300 GB of margin). Note
+   the *prior* OOM mechanism was page-cache + shmem IPC buffers, not `anon` — so low `anon` lowers
+   but does not eliminate long-run memory risk. The 24-worker pool keeps the GPU fed: `data_time`
+   median **0.8 ms (bs=160) / 1.3 ms (bs=192)** — the loader is no longer the gate.
+
+2. **But wall throughput is ~FLAT across bs=160 / 192 (~1,730 / ~1,810 img/s) and near the bs=128
+   soak's ~1,830.** This is the load-bearing correction. The verdict's `images_per_sec` (~3,500–3,720)
+   and `mfu` (~20–21%) are **CUDA-event compute-only** metrics (`global_batch / step_time_ms`); they
+   rise with batch because the GPU is genuinely better utilized per GPU-busy-ms at large batch. But
+   the **wall** clock (`time:` per iter, the models/hour metric) is flat: median-derived **~1,730
+   (bs=160) / ~1,810 (bs=192)**, both ≈ the bs=128 60959 soak's **~1,830 run-avg** (cross-torch, so
+   indicative not exact — 67639 will pin it). Enlarging the batch does **not** increase models/hour.
+
+3. **There is a large per-iter RESIDUAL of ~0.35–0.43 s (`wall − step_time − data_time`) that scales
+   WITH batch — but it is a residual, not an attributed phase.** Decomposing per logged iteration
+   (medians over iters ≥50): bs=160 wall 0.741 s = step **0.365 s** + residual **0.349 s** + data
+   ~0.001 s; bs=192 wall 0.849 s = step **0.413 s** + residual **0.434 s** + data ~0.001 s.
+   **Caveat on the method (per Codex GPT-5.5 review):** subtracting a CUDA-*event* `step_time` from a
+   wall `time:` does **not** cleanly isolate "non-GPU" work — the residual can include GPU work not
+   bracketed by the events, the `step_end_event.synchronize()` (outside the event interval but inside
+   wall), CPU running ahead on async launches, and H2D transfer whose placement is ambiguous. So the
+   only *proven* statements are: (a) the residual is large (~half of wall), (b) it is **not**
+   data-loading (`data_time≈1 ms`), and (c) it **grows with batch** (0.349→0.434 s, +24% for +20%
+   batch), which is why per-image wall barely moves (0.579→0.553 ms/img) and wall img/s stays flat
+   while compute-MFU rises. **Hypothesis (NOT yet proven):** the residual is dominated by CPU-side
+   per-iter dispatch + syncs (grad-clip `.item()`, metric all-reduce, `synchronize()`, schedule,
+   periodic `gc`), which static-shape heads + end-to-end fullgraph capture would cut. **This must be
+   confirmed by an nsys run** using the NVTX ranges already wired in train.py (`schedule_update`,
+   `forward_backward`, `grad_clip`, `allreduce_metrics`, `optimizer_step`, `ema_update`) before any
+   "recoverable ceiling" is claimed — the compute-only ~3,500–3,720 img/s is an *upper bound* the
+   wall could approach only if the residual proves removable without changing GPU/collective time.
+
+**Caveats / action items:**
+- **Torch-version confound (biggest):** the bs=160/192 compute-MFU (~20–21%) is on torch **2.10**;
+  the bs=128 soak reference (60959, ~11.8% late) is on torch **2.6** (~10% faster between versions).
+  Do **not** attribute the full ~12%→~21% compute-MFU rise to batch size — part is the torch bump,
+  part is genuine large-batch tensor-core efficiency. Job 67639 (bs=128 on 2.10, same soak) is the
+  control that splits these. The **wall**-throughput comparison (flat) is the robust takeaway and
+  does not depend on resolving this.
+- **2000 iters ≠ full run:** this soak (8 ckpt + 4 eval, ~30 min) is not a full-duration memory
+  proof. The FSDP2 bs=128 precedent OOM'd only in a real long run. Treat bs>128 as
+  "memory-soak-passed under 1500G/192CPU," not "OOM-safe."
+- **Convergence unvalidated:** bs=192 → global batch **1536** (vs 1024 at bs=128). LR auto-scaling
+  (`apply_scaling_rules_to_cfg`) handles the scalar, but large-batch convergence/quality is a
+  research call for Anna, not a throughput fact. Frame bs>128 as a **throughput-neutral,
+  memory-soak-passed candidate pending convergence sign-off**, not a drop-in champion.
+- **`run_ddp.sh` is load-bearing:** if bs>128 is ever used in production, the run script **must**
+  carry `--mem≈1500G` and `--cpus-per-task=192` (24w/8pf) — otherwise it reproduces the §6.B.6
+  512 GB OOM (64978/64979) exactly. The current `run_ddp.sh` is bs=128 and does not need this;
+  flag it before any bs bump.
+
+**Conclusion:** bs=128 remains the production recommendation **on throughput grounds** (bs>128
+buys no models/hour in this soak), now for a *better-understood* reason: not "bigger batch OOMs"
+(it doesn't, with 1500 GB) but "bigger batch doesn't improve wall throughput." §6.B.6 was right
+operationally but wrong on mechanism (it blamed loader-starvation under a 512 GB cap); §6.B.7
+shows the binding factor is a large per-iter residual independent of memory or loader. The leading
+**hypothesis** is that the residual is CPU-side dispatch/sync overhead, pointing to compute-side
+fullgraph as the next lever — **but that attribution is unproven and must be confirmed by an nsys
+profile before it drives the next experiment.**
 
 ---
 

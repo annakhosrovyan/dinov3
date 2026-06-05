@@ -441,7 +441,9 @@ def init_fsdp_model_from_checkpoint(
         else:
             raise ValueError(f"Unsupported checkpoint format at {checkpoint_path}")
         chkpt = _normalize_checkpoint_keys_for_model(chkpt, model)
-        chkpt = adapt_patch_embed_input_channels(chkpt, model.backbone.patch_embed.proj.weight.shape[1])
+        _backbone = model.backbone
+        _backbone = _backbone.module if hasattr(_backbone, "module") else _backbone
+        chkpt = adapt_patch_embed_input_channels(chkpt, _backbone.patch_embed.proj.weight.shape[1])
         from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
         if process_group is None:
