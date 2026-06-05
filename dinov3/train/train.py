@@ -634,10 +634,18 @@ def do_train(cfg, model, resume=False):
                         v.parameters(),
                         max_norm=cfg.optim.clip_grad,
                     )
+                    # Keep grad_norm as a tensor here. Calling .item() mid-step forces a
+                    # GPU->CPU sync after backward but before optimizer.step()/the CUDA
+                    # event record, which breaks compute/comm pipelining (see
+                    # learnings/distributed_training.md). The value is overwritten by the
+                    # all-reduced tensor in the metrics-reduction block below, and every
+                    # downstream consumer (torch.as_tensor in that block, MetricLogger.update,
+                    # the wandb block) already handles tensors; the scalar read happens at
+                    # logging time, after step_end_event.synchronize().
                     metrics_dict[f"{k}_grad_norm"] = (
-                        grad_norm.full_tensor().item()
+                        grad_norm.full_tensor()
                         if isinstance(grad_norm, torch.distributed.tensor.DTensor)
-                        else grad_norm.item()
+                        else grad_norm.detach()
                     )
 
         # Reduce total_loss to check for NaNs, reduce metrics for logging
