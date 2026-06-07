@@ -23,6 +23,7 @@ from dinov3.checkpointer.checkpointer import (
     _get_backbone_in_chans,
     _state_dict_uses_ddp_prefix,
     _remap_checkpoint_keys_for_ddp,
+    init_model_from_checkpoint_for_evals,
 )
 
 
@@ -176,3 +177,77 @@ class TestRemapCheckpointKeysForDdp:
         assert set(remapped.keys()) == set(state.keys())
         for k in state:
             assert remapped[k] is state[k]
+
+
+class _EvalBackbone(nn.Module):
+    """Stand-in for the teacher backbone that build_model_for_eval constructs.
+
+    Mirrors the only structure init_model_from_checkpoint_for_evals touches: a
+    top-level `.patch_embed.proj` conv whose weight.shape[1] is in_chans. Unlike
+    the training student, the eval model is the backbone itself, so patch_embed
+    is a *direct* top-level attribute.
+    """
+
+    def __init__(self, in_chans: int = 5):
+        super().__init__()
+        self.patch_embed = _PatchEmbed(in_chans)
+        self.norm = nn.LayerNorm(8)
+
+
+def _write_eval_checkpoint(path, in_chans: int = 5):
+    """Write a consolidated PyTorch checkpoint shaped like the ones the eval loader
+    consumes: a top-level dict keyed by 'teacher', whose values carry the
+    'backbone.' prefix that the loader strips before load_state_dict."""
+    sd = {
+        "backbone.patch_embed.proj.weight": torch.randn(8, in_chans, 2, 2),
+        "backbone.patch_embed.proj.bias": torch.randn(8),
+        "backbone.norm.weight": torch.randn(8),
+        "backbone.norm.bias": torch.randn(8),
+    }
+    torch.save({"teacher": sd}, str(path))
+    return sd
+
+
+class TestEvalLoaderIntegration:
+    """End-to-end coverage of init_model_from_checkpoint_for_evals at its real
+    call-site shape. The helper unit tests above prove the units; these exercise
+    the wiring the units feed into — specifically the Commit 3 fix that unwraps a
+    DDP-wrapped eval model before reading patch_embed.
+
+    A real eval job never wraps this model (build_model_for_eval builds a plain
+    teacher backbone), so the DDP branch of the fix is unreachable from any real
+    run — only a constructed wrapped model exercises it. Hence this test.
+    """
+
+    def test_plain_eval_model_loads_weights(self, tmp_path):
+        ckpt = tmp_path / "teacher.pth"
+        sd = _write_eval_checkpoint(ckpt, in_chans=5)
+        model = _EvalBackbone(in_chans=5)
+        # The path every real eval job runs: an unwrapped backbone.
+        init_model_from_checkpoint_for_evals(model, str(ckpt), "teacher")
+        # Weights actually landed: the loader strips the "backbone." prefix, so the
+        # checkpoint's backbone.patch_embed.proj.weight maps onto model.patch_embed...
+        assert torch.equal(
+            model.patch_embed.proj.weight.detach(),
+            sd["backbone.patch_embed.proj.weight"],
+        )
+
+    def test_ddp_wrapped_eval_model_does_not_raise(self, tmp_path):
+        ckpt = tmp_path / "teacher.pth"
+        _write_eval_checkpoint(ckpt, in_chans=5)
+        wrapped = _FakeDDP(_EvalBackbone(in_chans=5))
+        # Regression guard for Commit 3: before the _unwrap_module change, reading
+        # `model.patch_embed` on a DDP-wrapped module raised AttributeError exactly
+        # like the training-path bug Anna hit. The loader must reach in_chans via the
+        # unwrap. Reaching the assertions below means no AttributeError was raised.
+        init_model_from_checkpoint_for_evals(wrapped, str(ckpt), "teacher")
+        assert _unwrap_module(wrapped).patch_embed.proj.weight.shape[1] == 5
+
+    def test_eval_loader_reads_in_chans_through_unwrap_for_non_default(self, tmp_path):
+        # in_chans=3 checkpoint into an in_chans=3 model, DDP-wrapped: confirms the
+        # unwrapped shape[1] (not the wrapper) drives adapt_patch_embed_input_channels.
+        ckpt = tmp_path / "teacher.pth"
+        _write_eval_checkpoint(ckpt, in_chans=3)
+        wrapped = _FakeDDP(_EvalBackbone(in_chans=3))
+        init_model_from_checkpoint_for_evals(wrapped, str(ckpt), "teacher")
+        assert _unwrap_module(wrapped).patch_embed.proj.weight.shape[1] == 3
