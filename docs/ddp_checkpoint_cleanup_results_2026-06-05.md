@@ -129,3 +129,55 @@ this work.)
 - Did not run `ruff format` over the checkpointer file: the repo is not `ruff format`-clean
   to begin with (pre-existing code triggers reformats), so doing so would churn unrelated
   lines including Anna's cherry-picked code. `ruff check` (the enforced lint) passes.
+
+## Post-review validation (2026-06-08)
+
+Codex (GPT-5.5, high effort) reviewed the four commits: Commits 2/3/4 SAFE; the only flag was
+"no integration test for the modified call sites" (Q4 RISKY). Addressed in two ways, each
+scoped to the actual residual risk of the commit rather than a blanket "realistic run".
+
+### Integration tests for the eval call site (commit `e6b25df`)
+
+Added `TestEvalLoaderIntegration` (3 tests) exercising `init_model_from_checkpoint_for_evals`
+end-to-end with a real on-disk checkpoint:
+- `test_plain_eval_model_loads_weights` — the path every real eval job runs (unwrapped
+  backbone); asserts weights land after `backbone.`/`module.` stripping.
+- `test_ddp_wrapped_eval_model_does_not_raise` — regression guard for Commit 3: a real eval
+  job never wraps this model (`build_model_for_eval` builds a plain teacher backbone), so the
+  DDP branch of the fix is **unreachable from any real run** — only a constructed wrapped
+  model exercises it. Before the fix, `model.patch_embed` raised `AttributeError`.
+- `test_eval_loader_reads_in_chans_through_unwrap_for_non_default` — confirms the *unwrapped*
+  `shape[1]` drives patch_embed channel adaptation.
+
+`tests/`: **31 passed** (14 mfu + 17 ddp_checkpoint), `ruff check` clean.
+
+### Real 2-GPU smoke for Commit 4 (job 68670)
+
+Commit 4 (`grad_norm` deferred as a tensor) was the one change *not* already covered by the
+bs=128 soaks (53708/60959) and it interacts with cudagraph capture — so it got a real run.
+Scoped deliberately: 2 GPUs, reduced loader (8w/2pf, to dodge the iter-0 fork-storm hang),
+**no pretrained_weights** (the load path is equivalence-tested + field-proven; random init is
+fine for a step-mechanics check), 50 iters of DDP + `torch.compile` + `cudagraphs=true`.
+Script: `~/scripts/ddp_smoke_commit4.sh`.
+
+Result — **PASS**. Log `/mnt/weka/adovlatyan/logs/ddp-smoke-c4-68670.out`:
+- `[COMPILE] ... fullgraph=True, triton.cudagraphs=True` + `DDP wrapping complete for student
+  sub-models: ['backbone', 'dino_head', 'ibot_head']` — real captured-graph DDP path active.
+- All 50 iters completed (`Training Total time: 0:01:26`), no hang, no `AttributeError`, no
+  cudagraph capture error, no NaN.
+- The deferred grad_norm metrics are logged **finite and correct** at every step
+  (`backbone_grad_norm` 6752→23, `dino_head_grad_norm` 80.5→0.30) and track the loss decay
+  (20.4→17.1) — proving the tensor is overwritten by the live all-reduced value and the
+  scalar read happens at logging time (post `step_end_event.synchronize()`), not mid-step.
+- ~1,100 img/s, MFU ~20–27% on 2 GPUs, VRAM flat ~33.9 GB.
+
+### Related: Anna's two reported issues (both already understood)
+
+- `AttributeError: 'DistributedDataParallel' object has no attribute 'patch_embed'` — the
+  training-path DDP unwrap bug, fixed by Anna's own `7a42442` (on master); this PR refactors
+  that path. Not a new issue.
+- First-iteration hang with `num_workers=20, prefetch_factor=8` — operational fork-storm at
+  iter 0 (loader workers × ranks filling prefetch) colliding with first-step cudagraph capture
+  stalling the DDP all-reduce. **Not a code bug**; resolved by lowering `num_workers`/
+  `prefetch_factor`, which Anna independently confirmed ("different settings → 10 epochs ran
+  fine"). The smoke above uses 8w/2pf and shows no hang.
