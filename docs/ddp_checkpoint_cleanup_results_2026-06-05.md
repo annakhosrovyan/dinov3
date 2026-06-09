@@ -171,6 +171,46 @@ Result — **PASS**. Log `/mnt/weka/adovlatyan/logs/ddp-smoke-c4-68670.out`:
   scalar read happens at logging time (post `step_end_event.synchronize()`), not mid-step.
 - ~1,100 img/s, MFU ~20–27% on 2 GPUs, VRAM flat ~33.9 GB.
 
+### Real-checkpoint load smoke (job 68971)
+
+Commit 4's smoke deliberately ran with **no pretrained_weights**, so it never touched the
+checkpoint *load* path that Commits 2–3 actually modify. This smoke closes that gap by loading
+a real stock checkpoint into a DDP-wrapped student under the `run_ddp.sh` recipe (in_chans=5,
+bs=128, `compile=true`, `cudagraphs=true`, DDP; loader reduced to 8w/2pf). Script:
+`~/scripts/ddp_smoke_checkpoint_full.sh`. Checkpoint:
+`/mnt/weka/akhosrovyan/dinov3_s1_s2/pretrained_weights/dinov3_vitb16_pretrain.pth` — stock
+DINOv3 ViT-B/16, **RGB (in_chans=3)**, flat bare-key `state_dict`.
+
+**Load path — PASS.** Log `/mnt/weka/adovlatyan/logs/ddp-smoke-ckpt-68971.out:28-32`:
+- `patch_embed.proj.weight found: shape=(768, 3, 16, 16) target_in_chans=5` → the DDP-wrapped
+  student's in_chans (5) was read through `_get_backbone_in_chans` **without `AttributeError`** —
+  the exact training-path twin of Anna's bug, exercised against a real checkpoint.
+- `Adapted backbone.patch_embed.proj.weight to shape=(768, 5, 16, 16)` — the 3→5 channel
+  adaptation ran correctly.
+- `Checkpoint load summary: matched=174 missing=15 unexpected=0`. The 15 "missing" are all
+  expected: the dino/ibot heads (skip rules, freshly initialized) + `rope_embed.periods` (a
+  regenerated buffer). The missing-key *names* carry the `.module.` segment (e.g.
+  `dino_head.module.last_layer.weight`), which **proves Commit 2's DDP-prefix remap ran** and
+  matched the wrapped model's keys.
+
+So the actual checkpoint surface this PR touches (Commits 2 + 3 load logic) is now validated
+end-to-end with a real checkpoint, not just unit-equivalence.
+
+**Write + resume — NOT reached (deferred).** After a clean load the run **hung at iteration 0**
+and Slurm killed it at the 50-min walltime (`.err`: `CANCELLED ... DUE TO TIME LIMIT`); the
+periodic checkpoint write (period=20) and the resume run never executed. This is **not a
+checkpoint-logic failure** — the load had already completed cleanly above. Leading cause is in
+the stderr: `ProcessGroupNCCL.cpp:5138] Guessing device ID based on global rank. This can cause
+a hang if rank to GPU mapping is heterogeneous.` The job landed on gpu08 while **6/8 GPUs were
+allocated to other jobs**, so it got whichever 2 were free — a leftover pair that can straddle
+an NVLink/NUMA boundary, deadlocking the first DDP all-reduce. The earlier clean smoke (68670)
+ran where it got a good pair and passed the identical first step. Same *class* as Anna's iter-0
+hang, but infra-triggered by node contention, independent of the code under test.
+
+Write/resume is *stock DCP code this PR does not modify*, so this is a coverage nicety rather
+than a PR risk. To be re-run on an uncontended allocation (full node / known-good GPU pair) with
+a longer walltime when the cluster frees up.
+
 ### Related: Anna's two reported issues (both already understood)
 
 - `AttributeError: 'DistributedDataParallel' object has no attribute 'patch_embed'` — the
