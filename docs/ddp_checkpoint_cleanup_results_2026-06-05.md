@@ -122,7 +122,9 @@ this work.)
 ## What was intentionally NOT done (per handoff)
 
 - Did not merge `perf-ddp-fullgraph` wholesale (128 experiment files).
-- Did not add `barrier()` for the iter-0 hang (operational, not a code bug).
+- Did not touch the iter-0 hang (a 2-GPU partial-node + pretrained + cudagraphs NCCL
+  device-guess artifact — see the write/resume section; a candidate fix is passing `device_id`
+  to `init_process_group`, but it does not affect the validated 8-GPU production path).
 - Did not add error handling in `_get_backbone_in_chans` for a missing backbone (would hide
   a real misconfiguration — the raise is intentional and tested).
 - Did not touch `run_ddp.sh` loader settings.
@@ -196,20 +198,50 @@ DINOv3 ViT-B/16, **RGB (in_chans=3)**, flat bare-key `state_dict`.
 So the actual checkpoint surface this PR touches (Commits 2 + 3 load logic) is now validated
 end-to-end with a real checkpoint, not just unit-equivalence.
 
-**Write + resume — NOT reached (deferred).** After a clean load the run **hung at iteration 0**
-and Slurm killed it at the 50-min walltime (`.err`: `CANCELLED ... DUE TO TIME LIMIT`); the
-periodic checkpoint write (period=20) and the resume run never executed. This is **not a
-checkpoint-logic failure** — the load had already completed cleanly above. Leading cause is in
-the stderr: `ProcessGroupNCCL.cpp:5138] Guessing device ID based on global rank. This can cause
-a hang if rank to GPU mapping is heterogeneous.` The job landed on gpu08 while **6/8 GPUs were
-allocated to other jobs**, so it got whichever 2 were free — a leftover pair that can straddle
-an NVLink/NUMA boundary, deadlocking the first DDP all-reduce. The earlier clean smoke (68670)
-ran where it got a good pair and passed the identical first step. Same *class* as Anna's iter-0
-hang, but infra-triggered by node contention, independent of the code under test.
+**Write + resume — PASS (jobs 69782 write / 69783 resume).** Validated end-to-end after first
+isolating an unrelated iter-0 hang (see below). Run as a **two-job pair** (separate processes —
+a fresh process is the honest resume test) sharing a fixed Weka output dir
+`/mnt/weka/adovlatyan/ckpt_writeresume_smoke`, under the production step config (DDP +
+`compile=true` + `cudagraphs=true`, 2 GPUs, gpu07). Scripts: `~/scripts/ckpt_write.sh`,
+`~/scripts/ckpt_resume.sh`.
 
-Write/resume is *stock DCP code this PR does not modify*, so this is a coverage nicety rather
-than a PR risk. To be re-run on an uncontended allocation (full node / known-good GPU pair) with
-a longer walltime when the cluster frees up.
+- **Write (69782):** trained 30 iters (`period=10`), wrote DCP checkpoints `ckpt/{9,19,29}`
+  (`checkpointer.py:248 Saved`). Loss 20.40→17.97, all three grad-norm metrics finite per step
+  (`backbone_grad_norm: 6720→36.25`, dino/ibot heads finite) — **Commit 4's deferred grad-norm
+  tensor logging confirmed in a real captured-graph run**, not just static review.
+- **Resume (69783):** fresh process, `train.py:454 Checkpoint found .../ckpt/29` →
+  `checkpointer.py:281 Loaded .../ckpt/29` (**no key-mapping RuntimeError** — the torch.compile
+  `_orig_mod.` state_dict round-trips cleanly through DCP and a re-compiled process) →
+  `train.py:501 Starting training from iteration 30` (resumed at the right iter, not 0) → ran to
+  60, wrote `ckpt/{39,49,59}`, and `max_to_keep=3` rotation pruned `9/19/29`. Clean exit.
+
+This is *stock DCP code this PR does not modify*, so the PASS is a completeness confirmation
+rather than coverage of a PR-touched surface. It was run from-scratch (`pretrained_weights=""`)
+because DCP write/resume is init-source-agnostic, and because loading external pretrained under
+this 2-GPU config hangs at iter-0 — see next.
+
+**iter-0 hang — root cause corrected.** Job 68971's earlier writeup attributed the iter-0 hang
+to **gpu08 node contention** (a leftover non-NVLink GPU pair). **That diagnosis was wrong.** The
+hang reproduced on a *clean* gpu07 with 4 free GPUs (job 69781, `.err`: `CANCELLED ... DUE TO
+TIME LIMIT`), so it is not contention. Isolation via the 68670 baseline pins it precisely:
+
+| Job | GPUs / node | pretrained | compile+cudagraphs | iter-0 |
+|-----|-------------|------------|--------------------|--------|
+| 68670 | 2 / (clean) | **none** (`""`) | yes | **PASS** (50 steps) |
+| 69782/69783 | 2 / gpu07 (clean) | **none** (`""`) | yes | **PASS** (this smoke) |
+| 68971 | 2 / gpu08 | yes (real ckpt) | yes | **HANG** |
+| 69781 | 2 / gpu07 (clean) | yes (real ckpt) | yes | **HANG** |
+
+The sole differentiator is **loading external `pretrained_weights`**. Loading it under
+`compile`+`cudagraphs` on a **2-GPU partial-node** allocation deadlocks the first captured NCCL
+collective (`ProcessGroupNCCL.cpp:5138] Guessing device ID based on global rank` — `device_id`
+is not passed to `init_process_group` at `dinov3/distributed/torch_distributed_wrapper.py:264`;
+on a 2-of-8 GPU set the guess can land on a non-NVLink pair). **This is a 2-GPU smoke-harness
+artifact, not a PR or production risk:** production `run_ddp.sh` runs the identical
+pretrained+cudagraphs recipe on **8 GPUs full-node** and is validated for Anna's full-dataset
+run (PR #1, torch 2.6 + 2.10). And the pretrained *load logic* this PR touches already PASSED
+above (68971/69781: matched=174, unexpected=0) — the load completes cleanly *before* the first
+training step where the collective hangs.
 
 ### Related: Anna's two reported issues (both already understood)
 
