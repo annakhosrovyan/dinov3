@@ -253,3 +253,73 @@ training step where the collective hangs.
   stalling the DDP all-reduce. **Not a code bug**; resolved by lowering `num_workers`/
   `prefetch_factor`, which Anna independently confirmed ("different settings → 10 epochs ran
   fine"). The smoke above uses 8w/2pf and shows no hang.
+
+## Additional review + Commit-3 repair (2026-06-10)
+
+A third independent review pass (fresh-context adversarial reviewer, findings reproduced
+manually) re-confirmed Commits 2 and 4 clean — including the FSDP `model_keys`-staleness and
+cudagraphs tensor-retention angles — but found one real flaw in Commit 3:
+
+### Finding (RISKY): the defensive unwrap silently loaded zero weights when it fired
+
+`init_model_from_checkpoint_for_evals` strips the `module.` prefix from the **checkpoint**
+keys, but the original Commit 3 only unwrapped the in_chans *read* and still called
+`model.load_state_dict(...)` on the **wrapped** model — whose own keys keep the `module.`
+prefix. Result: every checkpoint key lands in `unexpected_keys`, `strict=False` swallows the
+100% mismatch, and the model is silently left at its init weights. Reproduced empirically:
+
+```
+weights changed by load: False
+weights match checkpoint: False
+```
+
+So the original fix traded a loud `AttributeError` for a silently wrong (random-weight) eval
+model. Mitigations: the branch is unreachable from any real run (the sole caller,
+`dinov3/models/__init__.py:128`, always passes a plain backbone), and the test guarding it
+(`test_ddp_wrapped_eval_model_does_not_raise`) asserted only no-exception plus a
+true-by-construction shape check — which is why it passed despite nothing loading.
+
+### Repair
+
+`checkpointer.py` (`init_model_from_checkpoint_for_evals`): load into the **unwrapped**
+module — `target = _unwrap_module(model)` drives both the in_chans read *and*
+`target.load_state_dict(...)`. Both key namespaces are then prefix-free and match. For the
+plain non-DDP case `target is model`, so the real eval path is byte-identical in behavior.
+
+### Test coverage (red-checked)
+
+- `test_ddp_wrapped_eval_model_does_not_raise` → **renamed/strengthened** to
+  `test_ddp_wrapped_eval_model_loads_weights`: asserts the checkpoint tensor is actually
+  equal to the loaded weight (catches both the AttributeError mode *and* the silent
+  zero-key-match mode).
+- **New** `test_ddp_wrapped_eval_model_loads_all_keys`: every checkpoint tensor must land in
+  the unwrapped module, guarding against partial loads a single-weight check could miss.
+- `test_eval_loader_reads_in_chans_through_unwrap_for_non_default`: upgraded from a
+  shape-only assertion (true by construction) to weight-equality.
+
+Honesty check: the strengthened tests were run against the **pre-repair** code
+(`git stash` of the checkpointer fix) and fail — `3 failed, 1 passed` (the plain-path test
+passes, all wrapped-model tests fail) — then pass with the repair: **32 passed**,
+`ruff check` clean.
+
+### Review findings NOT acted on (recorded for honesty)
+
+- NIT: the "`state_dict()` is a rank-synchronizing op" rationale in the Commit-2 comments is
+  overstated — DDP `state_dict()` is a local dict walk (no collective); FSDP2 sharded
+  `state_dict()` returns DTensors without all-gather. The 4→1 collapse stands on
+  redundancy-removal grounds; the comments overstate the perf motivation.
+- NIT (pre-existing, not a PR regression): the remap loop in `_remap_checkpoint_keys_for_ddp`
+  silently drops an entry if a checkpoint contains *both* `backbone.x` and
+  `backbone.module.x` (last write wins); `test_no_keys_dropped_or_duplicated` only covers the
+  collision-free case, so its name over-promises.
+
+### Why no new Slurm smoke is needed for this repair
+
+The changed branch (DDP-wrapped eval model) is **unreachable from any real run** — every real
+eval job goes through `build_model_for_eval`, which constructs a plain unwrapped teacher
+backbone, and for that path `target is model` makes the repair a no-op (pinned by
+`test_plain_eval_model_loads_weights`). The function is also CPU-only (plain `torch.load` +
+`load_state_dict`, no collectives, no GPU), so the unit/integration tests exercise 100% of the
+changed code — unlike Commits 2/4, whose real smokes (68670/68971/69782-3) covered
+GPU/dist/cudagraph surfaces no unit test can reach. A 2-GPU job would re-run the training
+path, which this repair does not touch.

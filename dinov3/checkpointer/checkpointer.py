@@ -577,10 +577,16 @@ def init_model_from_checkpoint_for_evals(
     # This eval path is non-distributed by design, but unwrap defensively: a DDP-wrapped
     # module has no direct .patch_embed attribute (DDP does not proxy sub-attributes), so
     # `model.patch_embed` would raise AttributeError exactly like the training-path bug.
+    target = _unwrap_module(model)
     state_dict = adapt_patch_embed_input_channels(
-        state_dict, _unwrap_module(model).patch_embed.proj.weight.shape[1]
+        state_dict, target.patch_embed.proj.weight.shape[1]
     )
-    msg = model.load_state_dict(state_dict, strict=False)
+    # Load into the *unwrapped* module too. The `module.` prefix was stripped from the
+    # checkpoint keys above, so loading into a still-wrapped model (whose own keys keep
+    # the prefix) would match zero keys — and strict=False would swallow that silently,
+    # leaving the model at its initial weights. Unwrapping puts both key namespaces in
+    # the same (prefix-free) form; for the plain non-DDP case `target is model`.
+    msg = target.load_state_dict(state_dict, strict=False)
     logger.info("Pretrained weights found at {} and loaded with msg: {}".format(pretrained_weights, msg))
 
 

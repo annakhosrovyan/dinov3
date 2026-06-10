@@ -232,22 +232,48 @@ class TestEvalLoaderIntegration:
             sd["backbone.patch_embed.proj.weight"],
         )
 
-    def test_ddp_wrapped_eval_model_does_not_raise(self, tmp_path):
+    def test_ddp_wrapped_eval_model_loads_weights(self, tmp_path):
         ckpt = tmp_path / "teacher.pth"
-        _write_eval_checkpoint(ckpt, in_chans=5)
+        sd = _write_eval_checkpoint(ckpt, in_chans=5)
         wrapped = _FakeDDP(_EvalBackbone(in_chans=5))
-        # Regression guard for Commit 3: before the _unwrap_module change, reading
-        # `model.patch_embed` on a DDP-wrapped module raised AttributeError exactly
-        # like the training-path bug Anna hit. The loader must reach in_chans via the
-        # unwrap. Reaching the assertions below means no AttributeError was raised.
+        # Regression guard for Commit 3, in two layers:
+        # (1) before the _unwrap_module change, reading `model.patch_embed` on a
+        #     DDP-wrapped module raised AttributeError exactly like the training-path
+        #     bug Anna hit;
+        # (2) an earlier version of the fix unwrapped only the in_chans *read* but
+        #     still called load_state_dict on the wrapper — the checkpoint keys had
+        #     `module.` stripped while the wrapper's own keys kept it, so strict=False
+        #     silently matched ZERO keys and left the model at its init weights.
+        # Asserting that the weights actually land catches both failure modes; a
+        # no-exception check alone passes under (2).
         init_model_from_checkpoint_for_evals(wrapped, str(ckpt), "teacher")
-        assert _unwrap_module(wrapped).patch_embed.proj.weight.shape[1] == 5
+        assert torch.equal(
+            _unwrap_module(wrapped).patch_embed.proj.weight.detach(),
+            sd["backbone.patch_embed.proj.weight"],
+        )
+
+    def test_ddp_wrapped_eval_model_loads_all_keys(self, tmp_path):
+        # Stronger variant of the above: every tensor in the checkpoint must land in
+        # the unwrapped module, not just patch_embed — guards against partial loads
+        # that a single-weight equality check could miss.
+        ckpt = tmp_path / "teacher.pth"
+        sd = _write_eval_checkpoint(ckpt, in_chans=5)
+        wrapped = _FakeDDP(_EvalBackbone(in_chans=5))
+        init_model_from_checkpoint_for_evals(wrapped, str(ckpt), "teacher")
+        loaded = _unwrap_module(wrapped).state_dict()
+        for ckpt_key, value in sd.items():
+            model_key = ckpt_key.replace("backbone.", "", 1)
+            assert torch.equal(loaded[model_key], value), f"{model_key} did not load"
 
     def test_eval_loader_reads_in_chans_through_unwrap_for_non_default(self, tmp_path):
         # in_chans=3 checkpoint into an in_chans=3 model, DDP-wrapped: confirms the
-        # unwrapped shape[1] (not the wrapper) drives adapt_patch_embed_input_channels.
+        # unwrapped shape[1] (not the wrapper) drives adapt_patch_embed_input_channels,
+        # and that the weights actually land (not merely that no exception was raised).
         ckpt = tmp_path / "teacher.pth"
-        _write_eval_checkpoint(ckpt, in_chans=3)
+        sd = _write_eval_checkpoint(ckpt, in_chans=3)
         wrapped = _FakeDDP(_EvalBackbone(in_chans=3))
         init_model_from_checkpoint_for_evals(wrapped, str(ckpt), "teacher")
-        assert _unwrap_module(wrapped).patch_embed.proj.weight.shape[1] == 3
+        assert torch.equal(
+            _unwrap_module(wrapped).patch_embed.proj.weight.detach(),
+            sd["backbone.patch_embed.proj.weight"],
+        )
