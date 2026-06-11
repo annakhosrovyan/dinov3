@@ -809,11 +809,12 @@ Bigger batch is VRAM-feasible but host-RAM-bound *at this provisioning*, and eve
 reduction that fits 512 GB starves the GPU worse than the batch bump helps. **This conclusion is
 constraint-bound, not fundamental** — see §6.B.7, which re-ran bs=160/192 at **1500 GB / 192 CPU
 / 24w/8pf** and cleared the OOM entirely (full 2000/2000, 0 OOM, VRAM 48/57 GB). The host-RAM
-ceiling was a provisioning artifact. **What §6.B.7 then revealed is the *real* limit: wall
-throughput is flat across bs=128/160/192 (~1,820 img/s) because the iteration is gated by a
-batch-independent per-iter CPU overhead, not by compute, data, or memory.** So the lever for
-higher throughput is **not** batch size — it is the compute-side **static-shape heads / fullgraph**
-work (which cuts per-iter dispatch/launch overhead). This supersedes the deprioritized 6.B.3 plan.
+ceiling was a provisioning artifact. **What §6.B.7 (with the bs=128/2.10 control, job 67639) then
+shows: MFU is flat ~20–21% across bs=128/160/192, and wall throughput rises only modestly with
+batch (~+12% at bs=160, ~+15% at bs=192) by amortizing a large per-iter residual — not by making
+the GPU more efficient.** So the better, batch-agnostic lever is the compute-side **static-shape
+heads / fullgraph** work (which would shrink the residual itself). This supersedes the deprioritized
+6.B.3 plan.
 
 > **Instrumentation note (refines the §6.B.5 retraction).** The new cgroup sidecar confirmed
 > `memory.current` pegs at the 512 GB cap in BOTH runs while cgroup `anon` peaked at only ~135 GB.
@@ -826,97 +827,110 @@ work (which cuts per-iter dispatch/launch overhead). This supersedes the deprior
 
 ---
 
-### 6.B.7 — bs=160 / bs=192 re-test with proper provisioning (DONE, jobs 67153/67154) — both PASS, but wall throughput is flat
+### 6.B.7 — bs=128/160/192 controlled re-test, proper provisioning (DONE, jobs 67639/67153/67154) — MFU flat ~20-21%, wall rises modestly with batch
 
 **Question (Aram, 2026-06-05):** §6.B.6 capped host RAM at 512 GB (= 64 CPU × DefMemPerCPU 8 GB,
 no `--mem` set) and gated decode at 8 cores/rank. But a DGX H100 node has ~2 TB RAM and 224 CPUs.
 Re-run bs=160/192 with the loader **scaled up** (not down) and host RAM no longer the ceiling:
 `--mem=1500G --cpus-per-task=192`, **24w/8pf** (≈ 24 decode cores/rank). Same instrument as §6.B.6
 (cgroup-aware sidecar + `[MEMPROFILE]` markers), same 2000-iter / 8-ckpt / 4-eval schedule.
+**Plus a bs=128 control on the same torch 2.10 / 24w8pf / 1500G stack (job 67639)** — added after a
+first pass mistakenly compared the 2.10 runs against a torch-2.6 bs=128 soak and wrongly concluded
+"flat wall." The control makes bs=128/160/192 a clean apples-to-apples set.
 
-All metrics below are derived from the **median per-iter** `time:` (wall) and `step_time_ms`
-(CUDA-event) over iters ≥50, so they self-rederive: wall img/s = `global_batch / median(time)`,
-GPU-only = `global_batch / median(step_time)`, MFU from GPU-only (226.4 GMACs/img, 989 TFLOPS).
+**With job 67639 (bs=128 on torch 2.10) in hand, all three batches are now a controlled set:**
+identical torch (2.10, `dinov3_env_210clone`), loader (24w/8pf), provisioning (1500 GB / 192 CPU),
+schedule (2000 iters, 12 ckpt-saves = 8 ckpt + 4 eval), and metric extraction. **Only these three
+are compared below; the torch-2.6 jobs 53708/60959 are retired as comparators** (different torch,
+loader, duration, and clock — 60959's "2,055 late" is almost certainly a compute number, not wall,
+and it reads *faster* than 2.10 bs=128, which is backwards — so it cannot be trusted cross-version).
 
-| Job | bs | Loader | Outcome | Peak VRAM (max/min GPU) | Peak cgroup anon | Wall img/s (median) | GPU-only img/s | MFU (GPU) |
-|---|---|---|---|---|---|---|---|---|
-| 67153 | 160 | 24w/8pf | **✅ FULL 2000/2000, 0 OOM, 0 alloc_retries** | 48.3 / 46.0 GB | 188.6 GB (cap 1500) | **~1,730** (1280/0.741s) | ~3,500 (1280/0.365s) | **~20%** |
-| 67154 | 192 | 24w/8pf | **✅ FULL 2000/2000, 0 OOM, 0 alloc_retries** | 56.6 / 54.3 GB | 218.6 GB (cap 1500) | **~1,810** (1536/0.849s) | ~3,720 (1536/0.413s) | **~21%** |
+Metrics are **clean-iter medians**: per-iter `time:` (wall) and `step_time_ms` (CUDA-event) over
+iters ≥50, excluding `data_time>10 ms` (loader-refill spikes) and wall>p85 (gc/ckpt/eval spikes).
+The exclusion is symmetric across all three (same schedule), so the *direction* is fair. wall img/s
+= `global_batch / median(time)`; GPU-only = `global_batch / median(step_time)`; MFU from GPU-only
+(226.4 GMACs/img, 989 TFLOPS).
 
-bs=128 references (both torch **2.6**, NOT directly comparable to each other): job 53708 = 1000-iter
-*screen*, 2,394 img/s / 13.7% MFU; job 60959 = 4000-iter *soak*, ~1,830 wall run-avg / **~11.8% late
-MFU**. The right same-kind comparison for these soaks is **60959's ~11.8%**; job 67639 (bs=128 on
-torch 2.10, same 2000-iter soak) is in flight to remove the torch-version confound entirely.
+| Job | bs | global batch | Outcome | Peak VRAM (max GPU) | Peak cgroup anon | **Wall img/s** | per-img wall | GPU-only img/s | **MFU (GPU)** |
+|---|---|---|---|---|---|---|---|---|---|
+| 67639 | 128 | 1024 | **✅ 2000/2000, 0 OOM/retry** | 41.5 GB | 171.4 GB | **~1,640** | 0.609 ms | ~3,650 | **~21%** |
+| 67153 | 160 | 1280 | **✅ 2000/2000, 0 OOM/retry** | 48.3 GB | 188.6 GB | **~1,840** | 0.545 ms | ~3,510 | **~20%** |
+| 67154 | 192 | 1536 | **✅ 2000/2000, 0 OOM/retry** | 56.6 GB | 218.6 GB | **~1,880** | 0.531 ms | ~3,720 | **~21%** |
 
 **What is now settled:**
 
-1. **bs>128 passed a 2000-iter / 8-ckpt / 4-eval memory soak under 1500 GB / 192 CPU — the §6.B.6
-   host-RAM OOM was a provisioning artifact at 512 GB / 64 CPU, removed by proper provisioning.**
-   (Deliberately *not* "proven safe": the FSDP2 bs=128 precedent OOM'd only in a real *long* run,
-   so a 2000-iter soak lowers risk but is not a full-duration proof — see caveats.) Both ran clean
-   to 2000/2000: `num_ooms=0`, `alloc_retries=0`, `fragmentation_ratio≈0.015`, VRAM dead-flat across
-   all 8 ckpt + 4 eval events (48/57 GB peak, 24–34 GB of headroom on the 80 GB card). Host RAM was
-   comfortable *in this soak*: cgroup `anon` peaked at only **188 GB (bs=160) / 219 GB (bs=192)**
-   with no upward trend over 2000 iters (the verdict's "projected anon" is a degenerate
-   negative-slope fit — ignore that number; the signal is peak ≈ 200 GB, ~1300 GB of margin). Note
-   the *prior* OOM mechanism was page-cache + shmem IPC buffers, not `anon` — so low `anon` lowers
-   but does not eliminate long-run memory risk. The 24-worker pool keeps the GPU fed: `data_time`
-   median **0.8 ms (bs=160) / 1.3 ms (bs=192)** — the loader is no longer the gate.
+1. **MFU is FLAT at ~20–21% across bs=128 / 160 / 192 on torch 2.10 — bigger batch does NOT make the
+   GPU more efficient.** This is the control's main payoff and the most robust result here. GPU-only
+   step-per-image is essentially constant (0.273 / 0.285 / 0.269 ms for bs 128/160/192), so MFU is
+   batch-independent on this stack. **Caveat (per advisor):** this does NOT prove the earlier
+   ~12%→~21% MFU jump was "just the torch upgrade." 60959 (torch 2.6) showed ~11.8% MFU; 67639 (torch
+   2.10) shows ~21% — a ~+77% compute-throughput rise, far too large to be "torch ~10% faster," so
+   something else (compile/cudagraph effectiveness, measurement clock) also differs. The defensible
+   statement is **"MFU ⊥ batch on torch 2.10"**, and the torch-2.6 numbers are *not cleanly
+   comparable* — not "explained by the torch version."
 
-2. **But wall throughput is ~FLAT across bs=160 / 192 (~1,730 / ~1,810 img/s) and near the bs=128
-   soak's ~1,830.** This is the load-bearing correction. The verdict's `images_per_sec` (~3,500–3,720)
-   and `mfu` (~20–21%) are **CUDA-event compute-only** metrics (`global_batch / step_time_ms`); they
-   rise with batch because the GPU is genuinely better utilized per GPU-busy-ms at large batch. But
-   the **wall** clock (`time:` per iter, the models/hour metric) is flat: median-derived **~1,730
-   (bs=160) / ~1,810 (bs=192)**, both ≈ the bs=128 60959 soak's **~1,830 run-avg** (cross-torch, so
-   indicative not exact — 67639 will pin it). Enlarging the batch does **not** increase models/hour.
+2. **Wall throughput RISES modestly with batch — ~1,640 → ~1,840 → ~1,880 img/s (bs 128→160→192),
+   front-loaded and diminishing.** This **reverses** the earlier "flat wall" claim, which was an
+   artifact of comparing the torch-2.10 bs=160/192 runs against the torch-2.6 60959 soak (a broken
+   cross-version anchor; see the retired-comparator note above). On the controlled 2.10 set the gain
+   is real but small: **+12% (128→160), then only +2.6% more (160→192)** — i.e. most of the benefit
+   is captured by bs=160 and bs=192 adds little. Single run per config, no error bars. The clean-iter
+   medians (1,641 / 1,837 / 1,884) and raw medians (1,589 / 1,728 / 1,810) agree on direction and
+   magnitude. So: **bigger batch buys a modest, diminishing wall gain**, not "nothing" (prior claim)
+   and not the ~+60% the compute-MFU numbers naïvely suggest.
 
-3. **There is a large per-iter RESIDUAL of ~0.35–0.43 s (`wall − step_time − data_time`) that scales
-   WITH batch — but it is a residual, not an attributed phase.** Decomposing per logged iteration
-   (medians over iters ≥50): bs=160 wall 0.741 s = step **0.365 s** + residual **0.349 s** + data
-   ~0.001 s; bs=192 wall 0.849 s = step **0.413 s** + residual **0.434 s** + data ~0.001 s.
-   **Caveat on the method (per Codex GPT-5.5 review):** subtracting a CUDA-*event* `step_time` from a
-   wall `time:` does **not** cleanly isolate "non-GPU" work — the residual can include GPU work not
-   bracketed by the events, the `step_end_event.synchronize()` (outside the event interval but inside
-   wall), CPU running ahead on async launches, and H2D transfer whose placement is ambiguous. So the
-   only *proven* statements are: (a) the residual is large (~half of wall), (b) it is **not**
-   data-loading (`data_time≈1 ms`), and (c) it **grows with batch** (0.349→0.434 s, +24% for +20%
-   batch), which is why per-image wall barely moves (0.579→0.553 ms/img) and wall img/s stays flat
-   while compute-MFU rises. **Hypothesis (NOT yet proven):** the residual is dominated by CPU-side
+3. **Mechanism: the wall gain comes entirely from amortizing a large, roughly-fixed per-iter
+   RESIDUAL — not from compute.** Decomposing each iteration as `wall = step + residual + data`
+   (clean medians): step-per-image is flat (matches flat MFU), and the residual-per-image *drops*
+   (0.349 → 0.273 → 0.283 ms for bs 128/160/192) because the absolute residual (~0.36 / 0.35 / 0.43 s)
+   grows **sub-linearly** with batch, so spreading it over more samples lowers per-image cost. The
+   residual is ~half of wall and is the dominant non-compute cost. **Caveat on the method (per Codex
+   GPT-5.5 review):** `wall − step_time` is a *residual, not an attributed phase* — a CUDA-*event*
+   step can't be cleanly subtracted from a wall clock (it omits `step_end_event.synchronize()`, CPU
+   run-ahead, and ambiguous H2D placement). **Proven:** residual is large, not data-loading
+   (`data_time≈1 ms`), grows sub-linearly with batch. **Hypothesis (NOT proven):** it is CPU-side
    per-iter dispatch + syncs (grad-clip `.item()`, metric all-reduce, `synchronize()`, schedule,
-   periodic `gc`), which static-shape heads + end-to-end fullgraph capture would cut. **This must be
-   confirmed by an nsys run** using the NVTX ranges already wired in train.py (`schedule_update`,
+   periodic `gc`), which static-shape heads + end-to-end fullgraph capture would cut **batch-agnostically**
+   — a better lever than batch, since it shrinks the residual itself rather than amortizing it. **Must
+   be confirmed by an nsys run** (NVTX ranges already wired in train.py: `schedule_update`,
    `forward_backward`, `grad_clip`, `allreduce_metrics`, `optimizer_step`, `ema_update`) before any
-   "recoverable ceiling" is claimed — the compute-only ~3,500–3,720 img/s is an *upper bound* the
-   wall could approach only if the residual proves removable without changing GPU/collective time.
+   "recoverable ceiling" near the compute-only ~3,650–3,720 img/s is claimed.
 
 **Caveats / action items:**
-- **Torch-version confound (biggest):** the bs=160/192 compute-MFU (~20–21%) is on torch **2.10**;
-  the bs=128 soak reference (60959, ~11.8% late) is on torch **2.6** (~10% faster between versions).
-  Do **not** attribute the full ~12%→~21% compute-MFU rise to batch size — part is the torch bump,
-  part is genuine large-batch tensor-core efficiency. Job 67639 (bs=128 on 2.10, same soak) is the
-  control that splits these. The **wall**-throughput comparison (flat) is the robust takeaway and
-  does not depend on resolving this.
-- **2000 iters ≠ full run:** this soak (8 ckpt + 4 eval, ~30 min) is not a full-duration memory
+- **Retired comparators:** the torch-2.6 jobs 53708 (13.7% / 2,394) and 60959 (~11.8% / ~1,830)
+  are **not used** in the §6.B.7 comparison — different torch, loader, duration, and clock. 60959's
+  "2,055 late" reads *faster* than the 2.10 bs=128 control (backwards), confirming it isn't a
+  comparable wall number. My earlier "flat wall" conclusion leaned on 60959 and was wrong for
+  exactly this reason; the fix is to drop it, not invert it.
+- **MFU lift is NOT attributed to torch:** the control proves MFU ⊥ batch *on 2.10* (~20–21% at all
+  three). It does **not** prove the ~12%→~21% jump from the 2.6 era was the torch upgrade — +77%
+  compute throughput is too large for "torch ~10% faster," so other factors differ. State only what
+  is controlled.
+- **2000 iters ≠ full run:** this soak (8 ckpt + 4 eval, ~25–30 min) is not a full-duration memory
   proof. The FSDP2 bs=128 precedent OOM'd only in a real long run. Treat bs>128 as
-  "memory-soak-passed under 1500G/192CPU," not "OOM-safe."
+  "memory-soak-passed under 1500G/192CPU," not "OOM-safe." (bs=128/2.10 itself passed too: VRAM
+  41.5 GB, anon 171 GB.)
 - **Convergence unvalidated:** bs=192 → global batch **1536** (vs 1024 at bs=128). LR auto-scaling
   (`apply_scaling_rules_to_cfg`) handles the scalar, but large-batch convergence/quality is a
-  research call for Anna, not a throughput fact. Frame bs>128 as a **throughput-neutral,
+  research call for Anna, not a throughput fact. Frame bs>128 as a **modest-wall-gain,
   memory-soak-passed candidate pending convergence sign-off**, not a drop-in champion.
 - **`run_ddp.sh` is load-bearing:** if bs>128 is ever used in production, the run script **must**
   carry `--mem≈1500G` and `--cpus-per-task=192` (24w/8pf) — otherwise it reproduces the §6.B.6
   512 GB OOM (64978/64979) exactly. The current `run_ddp.sh` is bs=128 and does not need this;
   flag it before any bs bump.
 
-**Conclusion:** bs=128 remains the production recommendation **on throughput grounds** (bs>128
-buys no models/hour in this soak), now for a *better-understood* reason: not "bigger batch OOMs"
-(it doesn't, with 1500 GB) but "bigger batch doesn't improve wall throughput." §6.B.6 was right
-operationally but wrong on mechanism (it blamed loader-starvation under a 512 GB cap); §6.B.7
-shows the binding factor is a large per-iter residual independent of memory or loader. The leading
-**hypothesis** is that the residual is CPU-side dispatch/sync overhead, pointing to compute-side
-fullgraph as the next lever — **but that attribution is unproven and must be confirmed by an nsys
-profile before it drives the next experiment.**
+**Conclusion (revised after the 67639 control):** **bs=128 stays the safe default**, but the prior
+"bigger batch buys nothing" claim is **retracted**. On the controlled torch-2.10 set, bigger batch
+gives a **modest, diminishing wall gain** (~+12% at bs=160, ~+15% at bs=192 vs bs=128) at **flat
+~20–21% MFU** — the GPU isn't more efficient; the gain is purely amortizing a roughly-fixed per-iter
+residual over more samples. So **bs=192 is now a modest wall-positive option (~+15%)**, gated on
+(a) 1500G/192CPU provisioning, (b) a full-duration memory soak, and (c) Anna's convergence sign-off
+for global batch 1536 — upgraded from "buys nothing" to "small, conditional gain," NOT crowned a new
+champion. §6.B.6 was right operationally but wrong on mechanism (it blamed loader-starvation under a
+512 GB cap); the real binding factor is the per-iter residual, independent of memory or loader. The
+**better, batch-agnostic lever** is compute-side fullgraph / static-shape heads to *shrink* the
+residual — but the CPU-dispatch attribution is a **hypothesis that an nsys profile must confirm**
+before it drives the next experiment.
 
 ---
 
