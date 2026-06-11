@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Torch Compile + CUDA Graphs — DINOv3 Phase 6 Log</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --surface: #ffffff;
+      --ink: #172033;
+      --muted: #5f6b7a;
+      --line: #d9dee8;
+      --blue: #2563eb;
+      --green: #17803d;
+      --amber: #a16207;
+      --red: #b42318;
+      --code: #0f172a;
+      --soft-blue: #eef4ff;
+      --soft-green: #ecfdf3;
+      --soft-amber: #fff7e6;
+      --soft-red: #fff1f0;
+      --soft-purple: #f5f3ff;
+      --shadow: 0 1px 2px rgba(15,23,42,.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 18px 80px; }
+
+    /* ── Typography ── */
+    h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.2; }
+    h2 { margin: 0 0 10px; font-size: 17px; line-height: 1.3; }
+    h3 { margin: 20px 0 8px; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    p { margin: 8px 0; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Code ── */
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12px; background: #eef1f6; padding: 1px 4px; border-radius: 4px;
+    }
+    pre {
+      margin: 10px 0 0; padding: 12px 14px; overflow-x: auto;
+      color: #e5e7eb; background: var(--code); border-radius: 6px;
+      font-size: 12px; line-height: 1.5;
+    }
+    pre code { background: transparent; padding: 0; color: inherit; font-size: inherit; }
+    .py-kw   { color: #c792ea; }
+    .py-fn   { color: #82aaff; }
+    .py-str  { color: #c3e88d; }
+    .py-cm   { color: #637777; font-style: italic; }
+    .py-var  { color: #f78c6c; }
+    .hl      { background: rgba(255,200,80,.18); border-radius: 2px; }
+    .hl-red  { background: rgba(255,80,80,.22); border-radius: 2px; }
+    .hl-grn  { background: rgba(80,255,130,.16); border-radius: 2px; }
+
+    /* ── Surfaces ── */
+    .band {
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: 8px; padding: 16px 20px; margin: 14px 0;
+      box-shadow: var(--shadow);
+    }
+    .verdict { background: var(--soft-blue);  border-color: #bfdbfe; }
+    .warn    { background: var(--soft-amber); border-color: #fde68a; }
+    .risk    { background: var(--soft-red);   border-color: #fecaca; }
+    .ok      { background: var(--soft-green); border-color: #bbf7d0; }
+    .purple  { background: var(--soft-purple); border-color: #ddd6fe; }
+    .card {
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: 8px; padding: 14px; box-shadow: var(--shadow);
+    }
+
+    /* ── Grids ── */
+    .grid  { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 14px 0; }
+    .two   { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 12px 0; }
+    .four  { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin: 10px 0; }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; background: var(--surface); }
+    th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    tr.row-baseline { background: #f0fdf4; }
+    tr.row-regressed { background: #fff1f0; }
+    tr.row-pending { background: #fefce8; }
+    .delta-pos { color: #166534; font-weight: 700; }
+    .delta-neg { color: #991b1b; font-weight: 700; }
+    .delta-flat { color: var(--muted); }
+    td.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+    /* ── Pills / badges ── */
+    .pill {
+      display: inline-block; padding: 2px 7px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; margin-right: 4px; white-space: nowrap;
+    }
+    .pill-blue   { color: #1e40af; background: #dbeafe; }
+    .pill-green  { color: #166534; background: #dcfce7; }
+    .pill-amber  { color: #92400e; background: #fef3c7; }
+    .pill-red    { color: #991b1b; background: #fee2e2; }
+    .pill-gray   { color: #374151; background: #f3f4f6; }
+    .pill-purple { color: #5b21b6; background: #ede9fe; }
+
+    /* ── Experiment timeline ── */
+    .timeline { position: relative; padding: 6px 0 6px 36px; margin: 20px 0; }
+    .timeline::before {
+      content: ""; position: absolute; left: 14px; top: 0; bottom: 0;
+      width: 3px; background: var(--line); border-radius: 2px;
+    }
+    .tl-entry { position: relative; margin-bottom: 22px; }
+    .tl-entry:last-child { margin-bottom: 0; }
+    .tl-dot {
+      position: absolute; left: -28px; top: 14px;
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2.5px solid var(--surface);
+    }
+    .tl-dot.crashed  { background: #ef4444; }
+    .tl-dot.regressed { background: #f97316; }
+    .tl-dot.fix      { background: #6366f1; }
+    .tl-dot.pending  { background: #eab308; }
+    .tl-dot.baseline { background: #22c55e; }
+    .tl-card {
+      border-radius: 8px; padding: 14px 16px; border: 1.5px solid var(--line);
+      box-shadow: var(--shadow); background: var(--surface);
+    }
+    .tl-card.crashed  { border-color: #fca5a5; background: #fff5f5; }
+    .tl-card.regressed { border-color: #fdba74; background: #fff7f0; }
+    .tl-card.fix      { border-color: #c4b5fd; background: #f9f8ff; }
+    .tl-card.pending  { border-color: #fde68a; background: #fffdf0; }
+    .tl-card.baseline { border-color: #86efac; background: #f0fdf4; }
+    .tl-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .tl-title { font-weight: 700; font-size: 14px; }
+    .badge {
+      font-size: 10px; font-weight: 800; letter-spacing: .06em;
+      padding: 2px 7px; border-radius: 4px; text-transform: uppercase;
+    }
+    .badge-crashed   { background: #fecaca; color: #991b1b; }
+    .badge-regressed { background: #fed7aa; color: #9a3412; }
+    .badge-fix       { background: #ddd6fe; color: #5b21b6; }
+    .badge-pending   { background: #fef9c3; color: #854d0e; }
+    .badge-baseline  { background: #dcfce7; color: #166534; }
+    .badge-complete  { background: #dbeafe; color: #1e40af; }
+
+    /* ── Notes / callouts ── */
+    .note {
+      border-left: 4px solid var(--blue); background: #f8fbff;
+      padding: 10px 12px; margin: 10px 0; border-radius: 0 6px 6px 0;
+    }
+    .note-red {
+      border-left: 4px solid #ef4444; background: #fff5f5;
+      padding: 10px 12px; margin: 10px 0; border-radius: 0 6px 6px 0;
+    }
+    .note-green {
+      border-left: 4px solid #22c55e; background: #f0fdf4;
+      padding: 10px 12px; margin: 10px 0; border-radius: 0 6px 6px 0;
+    }
+    .note strong { display: block; margin-bottom: 3px; }
+
+    /* ── Flow steps ── */
+    .flow { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-top: 12px; }
+    .step { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #fbfcff; }
+    .step strong { display: block; margin-bottom: 4px; }
+
+    /* ── Misc ── */
+    .small { font-size: 12px; }
+    .muted { color: var(--muted); }
+    ul { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 4px 0; }
+    .refs { columns: 2; column-gap: 24px; font-size: 12px; }
+    .divider { border: none; border-top: 1px solid var(--line); margin: 22px 0; }
+
+    @media (max-width: 900px) {
+      .grid, .two, .four, .flow { grid-template-columns: 1fr; }
+      .refs { columns: 1; }
+      h1 { font-size: 21px; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ═══════════════════════════════════════════
+       HEADER
+       ═══════════════════════════════════════════ -->
+  <header class="band verdict" style="margin-bottom:20px">
+    <h1>Torch Compile + CUDA Graphs — DINOv3 Phase 6 Log</h1>
+    <p class="muted">Living document. Covers the compile infrastructure as it existed in Phase 5, what Phase 6.A proved, and what Phase 6.B still needs to change to make DINO/iBOT heads graph-capturable.</p>
+    <p class="small">
+      <strong>Last updated:</strong> 2026-06-01 &nbsp;·&nbsp;
+      <strong>Branch:</strong> <code>perf-ddp-fullgraph</code> &nbsp;·&nbsp;
+      <strong>Baseline job:</strong> 48312 (1,387 img/s, 7.94 % MFU) &nbsp;·&nbsp;
+      <strong>Phase 6.A champion:</strong> job 53708 (2,394 img/s, 13.70 % MFU, +72.6 %) &nbsp;·&nbsp;
+      <strong>Phase 6.B:</strong> closed ✅ — job 60959, 4000/4000 iters, VRAM flat, fix validated
+    </p>
+  </header>
+
+  <!-- ═══════════════════════════════════════════
+       CURRENT STATUS SNAPSHOT
+       ═══════════════════════════════════════════ -->
+  <section class="band ok">
+    <h2>Where We Are Right Now</h2>
+    <p><strong>Phase 6 is closed.</strong> Phase 6.A found and fixed two CUDA-graph blockers in the backbone, produced a +72.6 % throughput gain at bs=128, and hit the host-RAM ceiling for larger batches. Phase 6.B pivoted from static-shape-heads work to sustainability validation: does the Phase 6.A champion survive a real-length training run without VRAM growth, crashes, or data-pipeline failures? <strong>Job 60959 answered yes</strong> — 4000/4000 iters completed, VRAM dead-flat at 36.3 GB, one corrupt-tile event self-heals. The honest sustained throughput is ~1,830 img/s run-average (–23.5% vs the 2,394 screening number; only the late-run tail reaches ~2,055 img/s).</p>
+    <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:14px">
+      <div class="card" style="border-left:4px solid #22c55e">
+        <strong>Baseline</strong><br>
+        <span class="badge badge-complete">job 48312</span><br>
+        <span class="small">1,387 img/s · 7.94 % MFU<br>DDP, cudagraphs=false</span>
+      </div>
+      <div class="card" style="border-left:4px solid #ef4444">
+        <strong>6.A.1 — Naive cudagraphs=on</strong><br>
+        <span class="badge badge-crashed">CRASHED</span><br>
+        <span class="small">Job 53655 · buffer aliasing<br>Fix: <code>mark_step_begin()</code></span>
+      </div>
+      <div class="card" style="border-left:4px solid #f97316">
+        <strong>6.A.2 — Fix 1 only</strong><br>
+        <span class="badge badge-regressed">REGRESSED −10 %</span><br>
+        <span class="small">Job 53672 · <code>index_put_</code> blocker<br>Fix: <code>index_select</code> (5 sites)</span>
+      </div>
+      <div class="card" style="border-left:4px solid #22c55e">
+        <strong>6.A.3 — Both fixes</strong><br>
+        <span class="badge badge-baseline" style="background:#dcfce7;color:#166534">BIG WIN +44.8 %</span><br>
+        <span class="small">Job 53681 · <strong>2,009 img/s · 11.50 % MFU</strong><br>379 ms/step · 0 cudagraph warnings</span>
+      </div>
+      <div class="card" style="border-left:4px solid #eab308">
+        <strong>6.A.4.a — bs=128, cudagraphs=on</strong><br>
+        <span class="badge badge-baseline" style="background:#dcfce7;color:#166534">SCREEN CHAMP +72.6 %</span><br>
+        <span class="small">Job 53708 · 2,394 img/s · 13.70 % MFU (screen)<br>Sustained: ~1,830 avg / ~2,055 late · 34.1 GB</span>
+      </div>
+      <div class="card" style="border-left:4px solid #22c55e">
+        <strong>6.B — Sustainability soak</strong><br>
+        <span class="badge badge-baseline">CLOSED ✅ job 60959</span><br>
+        <span class="small">4000/4000 iters · VRAM flat 36.3 GB · crash fix validated<br><strong>Honest sustained: ~1,830 img/s / ~2,055 late-steady</strong></span>
+      </div>
+    </div>
+    <p class="small" style="margin-top:12px">The 7.94 % → 13.70 % MFU jump (screen) / ~10.5–11.8 % (sustained) confirms Armen's diagnosis: per-step Python / kernel-launch overhead was a real bottleneck for ViT-B on one H100 node. The screening number (2,394 img/s) was a favorable short burst; the honest 4000-iter number is ~1,830 avg / ~2,055 late as CUDA graphs and caches stabilize. One open watch-item: host RAM drifts +15 GB/hr from <code>cache_dataset=true</code> page cache — safe at 4000 iters but worth monitoring on multi-hour runs.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       EXPERIMENT TIMELINE
+       ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Phase 6 Experiment Timeline</h2>
+    <p class="small muted">Chronological record of every job and code change. Each rung gated on reading the previous result.</p>
+
+    <div class="timeline">
+
+      <!-- ─── Baseline ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot baseline"></div>
+        <div class="tl-card baseline">
+          <div class="tl-header">
+            <span class="tl-title">Phase 5 Calibration Baseline</span>
+            <span class="badge badge-complete">JOB 48312</span>
+            <span class="badge badge-baseline">BASELINE</span>
+            <span class="muted small">gpu03 · 2026-05-xx</span>
+          </div>
+          <p><strong>Config:</strong> DDP, bs=96, <code>compile=true</code>, <code>cudagraphs=false</code>, <code>compile_mode=null</code>, no AC, no expandable_segments. 1000 iters.</p>
+          <p><strong>Result (iter 400–999):</strong> <code>1,387 img/s mean · 1,379 median · MFU 7.94 % · step_ms 545 · peak alloc 25.8 GB</code>. Trend monotonically rising (still warming at iter 999), so the true steady-state ceiling is above 1,387.</p>
+          <p><strong>Role in Phase 6:</strong> every Phase 6 number is compared against this job. Not against archived 100-iter screening.</p>
+        </div>
+      </div>
+
+      <!-- ─── 6.A.1 crashed ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot crashed"></div>
+        <div class="tl-card crashed">
+          <div class="tl-header">
+            <span class="tl-title">6.A.1 — First cudagraphs=true run</span>
+            <span class="badge badge-crashed">JOB 53655 — CRASHED</span>
+            <span class="muted small">gpu01 · 2026-05-23</span>
+          </div>
+          <p><strong>Config:</strong> identical to 48312 except <code>train.cudagraphs=true</code>. No other changes.</p>
+          <p><strong>What ran:</strong> <code>[COMPILE]</code> log confirmed the fullgraph branch fired correctly for all 12 backbone blocks:</p>
+          <pre><code>[COMPILE] torch.compile enabled — cudagraphs=True, compile_mode=None
+[COMPILE] compile_transformer: 12 backbone blocks → fullgraph=True, dynamic=False, triton.cudagraphs=True
+[COMPILE] head 'dino_head' → default (module.compile(), dynamic=True)
+[COMPILE] head 'ibot_head' → default (module.compile(), dynamic=True)</code></pre>
+          <p><strong>Crash at first training step (~4 min after start):</strong></p>
+          <pre><code>RuntimeError: Error: accessing tensor output of CUDAGraphs that has been overwritten
+by a subsequent run.
+...block.py:194: x_ffn = x_attn + self.ls2(self.mlp(self.norm2(x_attn)))
+To prevent overwriting, clone the tensor outside of torch.compile() or call
+torch.compiler.cudagraph_mark_step_begin() before each model invocation.
+Stack: torch/_inductor/cudagraph_trees.py:1625 → _allocate_and_copy_recording_inputs</code></pre>
+          <div class="note-red">
+            <strong>Root cause: Inductor CUDA graph tree buffer aliasing</strong>
+            Each compiled transformer block receives a <em>list</em> <code>[global_tokens, local_tokens]</code> (197 vs 37 token sequences) via <code>_forward_list</code>. Inductor captures a <strong>separate CUDA sub-graph per distinct input shape</strong>. Without <code>cudagraph_mark_step_begin()</code>, the tree does not know that the 197-token sub-graph and the 37-token sub-graph belong to the same training step — it allows the output buffer from the first sub-graph to be reused/overwritten by the second. With teacher and student both calling the compiled backbone, there are 4+ invocations per step, each with two shapes — the aliasing is severe.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Fix 1 ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot fix"></div>
+        <div class="tl-card fix">
+          <div class="tl-header">
+            <span class="tl-title">Fix 1 — cudagraph_mark_step_begin()</span>
+            <span class="badge badge-fix">CODE CHANGE</span>
+            <span class="muted small">ssl_meta_arch.py:387</span>
+          </div>
+          <p>Added one call at the top of <code>SSLMetaArch.forward_backward()</code>:</p>
+          <pre><code><span class="hl-grn">torch.compiler.cudagraph_mark_step_begin()</span>  <span class="py-cm"># tells Inductor: new step begins here</span>
+metrics_dict = {}</code></pre>
+          <p>This is the documented API for this exact scenario. It tells Inductor's CUDA graph tree that all sub-graphs recorded after this call belong to the same logical step, so output buffers from one sub-graph cannot be aliased into the input recording buffer of another sub-graph in the same step.</p>
+          <div class="note-green">
+            <strong>Zero cost on the default path</strong>
+            The PyTorch docs state this call is a no-op when CUDA graphs are not active. It was safe to add unconditionally — no overhead on any prior or future non-cudagraph job.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── 6.A.2 regressed ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot regressed"></div>
+        <div class="tl-card regressed">
+          <div class="tl-header">
+            <span class="tl-title">6.A.2 — cudagraphs=true with mark_step_begin fix</span>
+            <span class="badge badge-regressed">JOB 53672 — REGRESSION −10 %</span>
+            <span class="muted small">gpu01 · 2026-05-23</span>
+          </div>
+          <p><strong>Config:</strong> same as 53655 but with Fix 1 applied. Ran to completion (1000 iters). No crash.</p>
+
+          <table style="margin-top:12px">
+            <thead><tr>
+              <th>Run</th><th>Strategy</th>
+              <th class="num">img/s</th><th class="num">MFU</th><th class="num">step_ms</th><th class="num">Peak alloc</th>
+            </tr></thead>
+            <tbody>
+              <tr class="row-baseline">
+                <td>Job 48312</td><td>DDP compile cudagraphs=<strong>off</strong></td>
+                <td class="num">1,387</td><td class="num">7.94 %</td><td class="num">545 ms</td><td class="num">25.8 GB</td>
+              </tr>
+              <tr class="row-regressed">
+                <td><strong>Job 53672</strong></td><td>DDP compile cudagraphs=<strong>on</strong></td>
+                <td class="num"><span class="delta-neg">1,244</span></td>
+                <td class="num"><span class="delta-neg">7.12 %</span></td>
+                <td class="num"><span class="delta-neg">599 ms</span></td>
+                <td class="num">~25 GB</td>
+              </tr>
+              <tr>
+                <td colspan="2"><em>Delta</em></td>
+                <td class="num"><span class="delta-neg">−10.3 %</span></td>
+                <td class="num"><span class="delta-neg">−0.82 pp</span></td>
+                <td class="num"><span class="delta-neg">+9.9 %</span></td>
+                <td class="num"><span class="delta-flat">flat</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p style="margin-top:12px"><strong>stderr showed 8 identical warnings — one per backbone block:</strong></p>
+          <pre><code>skipping cudagraphs due to index put with accumulate. Found from :
+    x_subset_1_list = [x[indices_1] for x, indices_1 in zip(x_list, indices_1_list)]</code></pre>
+          <div class="note-red">
+            <strong>Root cause: <code>index_put_(accumulate=True)</code> in backward</strong>
+            The advanced-indexing expression <code>x[indices_1]</code> in forward looks innocent. But PyTorch's autograd translates it into <code>index_put_(output, indices_1, grad, accumulate=True)</code> in the backward pass. Inductor explicitly refuses to capture <code>index_put_</code> with <code>accumulate=True</code> into CUDA graphs — it logs the warning above and falls back to eager for that sub-region. The run paid all the CUDA-graph tree overhead (partitioning, input-copy per sub-graph, <code>mark_step_begin</code> per step) without getting any of the benefit.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Fix 2 ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot fix"></div>
+        <div class="tl-card fix">
+          <div class="tl-header">
+            <span class="tl-title">Fix 2 — Replace x[indices] with torch.index_select (5 sites)</span>
+            <span class="badge badge-fix">CODE CHANGE</span>
+            <span class="muted small">block.py · 5 separate commits</span>
+          </div>
+          <p><code>torch.index_select(x, 0, indices)</code> has <strong>the same forward output</strong> as <code>x[indices]</code>, but its backward is <code>index_add</code> instead of <code>index_put_(accumulate=True)</code>. Inductor captures <code>index_add</code> cleanly into CUDA graphs.</p>
+          <p>Five sites changed in <code>dinov3/layers/block.py</code>:</p>
+          <div class="two">
+            <div>
+              <p class="small muted" style="margin-bottom:4px">Before (broken backward)</p>
+              <pre><code><span class="hl-red">x_subset = x[indices_1]</span>
+<span class="py-cm"># ↑ autograd translates this to:</span>
+<span class="py-cm"># index_put_(acc=True) in backward</span>
+<span class="py-cm"># → Inductor refuses, skips cudagraph</span></code></pre>
+            </div>
+            <div>
+              <p class="small muted" style="margin-bottom:4px">After (capturable backward)</p>
+              <pre><code><span class="hl-grn">x_subset = torch.index_select(x, 0, indices_1)</span>
+<span class="py-cm"># ↑ backward is index_add</span>
+<span class="py-cm"># → Inductor captures cleanly</span>
+<span class="py-cm"># → same forward numerics, no precision change</span></code></pre>
+            </div>
+          </div>
+          <p style="margin-top:10px"><strong>All 5 sites:</strong></p>
+          <ul class="small">
+            <li><code>_forward()</code> — <code>x_subset_1</code> selection (stochastic-depth attn subset)</li>
+            <li><code>_forward()</code> — <code>x_subset_2</code> selection (stochastic-depth MLP subset)</li>
+            <li><code>_forward_list()</code> — <code>x_subset_1_list</code> (attn subset, all crop sizes)</li>
+            <li><code>_forward_list()</code> — <code>x_subset_2_list</code> (MLP subset, all crop sizes)</li>
+            <li><code>_maybe_index_rope()</code> — <code>sin[indices]</code> and <code>cos[indices]</code> for RoPE embeddings with batch dim</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ─── 6.A.3 big win ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot baseline"></div>
+        <div class="tl-card baseline">
+          <div class="tl-header">
+            <span class="tl-title">6.A.3 — cudagraphs=true with both fixes</span>
+            <span class="badge badge-baseline" style="background:#dcfce7;color:#166534">JOB 53681 — BIG WIN +44.8 %</span>
+            <span class="muted small">gpu01 · 2026-05-23</span>
+          </div>
+          <p><strong>Config:</strong> DDP bs=96, <code>cudagraphs=true</code>, with Fix 1 (<code>mark_step_begin</code>) AND Fix 2 (<code>index_select</code> in all 5 sites). Everything else matches 48312.</p>
+
+          <table style="margin-top:12px">
+            <thead><tr>
+              <th>Run</th><th>Strategy</th>
+              <th class="num">img/s</th><th class="num">MFU</th><th class="num">step_ms</th><th class="num">Peak alloc</th><th class="num">Δ vs baseline</th>
+            </tr></thead>
+            <tbody>
+              <tr class="row-baseline">
+                <td>Job 48312</td><td>DDP compile cudagraphs=<strong>off</strong></td>
+                <td class="num">1,387</td><td class="num">7.94 %</td><td class="num">545 ms</td><td class="num">25.8 GB</td><td class="num">—</td>
+              </tr>
+              <tr class="row-regressed">
+                <td>Job 53672</td><td>cudagraphs=on, <code>index_put_</code> blocker</td>
+                <td class="num"><span class="delta-neg">1,244</span></td><td class="num"><span class="delta-neg">7.12 %</span></td>
+                <td class="num"><span class="delta-neg">599 ms</span></td><td class="num">~25 GB</td>
+                <td class="num"><span class="delta-neg">−10.3 %</span></td>
+              </tr>
+              <tr style="background:#f0fdf4; font-weight:700">
+                <td><strong>Job 53681</strong></td><td>cudagraphs=on + <code>index_select</code> fix</td>
+                <td class="num"><span class="delta-pos">2,009</span></td><td class="num"><span class="delta-pos">11.50 %</span></td>
+                <td class="num"><span class="delta-pos">379 ms</span></td><td class="num">~25.8 GB</td>
+                <td class="num"><span class="delta-pos">+44.8 %</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p style="margin-top:12px"><strong>Verification:</strong></p>
+          <ul class="small">
+            <li><code>skipping cudagraphs due to index put with accumulate</code> warnings: <strong>0</strong> (down from 8 in 53672). Inductor is actually capturing the backbone blocks.</li>
+            <li>Loss curve healthy: <code>total_loss ≈ 14.04</code> at iter 999, matching the baseline trajectory. <code>index_select</code> is numerically equivalent to <code>x[indices]</code> — no precision change.</li>
+            <li><code>[COMPILE]</code> log confirmed <code>fullgraph=True, triton.cudagraphs=True</code> branch ran on all 12 backbone blocks.</li>
+            <li>Per-iter MFU variance is wider than baseline (range 8.96 %–14.26 % in last 200 iters). Peaks suggest more headroom; troughs likely the heads (still on <code>module.compile()</code> dynamic default).</li>
+          </ul>
+          <div class="note-green" style="margin-top:10px">
+            <strong>H6 partially confirmed.</strong> Closing the 7.94 % → 30 % gap by +44.8 % img/s from a one-flag change confirms Armen's diagnosis: per-step Python / kernel-launch overhead was the dominant bottleneck. We moved from 7.94 % → 11.50 % MFU. The remaining 18.5 pp gap to 30 % is the question for 6.A.4 (larger batch) and 6.B (heads + iBOT static shapes). Gate cleared.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── 6.A.4 running ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot pending"></div>
+        <div class="tl-card pending">
+          <div class="tl-header">
+            <span class="tl-title">6.A.4-6.A.6 — Larger batch, AC sweep, and host-RAM ceiling</span>
+            <span class="badge badge-complete">PHASE 6.A CLOSED — CHAMPION JOB 53708</span>
+            <span class="muted small">2026-05-23</span>
+          </div>
+          <p><strong>Result:</strong> bs=128 no-AC was the clean win; activation checkpointing was useful for lowering VRAM but not for throughput, and bs=192 failed from host-RAM cgroup OOM in both no-AC and AC-full forms. The binding limit at bs=192 was the DataLoader/prefetch working set, not CUDA activation memory.</p>
+
+          <p style="margin-top:10px"><strong>Experiment matrix:</strong></p>
+          <table>
+            <thead><tr><th>ID</th><th>bs</th><th>AC</th><th>cudagraphs</th><th>Status</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr style="background:#f0fdf4">
+                <td><strong>6.A.4.a</strong></td><td>128</td><td>off</td><td>on</td>
+                <td><span class="badge badge-baseline" style="background:#dcfce7;color:#166534">DONE — job 53708</span></td>
+                <td><strong>Champion:</strong> 2,394 img/s · 13.70 % MFU · 34.1 GB peak.</td>
+              </tr>
+              <tr>
+                <td><strong>6.A.5</strong></td><td>96/128</td><td>sel/full</td><td>on</td>
+                <td><span class="badge badge-complete">DONE</span></td>
+                <td>AC remained compatible with fullgraph, but cost ~31 % throughput. Full AC dominated selective AC on memory.</td>
+              </tr>
+              <tr>
+                <td><strong>6.A.4.c</strong></td><td>128</td><td>off</td><td>off</td>
+                <td><span class="badge" style="background:#f3f4f6;color:#6b7280">OPTIONAL</span></td>
+                <td>Optional attribution-only control: separates batch amortization from the cudagraphs win.</td>
+              </tr>
+              <tr>
+                <td><strong>6.A.6</strong></td><td>192</td><td>off/full</td><td>on</td>
+                <td><span class="badge badge-crashed">HOST-RAM OOM</span></td>
+                <td>bs=192 failed from Slurm cgroup OOM in both no-AC and AC-full paths; loader prefetch host memory is the ceiling.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="note" style="margin-top:10px">
+            <strong>Phase 6.A conclusion.</strong>
+            Activation checkpointing remained compatible with fullgraph/CUDA graphs, but it cost about 31 % throughput and only saved VRAM. Since bs=192 failed from host-RAM pressure, not VRAM pressure, AC is not the production lever for this node/model shape. The production default is job 53708: bs=128, no AC, cudagraphs=true.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Phase 6.B pivot ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot" style="background:#6366f1"></div>
+        <div class="tl-card fix">
+          <div class="tl-header">
+            <span class="tl-title">Phase 6.B — Pivot to Sustainability Soaks</span>
+            <span class="badge badge-fix">SCOPE CHANGE</span>
+            <span class="muted small">2026-05-24</span>
+          </div>
+          <p>Phase 6.A established a performance champion (job 53708, bs=128, no-AC, cudagraphs=on). Phase 6.B was originally scoped as static-shape iBOT heads to extend CUDA-graph capture to the loss path. But the FSDP2 precedent — a champion that passed short screens but OOM'd in a real long run — made sustainability the higher-priority question before any new optimization work. Phase 6.B became: <em>does job 53708's config survive 4000 iters without VRAM growth, data-pipeline failures, or crashes?</em></p>
+          <p class="small">Soaks add: 4000 iters (~38 min), 8 checkpoint saves, 4 eval runs, <code>DINOV3_MEMORY_PROFILE=1</code> markers, per-rank log redirection, and a shell sidecar sampling <code>/proc/meminfo</code> every 10s to JSONL.</p>
+        </div>
+      </div>
+
+      <!-- ─── 6.B soaks — rank-6 crash series ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot crashed"></div>
+        <div class="tl-card crashed">
+          <div class="tl-header">
+            <span class="tl-title">6.B.1–6.B.2.c — Four soaks, all crash at iter ~1310 (rank 6)</span>
+            <span class="badge badge-crashed">JOBS 57299 / 57799 / 58188 / 59273 / 59274 — BLOCKED</span>
+            <span class="muted small">2026-05-24–27 · gpu03, gpu07</span>
+          </div>
+          <p>Every bs=128 soak — across two nodes, three different loader configs (12w/4pf, 16w/4pf, 16w/8pf), with and without AC — died at <strong>rank 6, iter ~1310</strong>, reproducibly. The same crash signature on gpu03 and gpu07 ruled out node-specific hardware. Prior jobs reported <code>error_file: &lt;N/A&gt;</code> because <code>main()</code> lacked the TorchElastic <code>@record</code> decorator; no traceback was ever surfaced.</p>
+
+          <p style="margin-top:10px"><strong>What the loader sweep did establish (before all jobs crashed):</strong></p>
+          <table style="margin-top:8px">
+            <thead><tr><th>Config</th><th>data_time (stall)</th><th>Wall img/s (p50)</th><th>GPU-only img/s</th></tr></thead>
+            <tbody>
+              <tr><td>12w/4pf (58188)</td><td>visible (~10–30 %)</td><td class="num">~1,158</td><td class="num">2,558</td></tr>
+              <tr><td>16w/4pf (59273)</td><td>high — loader-bound</td><td class="num">~940–980</td><td class="num">~2,070</td></tr>
+              <tr style="background:#f0fdf4"><td>16w/8pf (59274)</td><td>≈0 (p50 ~2 ms) — hidden</td><td class="num">~1,110–1,150</td><td class="num">~2,070</td></tr>
+            </tbody>
+          </table>
+          <div class="note" style="margin-top:10px">
+            <strong>Key loader finding: prefetch depth, not worker count, hides the loader.</strong>
+            Both 16w runs have the same worker count; only pf=8 drove data_time to ~0. There is also a large wall↔GPU gap even with data_time≈0 in 59274 (GPU-event step ≈430 ms, wall iter ≈890–920 ms — ~2×). With the loader excluded, this ~450 ms/iter is CPU-side per-iter overhead (collate/cast, H2D launch, EMA, GC, Python, CUDA-graph replay) — the next optimization lever once a soak completes. MetricLogger's GPU-only img/s hides it entirely.
+          </div>
+          <div class="note" style="margin-top:8px">
+            <strong>Cgroup memory lesson (retracted earlier model).</strong>
+            Three soaks with different <code>--mem</code> limits each peaked at exactly their limit (300/430/540 GB). <code>cgroup.memory.current</code> is dominated by reclaimable file-backed page cache that expands to fill any room given. A per-worker fixed-anon-cost model was fit from one data point and retracted. The real memory floor is unmeasured — requires <code>memory.stat</code> anon/file split or a step-down sweep.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── 6.B.4 root cause ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot fix"></div>
+        <div class="tl-card fix">
+          <div class="tl-header">
+            <span class="tl-title">6.B.4 — Rank-6 crash: root cause found + fix (job 59847)</span>
+            <span class="badge badge-fix">ROOT CAUSE + CODE CHANGE</span>
+            <span class="muted small">satlas_datasets.py · 2026-05-28</span>
+          </div>
+          <p><strong>How it was caught.</strong> Capture job 59847 added <code>@record</code> to <code>main()</code> + <code>torchrun --redirects=3 --tee=3 --log-dir</code> (per-rank stdout/stderr). Rank 6's per-rank log finally held the real exception:</p>
+          <pre><code>libpng error: Read Error
+PermissionError: Caught PermissionError in DataLoader worker process 11.
+  mixed_satlas_dataset.py:169   self.datasets[i][base_idx]
+  satlas_datasets.py:342        self.save_error_path(tci_path)
+  satlas_datasets.py:58         with open(save_path, "a") as f:
+PermissionError: [Errno 13] Permission denied:
+  '/mnt/weka/akhosrovyan/re-id/pretraining/satlas-dataset-v1-naip-2020/naip_error_paths.txt'</code></pre>
+          <p><strong>Chain:</strong> a corrupt/truncated NAIP PNG → <code>cv2.imread</code> returns <code>None</code> → the dataset's self-heal recovery calls <code>save_error_path()</code> → which appended the bad path to a log file <em>inside akhosrovyan's dataset directory</em>. <code>adovlatyan</code> has read-but-not-write access there → uncaught <code>PermissionError</code> → kills the DataLoader worker → kills rank 6 → kills the job. The dataset <em>wanted</em> to skip the bad tile and continue; the only fatal element was the log write into a read-only dir.</p>
+          <div class="note">
+            <strong>Why deterministic (rank 6, iter ~1310, across 4 jobs / 2 nodes).</strong>
+            Workers inherit the rank's main-process numpy state seeded by <code>fix_random_seeds(seed+rank)</code>. The <code>_sample_ok_index</code> random-walk is reproducible run-to-run and reaches the same corrupt tile at the same global step.
+          </div>
+          <p style="margin-top:10px"><strong>Fix</strong> — <code>dinov3/data/datasets/satlas_datasets.py</code>, <code>save_error_path()</code>:</p>
+          <ul class="small">
+            <li><strong>Redirect</strong> the bad-tile log to a writable dir (<code>_ERROR_LOG_DIR</code>, env-overridable via <code>DINOV3_ERROR_LOG_DIR</code>, default <code>/mnt/weka/adovlatyan/logs/dataset_errors</code>).</li>
+            <li><strong>Guard</strong> the write in <code>try/except OSError</code> (warn + continue) so bad-tile <em>logging</em> can never again be fatal to training.</li>
+          </ul>
+          <p class="small">Regression test: <code>scripts/debug/test_save_error_path_fix.py</code> (3/3 pass). Full write-up: <code>scripts/debug/rank6_root_cause.md</code>.</p>
+          <div class="note-green" style="margin-top:8px">
+            <strong>Not an iBOT / CUDA-graph issue.</strong>
+            The crash has nothing to do with the compiler stack, DDP, or the batch size. It is a dataset-layer bug that triggered at a deterministic global step because of reproducible numpy RNG seeding.
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── 6.B.5 validation ─── -->
+      <div class="tl-entry">
+        <div class="tl-dot baseline"></div>
+        <div class="tl-card baseline">
+          <div class="tl-header">
+            <span class="tl-title">6.B.5 — Fix validation soaks: jobs 60590 (interim) + 60959 (FULL ✅)</span>
+            <span class="badge badge-baseline" style="background:#dcfce7;color:#166534">JOB 60959 — 4000/4000 COMPLETE</span>
+            <span class="muted small">gpu06 · 2026-05-29–30</span>
+          </div>
+          <p>Re-ran the 53708 recipe at 4000 iters (bs=128, no-AC, DDP, cudagraphs, 20w/8pf) with the <code>save_error_path</code> fix in the working tree. Interim run 60590 reached iter 3770/4000 before Slurm killed it on walltime (01:30:00 too short). Resubmitted at 4h → job 60959.</p>
+          <p><strong>Training Total time: 1:53:44</strong>, gpu06. Logs: <code>/mnt/weka/adovlatyan/logs/soak-bs128-cg-60959.{out,err}</code>; memlog <code>soak_ddp_bs128_cg-60959-memlog.jsonl</code>.</p>
+
+          <div class="two" style="margin-top:12px">
+            <div>
+              <p><strong>VRAM — dead-flat, zero fragmentation</strong></p>
+              <table>
+                <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td><code>[MEMPROFILE] max_reserved_mb</code></td><td class="num">36,266 MB (dead-flat across all 8 ckpts + 4 evals)</td></tr>
+                  <tr><td>One-time warmup spike</td><td class="num">36,454 MB at iter 0 only</td></tr>
+                  <tr><td>fragmentation_ratio</td><td class="num">0.040 (flat iter 49→3999)</td></tr>
+                  <tr><td>alloc_retries / num_ooms</td><td class="num">0 / 0 throughout</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <p><strong>Throughput — honest sustained numbers</strong></p>
+              <table>
+                <thead><tr><th>Window</th><th>Median img/s</th><th>Median MFU</th></tr></thead>
+                <tbody>
+                  <tr><td>early (iter 200–1000)</td><td class="num">1,636</td><td class="num">9.4 %</td></tr>
+                  <tr><td>mid (iter 1500–2500)</td><td class="num">1,857</td><td class="num">10.6 %</td></tr>
+                  <tr style="background:#f0fdf4;font-weight:700"><td>late (iter 3000–3999)</td><td class="num">2,055</td><td class="num">11.8 %</td></tr>
+                  <tr><td>all steady (≥100)</td><td class="num">1,830</td><td class="num">10.5 %</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="note-green" style="margin-top:12px">
+            <strong>Success criteria met.</strong> No OOM, no crash, max_reserved non-increasing across all checkpoint and eval events. The FSDP2 "short screen passes / long run OOMs" failure mode does <em>not</em> reproduce for DDP+cudagraphs. The single <code>libpng error: Read Error</code> in <code>60959.err</code> self-heals — the §6.B.4 fix executing end-to-end.
+          </div>
+          <div class="note" style="margin-top:8px">
+            <strong>Throughput correction vs screening champion.</strong>
+            The 53708 "champion" of 2,394 img/s / 13.70 % MFU was a 1000-iter screen on a fresh GPU — a favorable short-burst window. The honest 4000-iter sustained figure is <strong>~1,830 img/s run-avg / 10.5 % MFU (–23.5 %)</strong>. Throughput <em>improves</em> over the run as CUDA graphs stabilize and caches warm (1,636 early → 2,055 late) — it does not thermally throttle. Early slow iters (53 iters &gt;650 ms) are concentrated before iter 1000 (32/53) — CUDA-graph/thermal ramp, not iBOT mask-count variance.
+          </div>
+          <div class="warn" style="margin-top:8px">
+            <strong>Open watch-item: host RAM +15 GB/hr drift.</strong>
+            Peak 612.8 GB of ~2 TB node. The stable window regresses at ~+15 GB/hr (above the 8 GB page-cache noise floor) — almost certainly <code>train.cache_dataset=true</code> filling the dataset cache, not an active leak. At this rate an 8h run reaches ~695 GB — safe headroom, but worth monitoring on multi-hour production runs. Not a blocker.
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /timeline -->
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       THE TWO CUDA GRAPH BLOCKERS
+       ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>The Two Blockers — What They Are and How They Differ</h2>
+    <p>Both bugs lived in the CUDA-graph infrastructure layer, not in the training math. Both had zero symptom in any prior job because <code>cudagraphs: false</code> was always the config. The <code>fullgraph=True</code> branch in <code>ac_compile_parallelize.py</code> had never executed before Phase 6.</p>
+    <div class="two" style="margin-top:14px">
+      <div class="card" style="border-top:4px solid #ef4444">
+        <p><span class="badge badge-crashed">BLOCKER 1</span> <strong>Buffer aliasing at graph tree level</strong></p>
+        <p class="small"><strong>Layer:</strong> CUDA graph replay infrastructure (<code>cudagraph_trees.py</code>)</p>
+        <p class="small"><strong>Trigger:</strong> Multiple invocations of the same compiled function within one step, with different input shapes. Here: global crops (197 tokens) and local crops (37 tokens) — each compiled block is called twice per student + twice per teacher.</p>
+        <p class="small"><strong>Mechanism:</strong> Inductor builds a tree of sub-graphs — one leaf per distinct input shape. Without <code>mark_step_begin()</code>, it doesn't know when a "step" ends, so it allows the output buffer from sub-graph A to be reclaimed for sub-graph B's input recording. When sub-graph A's output is accessed later in the backward, it has been overwritten.</p>
+        <p class="small"><strong>Fix:</strong> one-line API call at step boundary. No model code changed.</p>
+        <p class="small"><strong>Status:</strong> <span class="pill pill-green">FIXED in ssl_meta_arch.py:387</span></p>
+      </div>
+      <div class="card" style="border-top:4px solid #f97316">
+        <p><span class="badge badge-regressed">BLOCKER 2</span> <strong>index_put_(accumulate=True) in backward</strong></p>
+        <p class="small"><strong>Layer:</strong> Inductor CUDA graph capture decision</p>
+        <p class="small"><strong>Trigger:</strong> Stochastic-depth token subsampling in each transformer block. The block samples a random subset of tokens for attention and MLP, using <code>x[indices]</code> advanced indexing to gather the subset.</p>
+        <p class="small"><strong>Mechanism:</strong> <code>x[indices]</code> in forward is a gather. PyTorch autograd translates the corresponding backward to a scatter-add — specifically <code>index_put_(output, indices, grad, accumulate=True)</code>. Inductor explicitly refuses to capture this op into CUDA graphs (scatter operations with accumulate break the "no side effects" assumption of graph replay).</p>
+        <p class="small"><strong>Fix:</strong> replace <code>x[indices]</code> with <code>torch.index_select(x, 0, indices)</code> — identical forward numerics, but backward is <code>index_add</code>, which Inductor captures cleanly.</p>
+        <p class="small"><strong>Status:</strong> <span class="pill pill-green">FIXED — confirmed in job 53681 (0 warnings, +44.8 % img/s)</span></p>
+      </div>
+    </div>
+    <div class="note" style="margin-top:14px">
+      <strong>Why blocker 2 appeared after blocker 1 was fixed</strong>
+      Job 53655 crashed before a single iteration completed — Inductor threw at input-recording time for the buffer aliasing. The <code>index_put_</code> decision happens later, at capture time during the first few iterations. Blocker 2 was always present; blocker 1 just killed the job first.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       DEEP DIVE: CUDA GRAPH TREE MECHANICS
+       ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>How Inductor's CUDA Graph Tree Works (and Why _forward_list Stresses It)</h2>
+    <p>Understanding why both blockers appeared requires understanding how Inductor manages CUDA graphs for compiled modules that see multiple distinct input shapes.</p>
+    <div class="two">
+      <div>
+        <h3>Normal single-shape case</h3>
+        <p class="small">If a compiled function always receives the same input shape, Inductor records one CUDA graph and replays it every time. Output buffers are stable; no aliasing possible.</p>
+        <pre><code><span class="py-cm"># same shape every call → one graph</span>
+block(global_tokens)  <span class="py-cm"># shape (B, 197, 768)</span>
+block(global_tokens)  <span class="py-cm"># same shape → replay same graph</span></code></pre>
+      </div>
+      <div>
+        <h3>Multi-shape case: _forward_list</h3>
+        <p class="small">DINOv3 passes <em>both</em> global (197 tokens) and local (37 tokens) crops through each block in one call via <code>_forward_list</code>. Inductor sees two shapes — it records two sub-graphs and must track which one to replay.</p>
+        <pre><code><span class="py-cm"># two shapes → two sub-graphs per block</span>
+block([global_tokens,  <span class="py-cm"># shape (B, 197, 768)</span>
+       local_tokens])  <span class="py-cm"># shape (B*8, 37, 768)</span>
+<span class="py-cm"># + teacher calls both too → 4+ invocations</span></code></pre>
+      </div>
+    </div>
+    <div class="note">
+      <strong>mark_step_begin() as a fence</strong>
+      The CUDA graph tree uses output buffer aliasing as an optimization — it reuses memory between sub-graph invocations to reduce total allocation. <code>cudagraph_mark_step_begin()</code> inserts a fence: "no buffers from before this call may be reused until the current step's graphs have completed." Without it, the tree reuses the global-crops output buffer for the local-crops graph input recording — destroying the global-crops activations that the backward still needs.
+    </div>
+    <div class="note">
+      <strong>Why this never triggered before Phase 6</strong>
+      With <code>cudagraphs=false</code>, <code>module.compile()</code> uses Triton-compiled kernels but launches them through the normal CUDA stream — no graph recording, no replay, no aliasing possible. The multi-shape <code>_forward_list</code> path has always worked correctly in eager mode and in standard compile mode.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       DEEP DIVE: INDEX_SELECT vs INDEX_PUT
+       ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>The index_select Fix — Why the Same Operation Behaves Differently in Autograd</h2>
+    <p>Stochastic depth in each transformer block randomly drops a fraction of token vectors before running attention and MLP, then adds the residual back to the full sequence. The original code used Python's standard slice/index notation:</p>
+    <pre><code><span class="py-cm"># Original: gather a random subset of token vectors</span>
+indices_1 = (torch.randperm(b, device=x.device))[:sample_subset_size]
+<span class="hl-red">x_subset_1 = x[indices_1]</span>         <span class="py-cm"># advanced indexing — gather tokens</span>
+residual_1 = self.attn(self.norm1(x_subset_1), rope=rope_subset)
+
+<span class="py-cm"># Then scatter the residual back using index_add</span>
+x_attn = torch.index_add(x, dim=0, source=self.ls1(residual_1), index=indices_1)</code></pre>
+
+    <div class="two" style="margin-top:12px">
+      <div class="card" style="border-top:4px solid #ef4444">
+        <h3>x[indices] — what autograd actually does</h3>
+        <p class="small">In <em>forward</em>: gather rows from <code>x</code> at positions <code>indices</code>. Straightforward.</p>
+        <p class="small">In <em>backward</em>: the gradient w.r.t. <code>x</code> must scatter <code>grad_output</code> back to the original positions. PyTorch implements this as:</p>
+        <pre style="margin-top:6px"><code>x.index_put_(
+    (indices,), grad_output,
+    accumulate=True   <span class="py-cm">← this flag</span>
+)</code></pre>
+        <p class="small" style="margin-top:8px">The <code>accumulate=True</code> flag is necessary because the same index can appear multiple times (e.g. if <code>randperm</code> happened to put the same token index twice — which it can't, but Inductor doesn't know that). Inductor refuses to record ops with <code>accumulate=True</code> into a CUDA graph because scatter-add in general has data-dependent memory access patterns that break the strict replay semantics.</p>
+      </div>
+      <div class="card" style="border-top:4px solid #22c55e">
+        <h3>torch.index_select — the capturable alternative</h3>
+        <p class="small">In <em>forward</em>: identical output to <code>x[indices]</code> — gathers the same rows.</p>
+        <p class="small">In <em>backward</em>: the gradient w.r.t. <code>x</code> is computed as <code>index_add</code>:</p>
+        <pre style="margin-top:6px"><code>grad_x = torch.zeros_like(x)
+grad_x.index_add_(
+    0, indices, grad_output
+    <span class="py-cm">← no accumulate flag needed</span>
+)</code></pre>
+        <p class="small" style="margin-top:8px"><code>index_add</code> (without accumulate) is capturable because Inductor can statically determine the memory layout: each output position receives exactly one contribution, determined by the fixed index tensor. Inductor accepts this and includes it in the CUDA graph.</p>
+      </div>
+    </div>
+    <div class="note">
+      <strong>Numerical equivalence</strong>
+      When <code>indices</code> has no repeated entries (which <code>randperm</code> guarantees), <code>x[indices]</code> and <code>torch.index_select(x, 0, indices)</code> produce identical forward outputs and identical gradients. The change is purely at the autograd-op-selection level — no precision change, no loss change.
+    </div>
+    <div class="note">
+      <strong>Why stochastic depth uses a random subset in the first place</strong>
+      Stochastic depth during training randomly drops a fraction of token vectors (controlled by <code>sample_drop_ratio</code>) before the attention and MLP sub-layers, then rescales the residual to compensate. This is a regularization technique. For ViT-B the drop ratio defaults to a small value (e.g. 0.1–0.2), so typically 80–90 % of tokens are processed — the full 197-token sequence is never fully dropped. The important point is that even though the subset size is the same every iteration (it is deterministic: <code>max(int(b * (1 - ratio)), 1)</code>), the <em>indices</em> change (it's a fresh <code>randperm</code> each step). With <code>dynamic=False</code>, Inductor captures a graph for a fixed subset <em>size</em> — but the index values are treated as variable graph inputs, not baked in. The graph replay mechanism is shape-static but value-dynamic, which is why this can work once the right autograd op is used.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       CODE CHANGES SUMMARY
+       ═══════════════════════════════════════════ -->
+  <section class="band ok">
+    <h2>Code Changes Applied (Both Fixes)</h2>
+    <div class="two">
+      <div>
+        <p><strong>Fix 1</strong> — <code>dinov3/train/ssl_meta_arch.py:387</code></p>
+        <pre><code><span class="py-cm"># top of forward_backward()</span>
+<span class="hl-grn">torch.compiler.cudagraph_mark_step_begin()</span>
+metrics_dict = {}</code></pre>
+        <p class="small">One line added. No-op when <code>cudagraphs=false</code>. Prevents output buffer aliasing across the multi-shape <code>_forward_list</code> sub-graphs within one training step.</p>
+      </div>
+      <div>
+        <p><strong>Fix 2</strong> — <code>dinov3/layers/block.py</code> (5 sites)</p>
+        <pre><code><span class="py-cm"># _forward() — attn subset</span>
+<span class="hl-grn">x_subset_1 = torch.index_select(x, 0, indices_1)</span>
+<span class="py-cm"># _forward() — mlp subset</span>
+<span class="hl-grn">x_subset_2 = torch.index_select(x_attn, 0, indices_2)</span>
+<span class="py-cm"># _forward_list() — both subsets</span>
+<span class="hl-grn">x_subset_1_list = [torch.index_select(x, 0, i) ...]</span>
+<span class="hl-grn">x_subset_2_list = [torch.index_select(x, 0, i) ...]</span>
+<span class="py-cm"># _maybe_index_rope() — RoPE embeddings</span>
+<span class="hl-grn">return torch.index_select(sin,0,i), torch.index_select(cos,0,i)</span></code></pre>
+        <p class="small">Same forward output; backward uses <code>index_add</code> instead of <code>index_put_(accumulate=True)</code>. Inductor can now capture all 5 sites into the CUDA graph.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       WHAT'S NEXT
+       ═══════════════════════════════════════════ -->
+  <section class="band purple">
+    <h2>Experiment Ladder — Phase 6.A Closed, Phase 6.B Next</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Config</th><th>Status</th><th>Key question</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Baseline</strong></td>
+          <td>DDP bs=96 cudagraphs=off</td>
+          <td><span class="badge badge-complete">DONE — job 48312</span></td>
+          <td>What is the compile=true, no-cudagraph floor?</td>
+        </tr>
+        <tr>
+          <td><strong>6.A.1</strong></td>
+          <td>+ cudagraphs=on (no other changes)</td>
+          <td><span class="badge badge-crashed">CRASHED — job 53655</span></td>
+          <td>Does the fullgraph branch work at all? → Found blocker 1</td>
+        </tr>
+        <tr>
+          <td><strong>6.A.2</strong></td>
+          <td>+ mark_step_begin fix</td>
+          <td><span class="badge badge-regressed">REGRESSED −10 % — job 53672</span></td>
+          <td>Does fix 1 alone unblock CUDA graphs? → Found blocker 2</td>
+        </tr>
+        <tr style="background:#f0fdf4">
+          <td><strong>6.A.3</strong></td>
+          <td>+ index_select fix (5 sites)</td>
+          <td><span class="badge badge-baseline" style="background:#dcfce7;color:#166534">DONE — job 53681, +44.8 %</span></td>
+          <td>With both fixes, does the backbone CUDA-graph path finally deliver a gain? → <strong>Yes. 2,009 img/s · 11.50 % MFU · 379 ms/step.</strong></td>
+        </tr>
+        <tr>
+          <td><strong>6.A.4.a</strong></td>
+          <td>bs=128, AC=off, cudagraphs=on</td>
+          <td><span class="badge badge-baseline" style="background:#dcfce7;color:#166534">DONE — job 53708, +72.6 %</span></td>
+          <td><strong>Champion:</strong> 2,394 img/s · 13.70 % MFU · 34.1 GB peak.</td>
+        </tr>
+        <tr>
+          <td><strong>6.A.4.b</strong></td>
+          <td>bs=96/128, AC=sel/full, cudagraphs=on</td>
+          <td><span class="badge badge-complete">DONE — jobs 53740/53999/53742/54000</span></td>
+          <td>AC was compatible but cost ~31 % throughput; full AC dominated selective AC on memory.</td>
+        </tr>
+        <tr>
+          <td><strong>6.A.4.c</strong></td>
+          <td>bs=128, AC=off, cudagraphs=off</td>
+          <td><span class="badge" style="background:#f3f4f6;color:#6b7280">OPTIONAL</span></td>
+          <td>Only useful if we need precise attribution between batch amortization and cudagraphs.</td>
+        </tr>
+        <tr>
+          <td><strong>6.A.4.d</strong></td>
+          <td>bs=192, AC=off/full, cudagraphs=on</td>
+          <td><span class="badge badge-crashed">HOST-RAM OOM — jobs 53739/56131</span></td>
+          <td>Both attempts hit Slurm cgroup OOM. The limiter is DataLoader/prefetch host memory, not activation VRAM.</td>
+        </tr>
+        <tr>
+          <td><strong>6.B.1–2.c</strong></td>
+          <td>bs=128 sustainability soaks (20w/8pf, 12w/4pf, 16w/4pf, 16w/8pf)</td>
+          <td><span class="badge badge-crashed">CRASHED iter ~1310 — jobs 57299/58188/59273/59274</span></td>
+          <td>All four soaks died at rank 6, iter ~1310, deterministically across two nodes. Root cause not yet known at this stage.</td>
+        </tr>
+        <tr>
+          <td><strong>6.B.4</strong></td>
+          <td>Capture run + fix: <code>save_error_path()</code> in <code>satlas_datasets.py</code></td>
+          <td><span class="badge badge-fix">ROOT CAUSE FOUND + FIXED — job 59847</span></td>
+          <td>Corrupt NAIP PNG → <code>save_error_path()</code> tries to write to akhosrovyan's read-only dir → <code>PermissionError</code> kills DataLoader worker → kills rank 6. Fix: redirect log + <code>try/except OSError</code> guard.</td>
+        </tr>
+        <tr style="background:#f0fdf4">
+          <td><strong>6.B.5</strong></td>
+          <td>bs=128 no-AC cudagraphs, 4000 iters, fix applied</td>
+          <td><span class="badge badge-baseline" style="background:#dcfce7;color:#166534">✅ COMPLETE — job 60959</span></td>
+          <td><strong>4000/4000 iters.</strong> VRAM dead-flat 36.3 GB (no growth across 8 ckpts + 4 evals). Sustained ~1,830 img/s / 10.5 % MFU avg; late-steady ~2,055 img/s / 11.8 %. One <code>libpng</code> error self-heals. Host RAM +15 GB/hr drift (cache, not leak).</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note ok" style="margin-top:12px">
+      <strong>Phase 6 conclusion</strong>
+      DDP + bs=128 + cudagraphs (no AC) is <strong>production-sustainable</strong> — VRAM flat at 36.3 GB, no crash over a full 4000-iter soak with the <code>save_error_path</code> fix. The honest sustained throughput is ~1,830 img/s run-avg / ~2,055 late-steady (10.5–11.8 % MFU). One open watch-item: host-RAM +15 GB/hr drift (<code>cache_dataset=true</code>) on runs ≫4000 iters. The screening champion (2,394 img/s) was a favorable short-burst window — the production planning number is ~2,055 img/s late-run.
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════
+       BACKGROUND REFERENCE — COMPILE INFRASTRUCTURE
+       ═══════════════════════════════════════════ -->
+  <h3 style="margin-top:24px">Background: How torch.compile Is Wired in This Repo</h3>
+  <p class="small muted">This section describes the compile infrastructure as it existed before Phase 6 and has not changed substantially. It explains why the fullgraph/CUDA-graph branch was present but never executed.</p>
+
+  <section class="band">
+    <h2>The Wrapper Stack</h2>
+    <p>The compile behavior is hidden behind a project wrapper. <code>train.compile=true</code> does not directly call <code>torch.compile</code> — it goes through a four-step wrapper that selects which compile variant to use based on config flags.</p>
+    <div class="flow">
+      <div class="step"><strong>1. Config</strong><code>ssl_default_config.yaml</code><br><span class="small">sets compile flags</span></div>
+      <div class="step"><strong>2. Gate</strong><code>if cfg.train.compile</code><br><span class="small">turns wrapping on</span></div>
+      <div class="step"><strong>3. Mode Map</strong><code>_get_compile_mode()</code><br><span class="small">null/default → None</span></div>
+      <div class="step"><strong>4. Branch</strong><code>wrap_compile_block()</code><br><span class="small">chooses fullgraph, mode, or default</span></div>
+    </div>
+    <pre style="margin-top:14px"><code><span class="py-cm"># dinov3/fsdp/ac_compile_parallelize.py:65-76</span>
+<span class="py-kw">if</span> use_cuda_graphs <span class="py-kw">and</span> is_backbone_block:
+    <span class="py-cm"># Phase 6.A target — fullgraph + CUDA graphs</span>
+    module.compile(fullgraph=<span class="py-var">True</span>, dynamic=<span class="py-var">False</span>, options={<span class="py-str">"triton.cudagraphs"</span>: <span class="py-var">True</span>})
+<span class="py-kw">elif</span> compile_mode <span class="py-kw">is not None</span>:
+    module.compile(mode=compile_mode)
+<span class="py-kw">else</span>:
+    module.compile()  <span class="py-cm"># ← Phase 5 default: dynamic=True, no fullgraph, no CUDA graphs</span></code></pre>
+    <div class="note">
+      <strong>The Phase 5 default path</strong>
+      Every Phase 5 job used <code>compile_mode: null</code> + <code>cudagraphs: false</code>, which means the <code>else: module.compile()</code> branch at every compiled block. This is PyTorch's default-everything mode: Dynamo traces with dynamic shapes allowed, Inductor selects kernels opportunistically, graph breaks tolerated silently, no CUDA-graph capture attempted. It is the most permissive and least optimized of the three branches.
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Which Modules Are Compiled?</h2>
+    <table>
+      <thead><tr><th>Model area</th><th>Granularity</th><th>Fullgraph / CUDA-graph eligible?</th><th>Code</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>ViT / Transformer backbone</td>
+          <td>Each of the 12 blocks in <code>model.blocks</code></td>
+          <td><span class="pill pill-green">Yes</span> — <code>is_backbone_block=True</code> path</td>
+          <td><a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:97-101</a></td>
+        </tr>
+        <tr>
+          <td>ConvNeXt backbone</td>
+          <td>Each stage + each downsample layer</td>
+          <td><span class="pill pill-green">Yes</span></td>
+          <td><a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:86-94</a></td>
+        </tr>
+        <tr>
+          <td><code>dino_head</code>, <code>ibot_head</code></td>
+          <td>Whole module</td>
+          <td><span class="pill pill-amber">No (plain compile)</span> — not backbone blocks</td>
+          <td><a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:198</a></td>
+        </tr>
+        <tr>
+          <td>Teacher / EMA model</td>
+          <td>Passed as inference-only through same helper</td>
+          <td><span class="pill pill-amber">No</span> — inference path</td>
+          <td><a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:845-852</a></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="small" style="margin-top:10px">Phase 6.B (end-to-end) will need to extend the fullgraph/CUDA-graph branch to <code>dino_head</code> and <code>ibot_head</code> as well, once the iBOT dynamic-shape blocker is resolved. Today those heads run plain <code>module.compile()</code> (dynamic, no CUDA graphs) regardless of the <code>cudagraphs</code> config flag.</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       DYNAMIC SHAPE PROBLEM
+       ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>The iBOT Dynamic Shape Problem — Why It Is Separate from the Backbone</h2>
+    <p>The two blockers above are backbone issues. There is a third, independent blocker that affects the heads and loss path — the iBOT stochastic masked-token count. It is separate from the <code>index_put_</code> fix and requires its own Phase 6.B work.</p>
+    <div class="two">
+      <div class="card">
+        <h3>Backbone: static</h3>
+        <p class="small">The ViT backbone sees fixed-shape inputs every iteration: global crops are always <code>(B, 197, 768)</code>, local crops are always <code>(B×8, 37, 768)</code>. With <code>dynamic=False</code>, these shapes are baked into the compiled sub-graphs and replayed efficiently. <strong>The backbone is already static-shape capable.</strong></p>
+        <p class="small" style="margin-top:8px">This is why Phase 6.A tests backbone CUDA graphs first, independently from Phase 6.B.</p>
+      </div>
+      <div class="card">
+        <h3>iBOT head path: dynamic</h3>
+        <p class="small">The iBOT loss operates on a <em>variable</em> number of masked patches K per batch. K comes from:</p>
+        <pre style="margin-top:6px"><code><span class="py-cm"># collate.py:63</span>
+mask_indices_list = collated_masks.flatten()
+    .nonzero().flatten()  <span class="py-cm"># shape (K,) — varies each iter</span></code></pre>
+        <p class="small" style="margin-top:8px">K feeds <code>masked_patches_pre_head</code> shape <code>(K,D)</code>, <code>masks_weight</code> shape <code>(K,)</code>, and <code>loss[:n_masked_patches]</code> — all dynamic. Enabling fullgraph/CUDA-graphs on heads without fixing this causes Inductor to recompile every iteration (Phase 4 confirmed this costs minutes, not milliseconds).</p>
+      </div>
+    </div>
+    <div class="note" style="margin-top:12px">
+      <strong>Phase 6.B: Option B (padding to K_max)</strong>
+      The plan is to pad <code>mask_indices_list</code> and <code>masks_weight</code> to a fixed upper bound <code>K_max = ceil(mask_ratio_max × B × N_patches)</code>, with zero weights on pad rows so they don't contribute to the loss. This preserves the SSL recipe exactly while making all downstream shapes static. Gated on seeing a positive result from 6.A.3.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       ABSTRACTION DICTIONARY
+       ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Compile Term Dictionary</h2>
+    <p class="small">These concepts are distinct layers — collapsing them into "compile" creates confusion when debugging which layer a problem lives in.</p>
+    <table>
+      <thead><tr><th>Term</th><th>What it means</th><th>In this codebase</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>train.compile=true</code></td>
+          <td>Repo config flag — turns on module wrapping.</td>
+          <td>Calls <code>module.compile()</code> on each transformer block, ConvNeXt stage, and head. <em>Does not</em> imply fullgraph or CUDA graphs.</td>
+        </tr>
+        <tr>
+          <td><code>torch.compile / module.compile()</code></td>
+          <td>PyTorch's Dynamo + Inductor pipeline. Traces Python code into an IR, then generates optimized kernels.</td>
+          <td>Default mode: <code>dynamic=True</code>, tolerates graph breaks. Used in all Phase 5 runs.</td>
+        </tr>
+        <tr>
+          <td><code>fullgraph=True</code></td>
+          <td>Require the traced region to produce a single graph with no breaks. Fail loudly otherwise.</td>
+          <td>Active in Phase 6.A via the <code>is_backbone_block</code> branch. Useful as a diagnostic: graph-break errors point to the exact unsupported op.</td>
+        </tr>
+        <tr>
+          <td><code>dynamic=False</code></td>
+          <td>Specialize compiled code to the first observed input shapes. Recompile only if a shape outside the guard range appears.</td>
+          <td>Used in the backbone CUDA-graph branch. The backbone is static-shape, so no recompile is expected.</td>
+        </tr>
+        <tr>
+          <td>CUDA graphs (<code>triton.cudagraphs=True</code>)</td>
+          <td>Record the entire sequence of GPU kernel launches once, then replay the recording each step — eliminating the per-kernel CPU launch overhead.</td>
+          <td>Enabled by the Phase 6.A backbone branch. Requires all ops in the captured region to be graph-capturable (no <code>index_put_ accumulate=True</code>, etc.).</td>
+        </tr>
+        <tr>
+          <td><code>cudagraph_mark_step_begin()</code></td>
+          <td>Tell Inductor's graph tree that a new logical step is beginning. Prevents output buffer aliasing across sub-graph invocations within one step.</td>
+          <td>Added at top of <code>forward_backward()</code>. Required when any compiled function is called multiple times per step with different input shapes (which <code>_forward_list</code> does).</td>
+        </tr>
+        <tr>
+          <td>Graph break</td>
+          <td>A point where Dynamo stops tracing and returns to eager Python. Subsequent code runs outside the compiled graph.</td>
+          <td>Phase 6 fullgraph mode turns silent breaks into hard errors — useful for finding hidden breaks. The known break source is <code>checkpoint_wrapper</code> in AC runs.</td>
+        </tr>
+        <tr>
+          <td><code>index_put_(accumulate=True)</code></td>
+          <td>A scatter-add op in autograd. Produced by <code>x[indices]</code> gather in forward.</td>
+          <td>Inductor refuses to capture this into CUDA graphs. Fix: use <code>torch.index_select</code> instead; its backward is <code>index_add</code>, which is capturable.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       PHASE 5 BASELINE
+       ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Phase 5 Baseline Numbers (Context Only)</h2>
+    <p class="small muted">These are the inherited numbers from Phase 5. Phase 6 competes against job 48312, not the archived rows.</p>
+    <table>
+      <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Job</td><td>48312 — <code>DDP bs=96, compile=true, cudagraphs=false</code>, 8×H100 gpu03</td></tr>
+        <tr><td>Window</td><td>iter 400–999 (n=61 logged points)</td></tr>
+        <tr><td>Mean img/s</td><td>1,387</td></tr>
+        <tr><td>Median img/s</td><td>1,379</td></tr>
+        <tr><td>CV (img/s)</td><td>8.2 %</td></tr>
+        <tr><td>Mean step_ms</td><td>545 ms</td></tr>
+        <tr><td>Mean MFU (dense)</td><td>7.94 %</td></tr>
+        <tr><td>Trend</td><td>1,310 → 1,373 → 1,419 img/s (still rising; true ceiling above 1,387)</td></tr>
+        <tr><td>Peak alloc / reserved</td><td>25.8 GB / 26.7 GB</td></tr>
+      </tbody>
+    </table>
+    <p class="small" style="margin-top:10px">Archived 100-iter DDP screening (job 9631 family, ~4k img/s) is not used as a target — it predates the current codebase and may include compile warmup in its measurement window. Job 48312 is the only valid anchor.</p>
+    <p class="small">Lab-wide MFU target: <strong>30 %</strong> (~5,200 img/s at bs=96 on 8×H100).</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       EVIDENCE INDEX
+       ═══════════════════════════════════════════ -->
+  <section class="band">
+    <h2>Evidence Index</h2>
+    <ul class="refs">
+      <li><a href="phase6_perf_plan.md">docs/phase6_perf_plan.md</a> — Phase 6 plan (strategy, H6 hypothesis, full experiment ladder, job log §12)</li>
+      <li><a href="dinov3-training-pipeline-ibot-compile-explainer-2026-05-22.html">docs/dinov3-training-pipeline-ibot-compile-explainer-2026-05-22.html</a> — iBOT dynamic-K code chain diagrams</li>
+      <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:65-76</a> — <code>wrap_compile_block()</code>: the fullgraph/CUDA-graph branch</li>
+      <li><a href="../dinov3/fsdp/ac_compile_parallelize.py">ac_compile_parallelize.py:281-322</a> — DDP wrapping (<code>gradient_as_bucket_view</code>, <code>static_graph</code>)</li>
+      <li><a href="../dinov3/train/ssl_meta_arch.py">ssl_meta_arch.py:383-387</a> — <code>cudagraph_mark_step_begin()</code> fix (Fix 1)</li>
+      <li><a href="../dinov3/layers/block.py">block.py:86-129</a> — <code>_forward()</code> with <code>index_select</code> fix (2 of 5 sites)</li>
+      <li><a href="../dinov3/layers/block.py">block.py:131-204</a> — <code>_forward_list()</code> with <code>index_select</code> fix (2 of 5 sites)</li>
+      <li><a href="../dinov3/layers/block.py">block.py:69-84</a> — <code>_maybe_index_rope()</code> with <code>index_select</code> fix (1 of 5 sites)</li>
+      <li><a href="../dinov3/configs/ssl_default_config.yaml">ssl_default_config.yaml:80-82</a> — <code>compile</code>, <code>compile_mode</code>, <code>cudagraphs</code> defaults</li>
+      <li><a href="../dinov3/data/collate.py">collate.py:62-74</a> — <code>mask_indices_list</code> dynamic-K source (iBOT blocker)</li>
+      <li><a href="../dinov3/loss/ibot_patch_loss.py">ibot_patch_loss.py:96-117</a> — <code>loss[:n_masked_patches]</code> dynamic slice</li>
+      <li><a href="phase5_perf_plan.md">phase5_perf_plan.md:391</a> — job 48312 recipe</li>
+      <li><a href="perf_experiment_log.md">perf_experiment_log.md:646-650</a> — Phase 4 compile-mode screening (max-autotune incompatibility history)</li>
+      <li><span class="muted">/mnt/weka/adovlatyan/logs/ddp-bs96-cudagraphs-53655.err</span> — job 53655 crash trace (buffer aliasing)</li>
+      <li><span class="muted">/mnt/weka/adovlatyan/logs/ddp-bs96-cudagraphs-53672.err</span> — job 53672 stderr (<code>skipping cudagraphs</code> warnings)</li>
+      <li><span class="muted">/mnt/weka/adovlatyan/logs/rank6-capture-59847-perrank/…/6/stderr.log</span> — per-rank log from capture job 59847; holds the real <code>PermissionError</code> traceback</li>
+      <li><a href="../../scripts/debug/rank6_root_cause.md">scripts/debug/rank6_root_cause.md</a> — full root-cause write-up: corrupt NAIP PNG chain, determinism mechanism, Codex adversarial review, fix C open item</li>
+      <li><span class="muted">/mnt/weka/adovlatyan/logs/soak-bs128-cg-60959.{out,err}</span> — job 60959 full soak log (4000 iters, gpu06, 2026-05-30)</li>
+      <li><span class="muted">/mnt/weka/adovlatyan/logs/soak_ddp_bs128_cg-60959-memlog.jsonl</span> — 10s host-RAM sidecar (753 samples); source for +15 GB/hr drift analysis</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

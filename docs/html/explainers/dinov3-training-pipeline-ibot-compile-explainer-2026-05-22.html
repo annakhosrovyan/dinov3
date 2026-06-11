@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DINOv3 Training Pipeline, iBOT, torch.compile, and CUDA Graphs</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f8fafc;
+      --fg: #0f172a;
+      --muted: #64748b;
+      --card: #ffffff;
+      --card-2: #f1f5f9;
+      --border: #cbd5e1;
+      --accent: #2563eb;
+      --accent-2: #16a34a;
+      --warn: #b45309;
+      --code-bg: #0f172a;
+      --code-fg: #e2e8f0;
+      --shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #020617;
+        --fg: #e5e7eb;
+        --muted: #94a3b8;
+        --card: #0f172a;
+        --card-2: #111827;
+        --border: #334155;
+        --accent: #60a5fa;
+        --accent-2: #4ade80;
+        --warn: #fbbf24;
+        --code-bg: #020617;
+        --code-fg: #e5e7eb;
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.58;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 64px; }
+    header {
+      padding: 32px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      border-radius: 8px;
+      margin-bottom: 22px;
+    }
+    h1 { margin: 0 0 12px; font-size: clamp(2rem, 5vw, 4rem); line-height: 1.05; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 1.7rem; line-height: 1.2; letter-spacing: 0; }
+    h3 { margin: 0 0 10px; font-size: 1.08rem; letter-spacing: 0; }
+    p { margin: 0 0 14px; }
+    a { color: var(--accent); }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+      padding: 0.1rem 0.28rem;
+      border-radius: 4px;
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+    }
+    pre {
+      overflow-x: auto;
+      padding: 16px;
+      border-radius: 8px;
+      background: var(--code-bg);
+      color: var(--code-fg);
+      border: 1px solid var(--border);
+      margin: 12px 0 16px;
+    }
+    pre code { background: transparent; color: inherit; padding: 0; font-size: 0.9rem; }
+    section {
+      padding: 26px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      margin: 18px 0;
+    }
+    .muted { color: var(--muted); }
+    .grid { display: grid; gap: 16px; }
+    .two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card {
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px;
+    }
+    .callout {
+      border-left: 5px solid var(--accent);
+      background: color-mix(in srgb, var(--accent) 8%, var(--card));
+      padding: 18px;
+      border-radius: 8px;
+      margin: 16px 0;
+    }
+    .warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--card)); }
+    .ok { border-left-color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 10%, var(--card)); }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 10px;
+      margin: 4px 6px 4px 0;
+      background: var(--card-2);
+      color: var(--fg);
+      font-size: 0.9rem;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; }
+    th, td { border: 1px solid var(--border); padding: 10px; text-align: left; vertical-align: top; }
+    th { background: var(--card-2); }
+    .svg-wrap { margin: 18px 0; overflow-x: auto; }
+    svg { overflow: visible; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    /* SVG class helpers — all using CSS custom properties so dark/light mode just works */
+    .s-box      { fill: var(--card-2); stroke: var(--border); stroke-width: 1.5; }
+    .s-box-blue { fill: color-mix(in srgb, var(--accent) 12%, var(--card)); stroke: var(--accent); stroke-width: 1.5; }
+    .s-box-grn  { fill: color-mix(in srgb, var(--accent-2) 16%, var(--card)); stroke: var(--accent-2); stroke-width: 1.5; }
+    .s-box-warn { fill: color-mix(in srgb, var(--warn) 14%, var(--card)); stroke: var(--warn); stroke-width: 1.5; }
+    .s-cell-t   { fill: color-mix(in srgb, var(--accent-2) 28%, var(--card)); stroke: var(--accent-2); stroke-width: 1; }
+    .s-cell-f   { fill: var(--card-2); stroke: var(--border); stroke-width: 1; }
+    .s-idx      { fill: color-mix(in srgb, var(--accent) 20%, var(--card)); stroke: var(--accent); stroke-width: 1.5; }
+    .s-row      { fill: color-mix(in srgb, var(--accent) 14%, var(--card)); stroke: var(--accent); stroke-width: 1; }
+    .s-patch    { fill: color-mix(in srgb, var(--accent) 13%, var(--card)); stroke: var(--border); stroke-width: 1; }
+    .s-masked   { fill: color-mix(in srgb, var(--warn) 28%, var(--card)); stroke: var(--warn); stroke-width: 1.5; }
+    .s-cls-hi   { fill: color-mix(in srgb, var(--accent-2) 32%, var(--card)); stroke: var(--accent-2); stroke-width: 2; }
+    .s-cls-dim  { fill: var(--card-2); stroke: var(--border); stroke-width: 1; }
+    .s-replay   { fill: color-mix(in srgb, var(--accent-2) 22%, var(--card)); stroke: var(--accent-2); stroke-width: 1; }
+    .s-compile  { fill: color-mix(in srgb, var(--accent) 20%, var(--card)); stroke: var(--accent); stroke-width: 1.5; }
+    .s-recomp   { fill: color-mix(in srgb, var(--warn) 24%, var(--card)); stroke: var(--warn); stroke-width: 1.5; }
+    .t-main  { fill: var(--fg);     font-size: 13px; font-weight: 600; }
+    .t-small { fill: var(--fg);     font-size: 11px; }
+    .t-muted { fill: var(--muted);  font-size: 11px; }
+    .t-code  { fill: var(--accent); font-size: 10.5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .t-warn  { fill: var(--warn);   font-size: 11px; font-weight: 700; }
+    .t-grn   { fill: var(--accent-2); font-size: 11px; font-weight: 700; }
+    .t-cell  { fill: var(--fg);     font-size: 12px; font-weight: 700; }
+    .t-cellf { fill: var(--muted);  font-size: 11px; }
+    @media (max-width: 820px) {
+      header, section { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+
+  <header>
+    <p class="pill">DINOv3 perf notes</p>
+    <p class="pill">Theme follows OS/browser light or dark mode</p>
+    <h1>DINOv3 Training Pipeline, iBOT, torch.compile, and CUDA Graphs</h1>
+    <p class="muted">
+      A beginner-friendly map of the training loop, model pieces, iBOT masked-patch objective, and why dynamic
+      masking matters for <code>torch.compile</code> and CUDA graphs in the Phase 5/Phase 6 performance work.
+    </p>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 1 — Learning Order
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Learning Order</h2>
+    <div class="svg-wrap">
+      <!-- Five-step numbered flow -->
+      <svg viewBox="0 0 840 80" width="100%">
+        <!-- Box params: w=140, h=60, gap=28, x0=10 -->
+        <!-- Step 1 -->
+        <rect x="10"  y="10" width="140" height="60" rx="7" class="s-box"/>
+        <text x="80"  y="36" text-anchor="middle" class="t-main">① Crops</text>
+        <text x="80"  y="53" text-anchor="middle" class="t-muted">dataloader augments</text>
+        <!-- arrow -->
+        <line x1="150" y1="40" x2="174" y2="40" stroke-width="1.5" class="s-patch" style="stroke:var(--muted)"/>
+        <polygon points="172,36 180,40 172,44" style="fill:var(--muted)"/>
+        <!-- Step 2 -->
+        <rect x="180" y="10" width="140" height="60" rx="7" class="s-box"/>
+        <text x="250" y="36" text-anchor="middle" class="t-main">② ViT Tokens</text>
+        <text x="250" y="53" text-anchor="middle" class="t-muted">CLS + patch tokens</text>
+        <!-- arrow -->
+        <line x1="320" y1="40" x2="344" y2="40" stroke-width="1.5" style="stroke:var(--muted)"/>
+        <polygon points="342,36 350,40 342,44" style="fill:var(--muted)"/>
+        <!-- Step 3 -->
+        <rect x="350" y="10" width="140" height="60" rx="7" class="s-box"/>
+        <text x="420" y="36" text-anchor="middle" class="t-main">③ DINO</text>
+        <text x="420" y="53" text-anchor="middle" class="t-muted">CLS distillation</text>
+        <!-- arrow -->
+        <line x1="490" y1="40" x2="514" y2="40" stroke-width="1.5" style="stroke:var(--muted)"/>
+        <polygon points="512,36 520,40 512,44" style="fill:var(--muted)"/>
+        <!-- Step 4 -->
+        <rect x="520" y="10" width="140" height="60" rx="7" class="s-box"/>
+        <text x="590" y="36" text-anchor="middle" class="t-main">④ iBOT</text>
+        <text x="590" y="53" text-anchor="middle" class="t-muted">masked patch predict</text>
+        <!-- arrow -->
+        <line x1="660" y1="40" x2="684" y2="40" stroke-width="1.5" style="stroke:var(--muted)"/>
+        <polygon points="682,36 690,40 682,44" style="fill:var(--muted)"/>
+        <!-- Step 5 -->
+        <rect x="690" y="10" width="140" height="60" rx="7" class="s-box"/>
+        <text x="760" y="36" text-anchor="middle" class="t-main">⑤ Compile</text>
+        <text x="760" y="53" text-anchor="middle" class="t-muted">static shapes needed</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 2 — Training Loop
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>The Training Loop in One Map</h2>
+
+    <div class="svg-wrap">
+      <!-- Pipeline: 5 stages with data flowing between them -->
+      <svg viewBox="0 0 860 160" width="100%">
+        <!-- ── Collate ── -->
+        <rect x="10" y="10" width="148" height="80" rx="7" class="s-box-blue"/>
+        <text x="84" y="34" text-anchor="middle" class="t-main">DataLoader</text>
+        <text x="84" y="50" text-anchor="middle" class="t-main">+ Collate</text>
+        <text x="84" y="67" text-anchor="middle" class="t-code">data/collate.py</text>
+        <!-- output label -->
+        <text x="84" y="104" text-anchor="middle" class="t-muted">crops, masks,</text>
+        <text x="84" y="116" text-anchor="middle" class="t-muted">mask_indices_list</text>
+
+        <!-- arrow 1 -->
+        <line x1="158" y1="50" x2="182" y2="50" stroke-width="1.8" style="stroke:var(--accent)"/>
+        <polygon points="180,45 190,50 180,55" style="fill:var(--accent)"/>
+
+        <!-- ── Student ── -->
+        <rect x="190" y="10" width="148" height="80" rx="7" class="s-box-blue"/>
+        <text x="264" y="34" text-anchor="middle" class="t-main">Student</text>
+        <text x="264" y="50" text-anchor="middle" class="t-main">Forward</text>
+        <text x="264" y="67" text-anchor="middle" class="t-code">ssl_meta_arch.py</text>
+        <text x="264" y="104" text-anchor="middle" class="t-muted">CLS tokens,</text>
+        <text x="264" y="116" text-anchor="middle" class="t-muted">masked patch tokens</text>
+
+        <!-- arrow 2 -->
+        <line x1="338" y1="50" x2="362" y2="50" stroke-width="1.8" style="stroke:var(--accent)"/>
+        <polygon points="360,45 370,50 360,55" style="fill:var(--accent)"/>
+
+        <!-- ── Teacher ── -->
+        <rect x="370" y="10" width="148" height="80" rx="7" class="s-box-grn"/>
+        <text x="444" y="34" text-anchor="middle" class="t-main">Teacher</text>
+        <text x="444" y="50" text-anchor="middle" class="t-main">Forward (EMA)</text>
+        <text x="444" y="67" text-anchor="middle" class="t-code">@torch.no_grad</text>
+        <text x="444" y="104" text-anchor="middle" class="t-muted">CLS targets,</text>
+        <text x="444" y="116" text-anchor="middle" class="t-muted">patch targets</text>
+
+        <!-- arrow 3 -->
+        <line x1="518" y1="50" x2="542" y2="50" stroke-width="1.8" style="stroke:var(--accent)"/>
+        <polygon points="540,45 550,50 540,55" style="fill:var(--accent)"/>
+
+        <!-- ── Losses ── -->
+        <rect x="550" y="10" width="148" height="80" rx="7" class="s-box"/>
+        <text x="624" y="30" text-anchor="middle" class="t-main">Loss</text>
+        <text x="624" y="46" text-anchor="middle" class="t-main">Computation</text>
+        <text x="624" y="62" text-anchor="middle" class="t-code">dino + ibot + koleo</text>
+        <text x="624" y="78" text-anchor="middle" class="t-code">compute_losses()</text>
+        <text x="624" y="104" text-anchor="middle" class="t-muted">scalar loss</text>
+
+        <!-- arrow 4 -->
+        <line x1="698" y1="50" x2="722" y2="50" stroke-width="1.8" style="stroke:var(--accent)"/>
+        <polygon points="720,45 730,50 720,55" style="fill:var(--accent)"/>
+
+        <!-- ── Step ── -->
+        <rect x="730" y="10" width="120" height="80" rx="7" class="s-box"/>
+        <text x="790" y="34" text-anchor="middle" class="t-main">Backward</text>
+        <text x="790" y="50" text-anchor="middle" class="t-main">+ Step</text>
+        <text x="790" y="67" text-anchor="middle" class="t-code">optim, EMA update</text>
+        <text x="790" y="104" text-anchor="middle" class="t-muted">weights updated,</text>
+        <text x="790" y="116" text-anchor="middle" class="t-muted">teacher EMA updated</text>
+      </svg>
+    </div>
+
+    <p class="muted">
+      Code anchors: <code>dinov3/train/ssl_meta_arch.py:132</code> creates student/teacher <code>nn.ModuleDict</code>
+      containers, <code>ssl_meta_arch.py:129</code> creates <code>iBOTPatchLoss</code>, and
+      <code>ssl_meta_arch.py:615</code> defines <code>compute_losses()</code> which accumulates all loss terms.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 3 — What Is iBOT?
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>What Is iBOT?</h2>
+    <p>
+      iBOT is the masked-patch part of the self-supervised objective. DINO teaches the student to match the teacher
+      on image-level global tokens. iBOT adds a patch-level task: hide some patch tokens from the student and ask
+      the student to match teacher targets for those hidden locations.
+    </p>
+
+    <!-- DINO vs iBOT patch visualization -->
+    <div class="svg-wrap">
+      <!--
+        Layout arithmetic (all in SVG user units):
+          Panel: w=320, h=300   Left: x=10..330   Right: x=370..690
+          Panel centers: x=170 (DINO), x=530 (iBOT)
+          CLS box: w=78, centered → DINO x=131, iBOT x=491
+          Grid: 5 cols × cell-w=34, gap=4, stride=38 → total-w=186
+            Centered under CLS: start-x = panel-center − 93
+            DINO grid translate: (77, 96)     [170−93=77]
+            iBOT  grid translate: (437, 96)   [530−93=437]
+          Grid rows: y=0,32,64,96 (h=28 each) → bottom edge rel y=124, SVG y=220
+          Below grid (30px gap): labels at y=258, arrows y=266→280, loss text y=293
+          Legend: below both panels at y=312  (SVG viewBox height=330)
+      -->
+      <svg viewBox="0 0 700 330" width="100%">
+
+        <!-- ─── Left panel: DINO ─── -->
+        <rect x="10" y="6" width="320" height="300" rx="8" class="s-box"/>
+        <text x="170" y="28" text-anchor="middle" class="t-main">DINO objective</text>
+        <text x="170" y="43" text-anchor="middle" class="t-muted">CLS token self-distillation</text>
+
+        <!-- CLS token — highlighted GREEN -->
+        <rect x="131" y="54" width="78" height="34" rx="5" class="s-cls-hi"/>
+        <text x="170" y="76" text-anchor="middle" class="t-main" style="fill:var(--accent-2)">CLS</text>
+
+        <!-- 5×4 patch grid; grid center x=170 → translate x=170−93=77 -->
+        <g transform="translate(77, 96)">
+          <rect x="0"   y="0"  width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="38"  y="0"  width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="76"  y="0"  width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="114" y="0"  width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="152" y="0"  width="34" height="28" rx="3" class="s-patch"/>
+
+          <rect x="0"   y="32" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="38"  y="32" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="76"  y="32" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="114" y="32" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="152" y="32" width="34" height="28" rx="3" class="s-patch"/>
+
+          <rect x="0"   y="64" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="38"  y="64" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="76"  y="64" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="114" y="64" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="152" y="64" width="34" height="28" rx="3" class="s-patch"/>
+
+          <rect x="0"   y="96" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="38"  y="96" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="76"  y="96" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="114" y="96" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="152" y="96" width="34" height="28" rx="3" class="s-patch"/>
+        </g>
+
+        <!-- "CLS used" label, arrow, loss label — all below grid bottom (y=220) -->
+        <text x="170" y="248" text-anchor="middle" class="t-grn">CLS used</text>
+        <line x1="170" y1="255" x2="170" y2="274" stroke-width="1.5" style="stroke:var(--accent-2)"/>
+        <polygon points="164,271 176,271 170,280" style="fill:var(--accent-2)"/>
+        <text x="170" y="294" text-anchor="middle" class="t-grn">→ DINO Loss</text>
+
+        <!-- ─── Right panel: iBOT ─── -->
+        <rect x="370" y="6" width="320" height="300" rx="8" class="s-box"/>
+        <text x="530" y="28" text-anchor="middle" class="t-main">iBOT objective</text>
+        <text x="530" y="43" text-anchor="middle" class="t-muted">Masked patch prediction</text>
+
+        <!-- CLS token — dimmed -->
+        <rect x="491" y="54" width="78" height="34" rx="5" class="s-cls-dim"/>
+        <text x="530" y="76" text-anchor="middle" class="t-muted">CLS (unused here)</text>
+
+        <!-- 5×4 grid with masked (orange) patches; grid center x=530 → translate x=530−93=437 -->
+        <g transform="translate(437, 96)">
+          <!-- Row 0: vis · MASK · vis · MASK · vis -->
+          <rect x="0"   y="0"  width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="38"  y="0"  width="34" height="28" rx="3" class="s-masked"/>
+          <rect x="76"  y="0"  width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="114" y="0"  width="34" height="28" rx="3" class="s-masked"/>
+          <rect x="152" y="0"  width="34" height="28" rx="3" class="s-patch"/>
+          <!-- Row 1: MASK · vis · vis · MASK · vis -->
+          <rect x="0"   y="32" width="34" height="28" rx="3" class="s-masked"/>
+          <rect x="38"  y="32" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="76"  y="32" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="114" y="32" width="34" height="28" rx="3" class="s-masked"/>
+          <rect x="152" y="32" width="34" height="28" rx="3" class="s-patch"/>
+          <!-- Row 2: vis · vis · MASK · vis · MASK -->
+          <rect x="0"   y="64" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="38"  y="64" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="76"  y="64" width="34" height="28" rx="3" class="s-masked"/>
+          <rect x="114" y="64" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="152" y="64" width="34" height="28" rx="3" class="s-masked"/>
+          <!-- Row 3: vis · MASK · vis · vis · MASK -->
+          <rect x="0"   y="96" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="38"  y="96" width="34" height="28" rx="3" class="s-masked"/>
+          <rect x="76"  y="96" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="114" y="96" width="34" height="28" rx="3" class="s-patch"/>
+          <rect x="152" y="96" width="34" height="28" rx="3" class="s-masked"/>
+        </g>
+
+        <!-- label, arrow, loss label -->
+        <text x="530" y="248" text-anchor="middle" class="t-warn">masked patches used</text>
+        <line x1="530" y1="255" x2="530" y2="274" stroke-width="1.5" style="stroke:var(--warn)"/>
+        <polygon points="524,271 536,271 530,280" style="fill:var(--warn)"/>
+        <text x="530" y="294" text-anchor="middle" class="t-warn">→ iBOT Loss</text>
+
+        <!-- ─── Legend — below both panels, centered in SVG ─── -->
+        <rect x="204" y="313" width="16" height="16" rx="3" class="s-patch"/>
+        <text x="225" y="325" class="t-muted">visible to student</text>
+        <rect x="395" y="313" width="16" height="16" rx="3" class="s-masked"/>
+        <text x="416" y="325" class="t-warn" style="font-weight:400;fill:var(--warn)">masked from student</text>
+      </svg>
+    </div>
+
+    <p class="muted">
+      iBOT applies masks only to global crops. Code anchors: <code>dinov3/loss/ibot_patch_loss.py:61</code>
+      defines <code>iBOTPatchLoss</code>; <code>dinov3/train/ssl_meta_arch.py:585</code> gathers masked patch
+      tokens and feeds <code>student.ibot_head</code>.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 4 — Fixed Mask vs Variable Tokens
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>The Fixed Mask vs Variable Tokens Confusion</h2>
+
+    <div class="callout">
+      <h3>The short version, using repo names</h3>
+      <p>
+        <code>collated_masks</code> can have a fixed rectangular shape. The variable shape appears after
+        <code>collated_masks.flatten().nonzero().flatten()</code> creates <code>mask_indices_list</code>. The length
+        of <code>mask_indices_list</code> is the number of true mask entries in that batch, and the iBOT path gathers
+        exactly that many patch tokens.
+      </p>
+    </div>
+
+    <!-- THE KEY DIAGRAM: shape transformation flow -->
+    <div class="svg-wrap">
+      <svg viewBox="0 0 620 560" width="100%">
+
+        <!-- ═══ Stage 1: collated_masks ═══ -->
+        <text x="310" y="18" text-anchor="middle" class="t-main">collated_masks</text>
+        <text x="310" y="34" text-anchor="middle" class="t-muted">[B=2, N_patches=8] — boolean — FIXED SHAPE</text>
+
+        <!-- 2×8 bool grid. Cell: 52×30, gap:5, stride:57. 8 cols → 8×57-5=451. center: (620-451)/2=84.5 → x=85 -->
+        <!-- Row 0: T F F T F F F T  (positions 0,3,7 = True) -->
+        <!-- Row 1: F T F F T F T F  (positions 1,4,6 = True) -->
+        <g transform="translate(85, 44)">
+          <!-- Row 0 -->
+          <rect x="0"   y="0" width="52" height="30" rx="4" class="s-cell-t"/>
+          <text x="26"  y="20" text-anchor="middle" class="t-cell" style="fill:var(--accent-2)">T</text>
+          <rect x="57"  y="0" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="83"  y="20" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="114" y="0" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="140" y="20" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="171" y="0" width="52" height="30" rx="4" class="s-cell-t"/>
+          <text x="197" y="20" text-anchor="middle" class="t-cell" style="fill:var(--accent-2)">T</text>
+          <rect x="228" y="0" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="254" y="20" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="285" y="0" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="311" y="20" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="342" y="0" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="368" y="20" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="399" y="0" width="52" height="30" rx="4" class="s-cell-t"/>
+          <text x="425" y="20" text-anchor="middle" class="t-cell" style="fill:var(--accent-2)">T</text>
+          <!-- Row 1 -->
+          <rect x="0"   y="35" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="26"  y="55" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="57"  y="35" width="52" height="30" rx="4" class="s-cell-t"/>
+          <text x="83"  y="55" text-anchor="middle" class="t-cell" style="fill:var(--accent-2)">T</text>
+          <rect x="114" y="35" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="140" y="55" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="171" y="35" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="197" y="55" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="228" y="35" width="52" height="30" rx="4" class="s-cell-t"/>
+          <text x="254" y="55" text-anchor="middle" class="t-cell" style="fill:var(--accent-2)">T</text>
+          <rect x="285" y="35" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="311" y="55" text-anchor="middle" class="t-cellf">F</text>
+          <rect x="342" y="35" width="52" height="30" rx="4" class="s-cell-t"/>
+          <text x="368" y="55" text-anchor="middle" class="t-cell" style="fill:var(--accent-2)">T</text>
+          <rect x="399" y="35" width="52" height="30" rx="4" class="s-cell-f"/>
+          <text x="425" y="55" text-anchor="middle" class="t-cellf">F</text>
+        </g>
+        <!-- row labels -->
+        <text x="80" y="62" text-anchor="end" class="t-muted">img 0</text>
+        <text x="80" y="97" text-anchor="end" class="t-muted">img 1</text>
+
+        <!-- ═══ Arrow 1 ═══ -->
+        <line x1="310" y1="148" x2="310" y2="188" stroke-width="2" style="stroke:var(--accent)"/>
+        <polygon points="304,184 316,184 310,194" style="fill:var(--accent)"/>
+        <text x="318" y="163" class="t-code">.flatten()          →  [16]  (flat bool)</text>
+        <text x="318" y="178" class="t-code">.nonzero().flatten() →  [K]  (True positions)</text>
+
+        <!-- ═══ Stage 2: mask_indices_list ═══ -->
+        <text x="310" y="214" text-anchor="middle" class="t-main">mask_indices_list</text>
+        <text x="310" y="230" text-anchor="middle" style="fill:var(--warn);font-size:11.5px;font-weight:700">
+          [K=6] — int64 — VARIABLE LENGTH ⚠
+        </text>
+
+        <!-- 6 index chips. Box: 62×32, gap:10, stride:72. 6×72-10=422. center: (620-422)/2=99 → x=99 -->
+        <g transform="translate(99, 238)">
+          <rect x="0"   y="0" width="62" height="32" rx="5" class="s-idx"/>
+          <text x="31"  y="21" text-anchor="middle" class="t-main">0</text>
+          <rect x="72"  y="0" width="62" height="32" rx="5" class="s-idx"/>
+          <text x="103" y="21" text-anchor="middle" class="t-main">3</text>
+          <rect x="144" y="0" width="62" height="32" rx="5" class="s-idx"/>
+          <text x="175" y="21" text-anchor="middle" class="t-main">7</text>
+          <rect x="216" y="0" width="62" height="32" rx="5" class="s-idx"/>
+          <text x="247" y="21" text-anchor="middle" class="t-main">9</text>
+          <rect x="288" y="0" width="62" height="32" rx="5" class="s-idx"/>
+          <text x="319" y="21" text-anchor="middle" class="t-main">12</text>
+          <rect x="360" y="0" width="62" height="32" rx="5" class="s-idx"/>
+          <text x="391" y="21" text-anchor="middle" class="t-main">14</text>
+        </g>
+        <!-- note: K=6 here, but can change -->
+        <text x="310" y="292" text-anchor="middle" class="t-muted">6 True values in this batch → K=6</text>
+        <text x="310" y="307" text-anchor="middle" class="t-warn">different batch → different K → different shape</text>
+
+        <!-- ═══ Arrow 2 ═══ -->
+        <line x1="310" y1="320" x2="310" y2="358" stroke-width="2" style="stroke:var(--accent)"/>
+        <polygon points="304,354 316,354 310,364" style="fill:var(--accent)"/>
+        <text x="318" y="336" class="t-code">torch.index_select(g_patch.flatten(0,1),</text>
+        <text x="318" y="350" class="t-code">  dim=0, index=mask_indices_list)</text>
+
+        <!-- ═══ Stage 3: masked_patches_pre_head ═══ -->
+        <text x="310" y="382" text-anchor="middle" class="t-main">masked_patches_pre_head</text>
+        <text x="310" y="398" text-anchor="middle" style="fill:var(--warn);font-size:11.5px;font-weight:700">
+          [K=6, D=768] — VARIABLE first dimension ⚠
+        </text>
+
+        <!-- 6 embedding rows. Full width minus margins. x=20..600 = 580px -->
+        <g transform="translate(20, 406)">
+          <rect x="0" y="0"  width="580" height="20" rx="3" class="s-row"/>
+          <text x="8" y="14" class="t-muted">index 0  — embed dim 768 →</text>
+          <rect x="0" y="24" width="580" height="20" rx="3" class="s-row"/>
+          <text x="8" y="38" class="t-muted">index 3  — embed dim 768 →</text>
+          <rect x="0" y="48" width="580" height="20" rx="3" class="s-row"/>
+          <text x="8" y="62" class="t-muted">index 7  — embed dim 768 →</text>
+          <rect x="0" y="72" width="580" height="20" rx="3" class="s-row"/>
+          <text x="8" y="86" class="t-muted">index 9  — embed dim 768 →</text>
+          <rect x="0" y="96" width="580" height="20" rx="3" class="s-row"/>
+          <text x="8" y="110" class="t-muted">index 12 — embed dim 768 →</text>
+          <rect x="0" y="120" width="580" height="20" rx="3" class="s-row"/>
+          <text x="8" y="134" class="t-muted">index 14 — embed dim 768 →</text>
+        </g>
+
+        <!-- Warning box at bottom -->
+        <rect x="20" y="546" width="580" height="1" rx="0" style="fill:var(--warn);opacity:0.4"/>
+      </svg>
+    </div>
+
+    <pre><code># Actual code: dinov3/data/collate.py:63
+mask_indices_list = collated_masks.flatten().nonzero().flatten()
+
+# Actual code: dinov3/data/collate.py:74
+"n_masked_patches": torch.full(
+    (1,),
+    fill_value=mask_indices_list.shape[0],
+    dtype=torch.long,
+)
+
+# Actual code: dinov3/train/ssl_meta_arch.py:585
+masked_patches_pre_head = torch.index_select(
+    g_patch.flatten(0, 1),
+    dim=0,
+    index=mask_indices_list,
+)</code></pre>
+
+    <p>
+      Any simplified phrase like <code>tokens[mask]</code> is only a translation of the actual repo flow above:
+      <code>collated_masks</code> becomes <code>mask_indices_list</code>, then <code>mask_indices_list</code> is used
+      as the <code>index</code> argument to <code>torch.index_select</code>.
+    </p>
+
+    <h3>Why fixed image resize does not fully answer the question</h3>
+    <table>
+      <thead>
+        <tr><th>Thing</th><th>Shape if crop size is fixed?</th><th>Why it matters</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Input crop</td>
+          <td>Fixed, e.g. <code>[B, 5, 224, 224]</code></td>
+          <td>This fixes the number of ViT patch positions (196 for 224px / patch 16).</td>
+        </tr>
+        <tr>
+          <td>Patch tokens before iBOT selection</td>
+          <td>Fixed — <code>g_patch</code> before <code>index_select</code></td>
+          <td><code>g_patch.flatten(0, 1)</code> creates the row space that iBOT selects from.</td>
+        </tr>
+        <tr>
+          <td>Boolean mask (<code>collated_masks</code>)</td>
+          <td>Fixed rectangular tensor</td>
+          <td>One mask value per patch position — shape is <code>[B, N_patches]</code>.</td>
+        </tr>
+        <tr>
+          <td>Selected masked tokens (<code>masked_patches_pre_head</code>)</td>
+          <td><strong>Not fixed</strong></td>
+          <td>First dim = <code>mask_indices_list.shape[0]</code> = K, produced by <code>nonzero()</code>. K varies per batch.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 5 — Where in Code
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Where This Happens in Code</h2>
+    <p>
+      The dataloader/collate path creates a rectangular mask and then turns all true positions into a compact
+      one-dimensional list of indices:
+    </p>
+    <pre><code># dinov3/data/collate.py:63
+mask_indices_list = collated_masks.flatten().nonzero().flatten()
+
+# dinov3/data/collate.py:74
+"n_masked_patches": torch.full((1,), fill_value=mask_indices_list.shape[0], dtype=torch.long)</code></pre>
+    <p>
+      Later, the training step uses that list to gather only the masked patch tokens:
+    </p>
+    <pre><code># dinov3/train/ssl_meta_arch.py:585
+masked_patches_pre_head = torch.index_select(g_patch.flatten(0, 1), dim=0, index=mask_indices_list)</code></pre>
+    <p>
+      The iBOT loss also carries this variable count forward:
+    </p>
+    <pre><code># dinov3/loss/ibot_patch_loss.py:115
+loss = loss[:n_masked_patches]</code></pre>
+    <div class="callout ok">
+      <h3>One-sentence answer to give back</h3>
+      <p>
+        The input and <code>collated_masks</code> shapes can be fixed, but our iBOT path materializes only the selected
+        masked tokens through <code>mask_indices_list</code>; that selected-token tensor has first dimension
+        <code>mask_indices_list.shape[0]</code>, and that value can vary.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 6 — masks_weight
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>What About masks_weight?</h2>
+    <p>
+      <code>masks_weight</code> is related, but it is not the main line when talking about the dynamic iBOT
+      selected-token shape. The main shape-changing path is <code>mask_indices_list</code> into
+      <code>torch.index_select</code>.
+    </p>
+    <pre><code># dinov3/data/collate.py:65
+masks_weight = (
+    1 / collated_masks.sum(-1).clamp(min=1.0)
+).unsqueeze(-1).expand_as(collated_masks)[collated_masks]</code></pre>
+    <p>
+      This line also uses boolean selection at the end: <code>[collated_masks]</code>. That means
+      <code>masks_weight</code> also has one entry per true mask value, so it is part of the same
+      variable-count story. But the token tensor sent through <code>student.ibot_head</code> is selected by
+      <code>mask_indices_list</code>.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 7 — Why torch.compile Cares
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Why torch.compile Cares</h2>
+    <p>
+      <code>torch.compile</code> tries to turn Python/PyTorch execution into optimized graphs. It is happiest when
+      the same operations see the same tensor shapes every iteration. In this code path, the first dimension of
+      <code>masked_patches_pre_head</code> follows <code>mask_indices_list.shape[0]</code> = K. If K changes,
+      the compiler must recompile or introduce a dynamic-shape guard.
+    </p>
+
+    <!-- Compile timeline SVG -->
+    <div class="svg-wrap">
+      <svg viewBox="0 0 800 210" width="100%">
+
+        <!-- Title: Static path -->
+        <text x="12" y="20" class="t-grn">Static shapes (CUDA graph / fullgraph path — requires fixed K)</text>
+
+        <!-- iter 1: compile (long orange bar) -->
+        <rect x="12"  y="30" width="110" height="34" rx="4" class="s-compile"/>
+        <text x="67"  y="52" text-anchor="middle" class="t-small">compile</text>
+        <!-- iter 2: fast replay -->
+        <rect x="126" y="30" width="72"  height="34" rx="4" class="s-replay"/>
+        <text x="162" y="52" text-anchor="middle" class="t-small">replay</text>
+        <!-- iter 3: fast replay -->
+        <rect x="202" y="30" width="72"  height="34" rx="4" class="s-replay"/>
+        <text x="238" y="52" text-anchor="middle" class="t-small">replay</text>
+        <!-- iter 4: fast replay -->
+        <rect x="278" y="30" width="72"  height="34" rx="4" class="s-replay"/>
+        <text x="314" y="52" text-anchor="middle" class="t-small">replay</text>
+        <!-- ... continuation dots -->
+        <text x="360" y="52" class="t-muted"> ... replay ... replay ... (compile cost amortized over many iters)</text>
+
+        <!-- separator -->
+        <line x1="12" y1="82" x2="790" y2="82" stroke-width="1" stroke-dasharray="4 3" style="stroke:var(--border)"/>
+
+        <!-- Title: Dynamic path -->
+        <text x="12" y="100" class="t-warn">Dynamic K (current iBOT path — K can change each batch)</text>
+
+        <!-- iter 1: compile K=47 -->
+        <rect x="12"  y="110" width="110" height="34" rx="4" class="s-compile"/>
+        <text x="67"  y="128" text-anchor="middle" class="t-small">compile K=47</text>
+        <!-- iter 2: replay (same K) -->
+        <rect x="126" y="110" width="72"  height="34" rx="4" class="s-replay"/>
+        <text x="162" y="128" text-anchor="middle" class="t-small">replay</text>
+        <!-- iter 3: RECOMPILE — K changed -->
+        <rect x="202" y="110" width="130" height="34" rx="4" class="s-recomp"/>
+        <text x="267" y="128" text-anchor="middle" class="t-warn">recompile K=51 ⚠</text>
+        <!-- iter 4: replay -->
+        <rect x="336" y="110" width="72"  height="34" rx="4" class="s-replay"/>
+        <text x="372" y="128" text-anchor="middle" class="t-small">replay</text>
+        <!-- iter 5: RECOMPILE again -->
+        <rect x="412" y="110" width="130" height="34" rx="4" class="s-recomp"/>
+        <text x="477" y="128" text-anchor="middle" class="t-warn">recompile K=43 ⚠</text>
+        <!-- continuation -->
+        <text x="548" y="128" class="t-muted"> ... keeps happening</text>
+
+        <!-- Annotation: why the boxes differ in width -->
+        <text x="12" y="162" class="t-muted">Compile bar is intentionally wider — compilation is slow (seconds on first call),</text>
+        <text x="12" y="177" class="t-muted">replay is fast (submitting a pre-compiled CUDA graph). Recompiles recur with every new K value.</text>
+        <text x="12" y="195" class="t-muted">Default compile mode (null / "default") falls back to eager for dynamic dims rather than recompiling endlessly.</text>
+      </svg>
+    </div>
+
+    <div class="grid two" style="margin-top:16px">
+      <div class="card">
+        <h3>Default compile (this repo)</h3>
+        <p>
+          <code>train.compile=true</code> and <code>train.cudagraphs=false</code> compiles selected
+          transformer blocks in default mode. This tolerates dynamic shapes by falling back to eager
+          execution for affected operations — no hard recompile storm, but also no CUDA graph replay.
+        </p>
+      </div>
+      <div class="card">
+        <h3>fullgraph + CUDA graphs</h3>
+        <p>
+          When <code>train.cudagraphs=true</code>, the repo calls
+          <code>module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})</code>.
+          Variable K breaks this path because <code>dynamic=False</code> and static CUDA graph
+          replay both assume shape stability.
+        </p>
+      </div>
+    </div>
+
+    <p class="muted">
+      Compile anchors: <code>dinov3/fsdp/ac_compile_parallelize.py:65-76</code> defines
+      <code>wrap_compile_block()</code> — the branch point between default compile and fullgraph+cudagraphs;
+      <code>ac_compile_parallelize.py:97-101</code> applies it per ViT block.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 8 — Phase 6
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>What Phase 6 Is Testing</h2>
+    <div class="grid two">
+      <div class="card">
+        <h3>6.1 Diagnose current compile</h3>
+        <p>Re-run the DDP compile recipe with Dynamo logs for recompiles, graph breaks, and dynamic-shape guards.</p>
+      </div>
+      <div class="card">
+        <h3>6.2 Backbone-only CUDA graphs</h3>
+        <p>Flip the repo's CUDA graph branch for backbone blocks and see whether the model core benefits.</p>
+      </div>
+      <div class="card">
+        <h3>6.3 Static iBOT pilot</h3>
+        <p>
+          Pad or bucket the selected masked-token path so <code>masked_patches_pre_head</code> has a fixed first
+          dimension, then ignore padded entries in the loss.
+        </p>
+      </div>
+      <div class="card">
+        <h3>6.4 Combine</h3>
+        <p>Try DDP plus fullgraph/CUDA graphs plus static iBOT shapes and judge steady-state MFU/step time.</p>
+      </div>
+    </div>
+    <div class="callout warn">
+      <h3>The trade-off</h3>
+      <p>
+        Padding makes shapes compiler-friendly, but it may compute on padded dummy tokens. The question is whether
+        the saved launch/compile overhead is worth the extra padded-token work.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SECTION 9 — Evidence Index
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>Evidence Index</h2>
+    <ul>
+      <li><code>dinov3/data/collate.py:43</code>: mask ratio probabilities built from <code>mask_ratio_tuple</code>.</li>
+      <li><code>dinov3/data/collate.py:63</code>: <code>nonzero()</code> creates variable-length <code>mask_indices_list</code>.</li>
+      <li><code>dinov3/data/collate.py:65</code>: <code>masks_weight</code> also uses boolean selection with <code>[collated_masks]</code>.</li>
+      <li><code>dinov3/data/collate.py:74</code>: <code>n_masked_patches</code> comes from <code>mask_indices_list.shape[0]</code>.</li>
+      <li><code>dinov3/train/ssl_meta_arch.py:129</code>: <code>iBOTPatchLoss</code> instantiated.</li>
+      <li><code>dinov3/train/ssl_meta_arch.py:132</code>: <code>self.student = nn.ModuleDict(student_model_dict)</code> — student/teacher containers created.</li>
+      <li><code>dinov3/train/ssl_meta_arch.py:585</code>: <code>index_select</code> gathers only selected masked patch tokens.</li>
+      <li><code>dinov3/train/ssl_meta_arch.py:615</code>: <code>compute_losses()</code> accumulates DINO + iBOT + KoLeo + Gram.</li>
+      <li><code>dinov3/loss/ibot_patch_loss.py:61</code>: <code>class iBOTPatchLoss</code> definition.</li>
+      <li><code>dinov3/loss/ibot_patch_loss.py:115</code>: loss slices to <code>n_masked_patches</code>.</li>
+      <li><code>dinov3/fsdp/ac_compile_parallelize.py:65-76</code>: <code>wrap_compile_block()</code> — default compile vs CUDA graph/fullgraph branch.</li>
+      <li><code>dinov3/fsdp/ac_compile_parallelize.py:97-101</code>: <code>compile_transformer()</code> applies compile per ViT block.</li>
+    </ul>
+  </section>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DINOv3 Performance HTML Index</title>
+<style>
+:root{--bg:#f0f4f8;--surface:#fff;--text:#1e293b;--text-2:#64748b;--border:#e2e8f0;--blue:#2563eb;--r:12px;--sh:0 1px 3px rgba(0,0,0,.08),0 8px 24px rgba(15,23,42,.06);--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 var(--sans)}.wrap{max-width:860px;margin:0 auto;padding:32px 18px 48px}.card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);padding:22px}h1{margin:0 0 8px;font-size:26px}p{color:var(--text-2);margin:0 0 18px}.links{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}a.page-link{display:block;border:1px solid var(--border);border-radius:12px;padding:16px;text-decoration:none;color:var(--text);background:#f8fafc}a.page-link:hover{border-color:var(--blue);box-shadow:0 0 0 3px #dbeafe}b{display:block;margin-bottom:4px;color:var(--blue)}span{color:var(--text-2);font-size:13px}@media(max-width:980px){.links{grid-template-columns:repeat(2,1fr)}}@media(max-width:720px){.links{grid-template-columns:1fr}}
+.top-nav{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);padding:7px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}.top-nav .inner{max-width:860px;margin:0 auto;padding:0 18px;display:flex;gap:4px;flex-wrap:wrap;align-items:center}.top-nav a{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;color:var(--text-2);text-decoration:none;transition:all .15s;display:inline;border:none;background:none}.top-nav a:hover,.top-nav a[aria-current=page]{background:#eff6ff;color:#1d4ed8;box-shadow:none}
+</style>
+</head>
+<body>
+<nav class="top-nav"><div class="inner"><a href="status.html">Status</a><a href="concepts.html">Concepts</a><a href="upstream_pr_findings_v2.html">Upstream PRs</a><a href="index.html" aria-current="page">Index</a></div></nav>
+<main class="wrap">
+<section class="card">
+<h1>DINOv3 Performance HTML Pages</h1>
+<p>Use this index to switch between the Claude-maintained HTML views and Phase 6 compile guide.</p>
+<div class="links">
+<a class="page-link" href="status.html"><b>Phase 5 Status</b><span>Decision board and experiment table.</span></a>
+<a class="page-link" href="phase6_ledger.html"><b>Phase 6 Ledger</b><span>Current DDP + cudagraphs scoreboard.</span></a>
+<a class="page-link" href="../torch-compile-dinov3-phase5-2026-05-21.html"><b>Compile Guide</b><span>torch.compile and CUDA graphs learning guide.</span></a>
+<a class="page-link" href="concepts.html"><b>Concepts</b><span>Glossary, hypotheses, and mental models.</span></a>
+<a class="page-link" href="upstream_pr_findings_v2.html"><b>Upstream PRs</b><span>PR #324 and PR #340 corrections.</span></a>
+</div>
+</section>
+</main>
+</body>
+</html>

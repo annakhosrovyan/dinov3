@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upstream PR Findings · Phase 5</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand">Phase 5</div>
+      <div class="tagline">Upstream PR Findings</div>
+      <nav>
+        <a href="phase5_current.html">Current State</a>
+        <a href="phase5_experiments.html">Experiments</a>
+        <a href="phase5_mental_model.html">Mental Model</a>
+        <a href="phase5_archive.html">Archive</a>
+        <a href="upstream_pr_findings.html" aria-current="page">Upstream PRs</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <section class="hero compact">
+        <p class="eyebrow">2026-05-20</p>
+        <h1>Upstream DINOv3 PRs changed how we should read two Phase 5 assumptions.</h1>
+        <p>
+          PR #324 clarifies the real FSDP2 resharding knob. PR #340 changes
+          <code>gc.disable()</code> from a presumed straggler mitigation into a
+          long-run DataLoader worker RSS risk.
+        </p>
+      </section>
+
+      <section class="grid two">
+        <article class="card good">
+          <h2>Resharding Verdict</h2>
+          <p>
+            Our fork appears to already have the important behavior from upstream
+            PR #324: <code>train.fsdp_reshard_after_forward</code> is read and
+            passed into trained-model <code>fully_shard(...)</code> calls.
+          </p>
+          <p>
+            Therefore the Phase 5 <code>reshF</code> jobs are probably real
+            no-release FSDP2 runs, not accidental <code>reshT</code> reruns.
+          </p>
+          <p class="source">
+            Source: <a href="https://github.com/facebookresearch/dinov3/pull/324">facebookresearch/dinov3#324</a>
+          </p>
+        </article>
+
+        <article class="card danger">
+          <h2>GC Verdict</h2>
+          <p>
+            Older docs framed <code>gc.disable()</code> plus periodic
+            <code>gc.collect()</code> as a mitigation. Upstream PR #340 shows
+            that disabling automatic cycle GC can make
+            <code>torchvision.transforms.v2</code> reference cycles accumulate
+            in DataLoader workers.
+          </p>
+          <p>
+            Keep periodic manual collection if useful; do not treat disabled
+            automatic GC as a safe long-run default.
+          </p>
+          <p class="source">
+            Source: <a href="https://github.com/facebookresearch/dinov3/pull/340">facebookresearch/dinov3#340</a>
+          </p>
+        </article>
+      </section>
+
+      <section class="card">
+        <h2>What PR #324 Says</h2>
+        <p>
+          Upstream public DINOv3 had a config field named
+          <code>compute_precision.sharding_strategy</code>, but that field did
+          not control FSDP2 wrapping. The relevant
+          <code>fully_shard(...)</code> calls were hardcoded with
+          <code>reshard_after_forward=True</code>.
+        </p>
+        <p>
+          The upstream fix adds <code>train.fsdp_reshard_after_forward</code>,
+          removes legacy sharding-strategy config entries, wires the new knob
+          through SSL training FSDP wrapping, and keeps inference-only modules
+          always resharded for predictable memory.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>How This Changes Our Interpretation</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Old Wording</th>
+              <th>Corrected Wording</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>SHARD_GRAD_OP</code> explains Phase 5 FSDP2 behavior.</td>
+              <td><code>train.fsdp_reshard_after_forward</code> is the actual Phase 5 behavior knob.</td>
+            </tr>
+            <tr>
+              <td><code>reshard_after_forward=false</code> is basically DDP.</td>
+              <td>It is DDP-like, but still uses FSDP2 wrapping, scheduling, and bookkeeping.</td>
+            </tr>
+            <tr>
+              <td><code>gc.disable()</code> partially mitigates GC stragglers.</td>
+              <td>It may reduce short-run GC timing noise, but it can cause long-run worker RSS growth.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>GC Mechanism From PR #340</h2>
+        <div class="flow">
+          <div><b>1</b><span><code>torchvision.transforms.v2</code> calls pytree flattening.</span></div>
+          <div><b>2</b><span>Short-lived Python reference cycles are created.</span></div>
+          <div><b>3</b><span>With automatic cycle GC disabled, cycles are not collected.</span></div>
+          <div><b>4</b><span>Tensor storage refs and shared-memory FDs accumulate in workers.</span></div>
+          <div><b>5</b><span>Worker anonymous RSS grows over long training runs.</span></div>
+        </div>
+        <p>
+          PR #340 reports roughly <code>~3.4 MB/iter</code> worker RSS growth
+          with <code>gc.disable()</code> and roughly <code>~0.01 MB/iter</code>
+          with cycle GC enabled in its controlled benchmark.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Practical Follow-Ups</h2>
+        <ul class="plain">
+          <li>Deprecate or remove <code>compute_precision.sharding_strategy</code> from our maintained docs and configs.</li>
+          <li>Add startup logging for <code>train.distributed_strategy</code>, <code>train.fsdp_reshard_after_forward</code>, and AC mode.</li>
+          <li>Add a small FSDP state audit so <code>reshF</code> behavior is verified directly, not inferred from throughput.</li>
+          <li>Remove <code>gc.disable()</code> or gate it behind an explicit experimental flag.</li>
+          <li>Keep periodic manual <code>gc.collect()</code> if we still want predictable rank-synchronized pauses.</li>
+          <li>For long soaks, track DataLoader worker RSS if memory growth is suspected.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Sources</h2>
+        <ul class="plain">
+          <li><a href="https://github.com/facebookresearch/dinov3/pull/324">facebookresearch/dinov3#324: Add FSDP2 reshard_after_forward training config</a></li>
+          <li><a href="https://github.com/facebookresearch/dinov3/pull/340">facebookresearch/dinov3#340: Re-enable cycle GC in training loop to prevent worker anon RSS leak</a></li>
+          <li><a href="https://github.com/pytorch/vision/issues/9242">pytorch/vision#9242: transforms.v2 / pytree allocation evidence</a></li>
+          <li><a href="https://github.com/pytorch/vision/issues/6437">pytorch/vision#6437: related torchvision leak path referenced upstream</a></li>
+        </ul>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

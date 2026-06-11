@@ -1,0 +1,459 @@
+# Performance Bottleneck Ledger
+
+This file tracks the current causal model of step time.
+
+Use it to answer:
+
+1. What is currently exposed on the critical path?
+2. What type of bottleneck is it?
+3. Which knobs can plausibly move it?
+4. Which tempting ideas should be deferred?
+
+## Current Summary
+
+**Status as of 2026-04-08: optimization phase complete. Production config is shipped.**
+
+Last updated from:
+- Worst-case memprofile jobs (runs 22–23), soak test job 16718 (run 24), compile mode jobs 16719/16720/17824 (run 25)
+
+### Shipped production config (`run.sh` as of 2026-04-07)
+
+```
+train.distributed_strategy=ddp
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+train.batch_size_per_gpu=256
+train.sharded_eval_checkpoint=true
+train.compile_mode=null   (default — only viable torch.compile path)
+```
+
+**Confirmed numbers (DDP bs=256+ES, 8×H100, ViT-B, real Weka data):**
+
+| Metric | Value | Evidence |
+|--------|-------|----------|
+| Steady-state MFU | **23.92% avg** (range 23.4–24.1%) | 500-iter soak test, iters 50–490 |
+| Images/sec | ~4180–4210 | Same |
+| Worst-case GPU memory | **67,260 MB** (12.8 GB headroom) | 17 MEMPROFILE events, all flat |
+| Memory creep | **None** | max_reserved flat across 5 eval + 2 ckpt cycles |
+| alloc_retries | **0** | All 17 checkpoints |
+| Baseline (FSDP2 bs=64) | 11.3% MFU, ~1970 img/s | Job 6770 |
+| **Improvement** | **+2.1× MFU, +2.1× throughput** | |
+
+### What was tried and closed
+
+| Optimization | Outcome |
+|---|---|
+| DDP vs FSDP2 | ✓ DDP wins — removes 50% excess communication for model that fits in VRAM |
+| expandable_segments (DDP) | ✓ Fixes allocator fragmentation stalls at bs=256 |
+| expandable_segments (FSDP2) | ✗ Hurts FSDP2 7–12% — strategy-specific, do not apply |
+| Batch size 64→256 | ✓ Dominant throughput knob, confirmed memory-safe |
+| sharded_eval_checkpoint | ✓ Avoids full_tensor() materialization, no accuracy effect |
+| Default torch.compile | ✓ Already on, contributing to steady-state MFU |
+| CUDA graphs | ✗ Multi-crop forward_features_list breaks CUDAGraph trees |
+| max-autotune-no-cudagraphs | ✗ iBOT dynamic masked-token count produces variable shapes; static kernel crashes |
+| Activation checkpointing | ✗ Saves memory but loses throughput at equal batch size |
+| Async eval | Not attempted — medium stability benefit, low MFU benefit; deprioritized |
+
+### Remaining open questions
+
+- **Why did FSDP2 bs=128 OOM in a colleague's run?** Memprofile shows only 36.3 GB — unexplained.
+  Likely other GPU load, pretrained weight loading, or long-run fragmentation. Not our active config.
+- **Longer soak beyond 500 iters?** 500 iters with 5 eval + 2 checkpoint cycles shows zero creep.
+  For multi-epoch production runs (234k iters), additional evidence from real training runs
+  is the natural next confirmation step.
+- **Multi-node scaling?** Not explored. Current work is all single-node.
+
+## Profiler Baseline (Job 7553)
+
+Config: 8×H100, bs=64/GPU, torch.compile=True, FSDP2 SHARD_GRAD_OP, real Weka data, ViT-B.
+Profiler window: 3 active steps (iters 5-7), post-compile warmup.
+Per-step CUDA time: ~706ms (rank 0), ~647ms (rank 7). Step wall time: ~213-247ms.
+
+**Note on CUDA time vs wall time**: CUDA time sums all kernel durations including overlapped ops.
+Wall time is lower because NCCL comms overlap with compute. The profiler's "Self CUDA %" reflects
+kernel time on the GPU, not necessarily exposed/serial time. Actual exposed NCCL cost is lower
+than the raw 47% because FSDP2 prefetches all_gather during compute. Still, NCCL is clearly dominant.
+
+### Time Breakdown (rank 0, 3 steps averaged)
+
+| Category | Self CUDA ms | % of CUDA | Notes |
+|---|---|---|---|
+| NCCL all_gather (FSDP unshard) | 203 | 28.7% | 129 calls — per-block forward+backward |
+| NCCL reduce_scatter (FSDP grad) | 86 | 12.2% | 45 calls — gradient scatter |
+| NCCL all_reduce (loss/metrics) | 42 | 5.9% | 48 calls — includes async loss centers |
+| **Total NCCL** | **331** | **46.8%** | |
+| aten::mm (matmul fwd) | 78 | 11.0% | 480 calls — QKV, proj, FFN |
+| sm90 gemm kernel | 51 | 7.3% | BF16 tensor core matmuls |
+| aten::addmm (linear layers) | 32 | 4.6% | 198 calls — heads, misc |
+| flash_attention_backward | 28 | 4.0% | 72 calls — SDPA backward |
+| Triton fused layernorm+cat | 30 | 4.2% | 72 calls — compiled kernels |
+| AdamW optimizer step | 38 | 5.4% | Per-step optimizer |
+| **Total compute** | **~257** | **~36%** | |
+| Other (overhead, scheduling) | ~118 | ~17% | |
+
+## Step 5 Screening Summary (2026-04-02)
+
+### Results Table
+
+| Run | Job ID | bs/GPU | cudagraphs | ckpt | MFU % | img/s | step_ms | max_mem GB | Output / Log Path | Status |
+|-----|--------|--------|-----------|------|-------|-------|---------|-----------|-------------------|--------|
+| Baseline | 7553 | 64 | false | false | 13.8 | 2404 | 213 | 18.0 | `/mnt/weka/adovlatyan/output_profile_7553`; traces: `/mnt/weka/adovlatyan/profiler_traces/2026-04-02/7553/` | OK |
+| B | 7563 | 128 | false | false | 20.9 | 3647 | 279 | 33.0 | `/mnt/weka/adovlatyan/output_screen_bs128_cgfalse_ckptfalse_7563` | OK |
+| C | 7564 | 64 | true | false | — | — | — | — | N/A (failed before output dir) | FAILED (cudagraph tensor overwrite) |
+| D | 7565 | 128 | true | false | — | — | — | — | N/A (failed before output dir) | FAILED (same) |
+| **E** | **7566** | **256** | **false** | **false** | **23.5** | **4106** | **498** | **65.6** | `/mnt/weka/adovlatyan/output_screen_bs256_cgfalse_ckptfalse_7566` | **BEST throughput** |
+| F | 7567 | 384 | false | false | — | — | — | — | N/A (OOM on iter 0) | OOM (78 GB) |
+| G | 7573 | 320 | false | false | — | — | — | — | N/A (OOM on iter 0) | OOM (77 GB) |
+| H | 7574 | 256 | false | true | 21.4 | 3734 | 548 | 37.3 | `/mnt/weka/adovlatyan/output_screen_bs256_cgfalse_ckpttrue_7574` | -9% vs E |
+| I | 7593 | 384 | false | true | 8.1 | 1428 | 2074 | 55.8 | `/mnt/weka/adovlatyan/output_screen_bs384_cgfalse_ckpttrue_7593` | -65% vs E |
+| J | 7594 | 512 | false | true | — | — | — | — | N/A (OOM) | OOM (75 GB even w/ ckpt) |
+
+### Key Findings
+
+1. **Batch scaling is the dominant knob**: 64→256 = +70% MFU, +71% throughput
+2. **Diminishing returns**: 64→128 gained +51% MFU; 128→256 gained only +12% more
+3. **CUDA graphs incompatible**: multi-crop architecture uses `forward_features_list` which
+   processes global and local crops sequentially — CUDAGraph tree can't handle the tensor reuse
+4. **Checkpointing loses throughput**: At equal batch size (256), checkpointing costs ~10% throughput
+   (-9% img/s) but saves ~28 GB memory. Not worth it unless batch can go much higher to compensate.
+5. **OOM boundary**: bs=256 (65.6 GB) fits; bs=320 (77 GB) OOMs. Max without checkpointing is ~280.
+6. **Bimodal MFU pattern**: Both bs=256 runs show ~11% MFU for iters 10-50, then ~23% for 60-99.
+   Likely cause: torch.compile reoptimization or CUDA allocator defragmentation on large allocations.
+
+### What Emerged as Promising
+
+1. **DDP switch** (highest value) — eliminates FSDP2 all_gather/reduce_scatter overhead
+2. **Batch size = 256** — optimal under current FSDP2, near memory ceiling
+
+### What Was Deprioritized
+
+1. **CUDA graphs** — not viable without architectural changes to multi-crop forward pass
+2. **Activation checkpointing** — loses throughput at equal batch; only useful as enabler for
+   much larger batches under DDP where memory ceiling is different
+3. **Batch sizes beyond 256** — OOM without checkpointing; with checkpointing the net gain is negative
+
+## Active Ledger
+
+```text
+Name: FSDP2 communication overhead (all_gather + reduce_scatter)
+Evidence: Job 7553 profiler — 289ms NCCL (all_gather + reduce_scatter) per step = 41% of CUDA time.
+  ViT-B is 172 MB in BF16 — fits trivially on 80 GB H100. FSDP2 shards a model that does
+  not need sharding, paying communication cost with zero memory benefit.
+Approx Exposed Share: ~40-50% of step time (partially overlapped with compute, but still dominant)
+Bound Type: Communication-bound (NCCL)
+Candidate Knobs:
+  1. Switch to DDP (eliminates all_gather + reduce_scatter; retains one all_reduce ~42ms)
+  2. FSDP2 FULL_SHARD → SHARD_GRAD_OP (already using SHARD_GRAD_OP, so no further reduction here)
+  3. Overlap improvements (FSDP2 prefetch tuning) — limited upside, doesn't fix the root cause
+Prerequisites: DDP wrapper code (already supported by PyTorch, needs integration in ac_compile_parallelize.py)
+Why It Might Matter: This is the single largest cost category. Removing it would ~1.6× throughput.
+Why It Might Not Matter: If compute time grows (larger batch, checkpointing), comms become a smaller fraction.
+  But at current config, this is clearly the dominant bottleneck.
+Decision: HIGH PRIORITY — benchmark DDP vs FSDP2 as the next optimization.
+```
+
+```text
+Name: Matmul compute (aten::mm + sm90 gemm + aten::addmm)
+Evidence: ~161ms combined = ~23% of CUDA time. These are the actual ViT forward/backward matmuls.
+Approx Exposed Share: ~23% of CUDA time (this IS the useful compute)
+Bound Type: Compute-bound (already using BF16 tensor cores, TF32, flash attention)
+Candidate Knobs:
+  1. Batch size increase (amortizes fixed per-step overhead, increases arithmetic intensity)
+  2. Sequence packing (eliminates padding waste — but ViT has no padding)
+  3. FP8 (already has config support, but not yet validated)
+Prerequisites: Resolve communication bottleneck first — matmul efficiency gains are second-order
+Why It Might Matter: After fixing comms, this becomes the dominant cost (as it should be).
+Why It Might Not Matter: Matmuls are already running on tensor cores with BF16 — not much room for kernel-level optimization.
+Decision: MONITOR — becomes the target after NCCL overhead is removed.
+```
+
+```text
+Name: Optimizer step (AdamW)
+Evidence: 38ms = 5.4% of CUDA time per step (rank 0), 27ms (rank 7).
+Approx Exposed Share: ~5%
+Bound Type: Memory-bandwidth-bound (element-wise ops over all parameters)
+Candidate Knobs:
+  1. Fused multi-tensor optimizer (already enabled: cfg.optim.multi_tensor_optim=true)
+  2. Reduce parameter count (not applicable — ViT-B is the target architecture)
+Prerequisites: None
+Why It Might Matter: After removing NCCL overhead, this becomes a ~10% share.
+Why It Might Not Matter: 38ms is already fast for full ViT-B parameter update. Multi-tensor is enabled.
+Decision: LOW PRIORITY — already optimized.
+```
+
+```text
+Name: Flash attention backward
+Evidence: ~31ms = 4% of CUDA time (72 calls across student/teacher forward+backward).
+Approx Exposed Share: ~4%
+Bound Type: Compute/memory-bandwidth-bound (FA2 is already in use via SDPA)
+Candidate Knobs: None practical — already using flash_attention via SDPA.
+Prerequisites: None
+Why It Might Matter: Small but real cost.
+Why It Might Not Matter: Already using the best available kernel (FA2 on H100).
+Decision: NO ACTION — already using flash attention.
+```
+
+```text
+Name: Activation checkpointing (currently disabled)
+Evidence: Not a bottleneck — it's a potential enabler. Max allocated=16.8 GB out of 80 GB.
+  Currently using only ~21% of GPU memory. Enabling checkpointing would free memory
+  for larger batch sizes.
+Approx Exposed Share: N/A (enabler, not a cost)
+Bound Type: N/A
+Candidate Knobs:
+  1. Enable train.checkpointing=true — selective AC per transformer block
+  2. Enable train.checkpointing_full=true — full recompute
+Prerequisites: Only valuable if memory is the constraint on batch scaling
+Why It Might Matter: If batch_size_per_gpu=64 is not the optimal, checkpointing enables 128+.
+Why It Might Not Matter: At 16.8 GB / 80 GB, there's plenty of headroom even without checkpointing.
+Decision: DEFER — only explore if batch scaling hits OOM.
+```
+
+## Deferred / Low-Value Work
+
+1. **CUDA graph capture**: TESTED AND FAILED. Multi-crop architecture (forward_features_list) processes
+   global and local crops sequentially, causing tensor reuse that breaks CUDAGraph trees.
+   Would require `torch.compiler.cudagraph_mark_step_begin()` calls or restructuring the forward pass.
+2. **Data pipeline optimization**: data_time=1.1-1.5s (wall clock per print interval, not per iter). Data loading is not on the critical path with 20 workers + prefetch_factor=8.
+3. **Sequence packing**: ViT patches are fixed-size, no padding waste. Not applicable.
+4. **Mixed precision tuning**: Already BF16 params + FP32 reduction. FP8 is a future option but not the current bottleneck.
+5. **Activation checkpointing**: TESTED. Saves ~28 GB at bs=256 but costs ~10% throughput.
+   Only worth revisiting if DDP frees enough memory to push batch sizes much higher (e.g. bs=512+).
+
+## Step 6 Branch Decision (2026-04-02)
+
+**Decision: Split to a new branch for DDP vs FSDP2 work.**
+
+Rationale per plan Step 6:
+- The next move changes distributed strategy (FSDP2 → DDP)
+- This is risky enough that it may need to be abandoned cleanly
+- The `mfu-tracking-baseline` branch should be committed as-is with profiling infra + screening results
+
+New branch name: `perf-ddp-vs-fsdp`
+
+DDP benchmark results (2026-04-03):
+
+| Strategy | Job ID | bs/GPU | MFU % | img/s | max_mem GB | Output / Log Path |
+|----------|--------|--------|-------|-------|-----------|-------------------|
+| FSDP2 | 7553 / 7563 / 7566 | 64 / 128 / 256 | 13.8 / 20.9 / 23.5 | 2404 / 3647 / 4106 | 18.0 / 33.0 / 65.6 | See Step 5 table above |
+| DDP | 9630 | 64 | 18.1 | 3169 | 17.7 | `/mnt/weka/adovlatyan/output_ddp_bs64_ckptfalse_9630`; SLURM: `/mnt/weka/adovlatyan/logs/ddp-9630.out` |
+| DDP | 9631 | 128 | 23.1 | 4042 | 34.0 | `/mnt/weka/adovlatyan/output_ddp_bs128_ckptfalse_9631`; SLURM: `/mnt/weka/adovlatyan/logs/ddp-9631.out` |
+| DDP | 9632 | 256 | 12-18 | 2113-3157 | 66.5 | `/mnt/weka/adovlatyan/output_ddp_bs256_ckptfalse_9632`; SLURM: `/mnt/weka/adovlatyan/logs/ddp-9632.out` |
+
+Key insight: DDP wins at bs≤128 by eliminating per-block all_gather/reduce_scatter.
+But at bs=256, FSDP2's overlapped per-block communication actually outperforms DDP's
+single end-of-backward all-reduce.
+
+**Recommended config (before expandable_segments)**: DDP bs=128 (23.1% MFU, 34 GB)
+
+---
+
+## expandable_segments Screening Results (2026-04-03)
+
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` was tested across all prior configs.
+
+### expandable_segments Full Comparison Table
+
+| Strategy | bs/GPU | ES | MFU % | img/s | step_ms | max_mem GB | Δ vs no-ES |
+|----------|--------|----|-------|-------|---------|-----------|-----------|
+| DDP | 64 | no | 18.1 | 3169 | 162 | 17.7 | — |
+| DDP+ES | 64 | yes | 17.5 | 3061 | 157–186 | 17.6 | -3% |
+| DDP | 128 | no | 23.1 | 4042 | 253 | 34.0 | — |
+| DDP+ES | 128 | yes | 22.9 | 3993 | 249–253 | 33.9 | -1% |
+| DDP | 256 | no | 12–18 (bimodal) | 2113–3157 | 586–933 | 66.5 | — |
+| **DDP+ES** | **256** | **yes** | **24.5** | **4229** | **475–478** | **66.5** | **FIXED** |
+| FSDP2 | 64 | no | 13.8 | 2404 | 213 | 18.0 | — |
+| FSDP2+ES | 64 | yes | 12.1 | 2110 | 235–246 | 16.7 | -12% |
+| FSDP2 | 128 | no | 20.9 | 3647 | 279 | 33.0 | — |
+| FSDP2+ES | 128 | yes | 18.4 | 3213 | 315–330 | 33.0 | -12% |
+| FSDP2 | 256 | no | 23.5 | 4106 | 498 | 65.6 | — |
+| FSDP2+ES | 256 | yes | 21.8 | 3809 | 521–532 | 65.6 | -7% |
+| DDP+ES | 320 | yes | OOM | — | — | >80 GB | — |
+| FSDP2+ES | 320 | yes | OOM | — | — | >80 GB | — |
+
+### Key Findings
+
+1. **DDP bs=256 + ES eliminates bimodal instability** — the periodic MFU collapse (12–18% bimodal)
+   was caused by CUDA allocator defragmentation. `expandable_segments` allows the allocator to grow
+   existing segments rather than reallocate, preventing the defrag pauses. Result: stable 24.5% MFU.
+
+2. **`expandable_segments` is harmful for FSDP2** across all batch sizes (7–12% regression).
+   FSDP2's fine-grained per-block alloc/free pattern apparently conflicts with the segment growth
+   heuristic — likely causes over-reservation that wastes bandwidth.
+
+3. **bs=320 OOMs regardless of ES** — expandable_segments is a runtime allocation strategy, not
+   a compile-time optimization. torch.compile's peak memory during iter 0 exceeds 80 GB at bs=320.
+   The hard ceiling is confirmed at bs=256 (≈66 GB peak for DDP).
+
+### Updated Recommended Configs
+
+| Use case | Config | MFU | img/s | Memory |
+|----------|--------|-----|-------|--------|
+| **Best throughput** | DDP bs=256 + ES | **24.5%** | **4229** | 66 GB |
+| **Memory-efficient** | DDP bs=128 + ES | 22.9% | 3993 | 34 GB |
+| **Reference (old)** | FSDP2 bs=256 | 23.5% | 4106 | 66 GB |
+
+**Rule**: Always set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` when using DDP.
+Never use it with FSDP2.
+
+---
+
+## Memory Safety: Two Distinct Failure Modes (2026-04-07)
+
+Short screening runs (100 iters, checkpoint disabled) answer "does one step fit in memory?"
+They do NOT answer "does a full production run survive?" Those are different questions.
+
+### Failure Mode 1 — Single-step peak OOM
+
+The step itself (forward + backward + optimizer) temporarily exceeds 80 GB.
+**Measured by**: `memprofile_*.sh` scripts using `[MEMPROFILE]` phase markers.
+
+Results (2026-04-04, jobs 9677/9678):
+
+| Strategy | bs | ES | Worst-case phase | max_reserved_mb | Headroom |
+|----------|----|----|-----------------|----------------|---------|
+| FSDP2 | 128 | no | checkpoint_complete | **36,340 MB (35.5 GB)** | +44 GB |
+| DDP | 256 | yes | compile_warmup / steady_state | **67,240 MB (65.7 GB)** | +14 GB |
+
+Key finding: **eval (`do_test`) is NOT a memory spike** for either strategy. The default
+non-sharded eval path calls `full_tensor()` on all EMA DTensors, but the allocator reuses
+already-reserved pages — `eval_complete` max_alloc was only 891 MB (FSDP2) / 1325 MB (DDP).
+
+**DDP bs=256+ES passes worst-case single-step profiling with 14 GB headroom.**
+
+### Failure Mode 2 — Long-run fragmentation OOM
+
+The allocator's reserved pool becomes so fragmented that even a 112 MB all_gather
+allocation fails — not because 80 GB is exceeded in total, but because no contiguous
+free block of the right size exists. This can happen even when single-step peak is only 36 GB.
+
+**Root cause**: FSDP2 executes ~24 alloc/free cycles per step (12 blocks × forward+backward).
+Without ES, each cycle may leave fragments in the caching allocator. Over thousands of steps,
+`inactive_split_bytes` accumulates. Eventually an allocation that would succeed on a fresh
+allocator fails on a fragmented one.
+
+**Measured by**: `memfrag_fsdp2.sh` — 500-iter run, `[MEMFRAG]` logged every 10 iters.
+
+**Result (2026-04-08, jobs 16750/16751) — fragmentation hypothesis is a null result:**
+
+| Metric | FSDP2 bs=128 no ES | FSDP2 bs=128 + ES |
+|--------|-------------------|-------------------|
+| `alloc_retries` (iter 9→499) | **0 throughout** | 0 throughout |
+| `inactive_split_mb` | **290–294 MB constant** | 0 MB (perfect) |
+| `fragmentation_ratio` | **0.008 flat** | 0.000 flat |
+| `current_reserved_mb` | 34,464 MB | 34,050 MB |
+
+FSDP2's per-block allocations are highly uniform in size (~112 MB per all_gather per block).
+The caching allocator reuses these identically-sized freed blocks efficiently — no accumulation
+over 500 iterations. The 290 MB `inactive_split_mb` in no-ES is a static compile-time artifact,
+not a growing problem.
+
+**The colleague's FSDP2 bs=128 OOM is NOT explained by allocator fragmentation** (at least not
+within 500 iters). Likely causes: (a) Gram loss enabled (third teacher forward adds ~172 MB),
+(b) pretrained weight load temporarily double-buffers the model at init, (c) shared GPU resources,
+(d) fragmentation at >3750 iterations — cannot rule out but 500-iter trend is fully flat.
+
+### Mitigation Options
+
+| Problem | Fix | Cost |
+|---------|-----|------|
+| Fragmentation OOM (FSDP2, no ES) | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` | 7–12% throughput regression |
+| Fragmentation OOM (FSDP2, no ES) | Switch to DDP+ES | +1-4% MFU, fully solves fragmentation |
+| Fragmentation OOM (FSDP2 + AC) | Use ES despite regression (safety > speed) | Regression acceptable |
+| Single-step peak OOM | Activation checkpointing | ~30% recompute overhead |
+
+---
+
+## Colleague OOM Investigation — Status & Open Questions (updated 2026-04-14)
+
+**Setup**: `ssl_default_config.yaml`, FSDP2, bs=128, no ES, 8×H100 on 1 DGX H100 node.
+**Symptom**: OOM during a real training run.
+**Our measured peak**: 36.3 GB (44 GB below H100 limit). Root cause still unresolved.
+
+### What our profiling tests and what it doesn't
+
+All profiling runs deviate from real `ssl_default` in these ways:
+
+| Parameter | Our profiling | Real ssl_default | Risk |
+|-----------|--------------|-----------------|------|
+| `pretrained_weights` | `""` (skipped) | `dinov3_vitb16_pretrain.pth` | **Medium** — untested; loading is FSDP-aware (shards only, no full-tensor on GPU) |
+| `gram.use_loss` | default (`false`) | default (`false`) | None — gram is off by default |
+| `checkpointing.period` | 50 or 99999 (forced) | 3750 | Medium — DCP at 3750 untested |
+| `evaluation.eval_period_iterations` | 40 or 12500 | 12500 | Low — eval shown not to spike |
+| `train.cache_dataset` | `false` *(fixed 2026-04-14)* | `false` | None |
+| Run length | 70–500 iters | 125,000+ iters | Medium — fragmentation at >500 untested |
+| GPU baseline | unknown | unknown | **High** — if another job occupied the GPU, any peak would OOM |
+
+### Hypothesis status
+
+| Hypothesis | Status | Evidence |
+|-----------|--------|----------|
+| Eval `do_test` / `full_tensor()` spike | ❌ Ruled out | eval_complete max_alloc = 891 MB (job 9677) |
+| Checkpoint DCP serialization spike | ❌ Small | +1.9 GB reserved at iter 49 (job 9677) |
+| Allocator fragmentation (FSDP2, no ES) | ❌ Null result (0–500 iters) | alloc_retries=0, inactive_split=290 MB flat (jobs 16750/16751) |
+| Gram loss enabled | ❌ Ruled out | `gram.use_loss: false` in ssl_default_config.yaml |
+| **Pretrained weight loading** | ⚠️ **Untested** | See below |
+| **Shared GPU (other processes)** | ⚠️ **Most likely** | 44 GB headroom means training alone can't OOM; something else must have consumed it |
+| Fragmentation at iter 3750+ | ⚠️ Untested | 500-iter study is flat; 3750+ unknown |
+
+### Pretrained weight loading — how it actually works
+
+`ssl_default` loads `dinov3_vitb16_pretrain.pth` in `init_weights()` via `init_fsdp_model_from_checkpoint`
+(confirmed from `ssl_meta_arch.py:316` and `checkpointer.py:384`).
+
+The loading sequence:
+1. `torch.load(map_location="cpu")` — full checkpoint (~344 MB FP32) to CPU RAM on each rank
+2. `distribute_tensor(tensor, world_mesh, src_data_rank=None)` for each param — each rank independently
+   slices its shard (~21.5 MB BF16) and copies to GPU. No full-tensor GPU materialization.
+3. `model.load_state_dict(filtered_state, strict=False)` — assigns DTensor shards to model params.
+
+**GPU memory impact: ~21–43 MB transient** (shard-sized DTensors before assignment).
+Not an OOM cause for bs=128 with 44 GB headroom. The loading is fully FSDP2-aware; no
+"double-buffering" of the full model occurs on GPU.
+
+However, the `post_init_weights` phase marker (added 2026-04-14 to `do_train()`) now captures the
+precise peak through optimizer construction + pretrained loading. Run the script with real weights
+to close this measurement gap conclusively.
+
+### Profiling infrastructure improvements (2026-04-14)
+
+1. **`post_init_weights` phase marker** added to `do_train()` after `model.init_weights()`:
+   - Captures cumulative GPU peak from program start through: model NaN-fill + optimizer + pretrained load
+   - `pre_training_loop` then captures the delta from data loader construction onward
+   - Previously both were bundled into `pre_training_loop` (making it impossible to isolate init spikes)
+
+2. **`nvidia-smi` baseline** added to both `memprofile_fsdp2.sh` and `memprofile_ddp.sh`:
+   - Logs GPU memory used/free/total on all 8 GPUs **before** `torchrun` starts
+   - Non-zero `used` memory = another process sharing the node = likely OOM cause
+
+3. **Pretrained weights parameter** added to `memprofile_fsdp2.sh` (4th argument):
+   ```bash
+   # Closest to colleague's config (adds real pretrained loading path):
+   sbatch scripts/profiling/memprofile_fsdp2.sh 128 false false \
+     /auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
+   ```
+   Compare `post_init_weights` max_reserved_mb with and without pretrained weights.
+
+4. **`cache_dataset=false`** corrected in both memprofile scripts (was incorrectly `true`; ssl_default has `false`).
+
+### What to do next (ranked by effort and likelihood)
+
+1. **Ask the colleague**: exact job script, SLURM node, `nvidia-smi` output at failure time.
+   Was another job sharing the GPU? Was `gram.use_loss=true`? Were pretrained weights loaded?
+   A 44 GB gap between measured peak and OOM threshold almost certainly means GPU not clean.
+
+2. **Run memprofile_fsdp2 with real pretrained weights** (15-min job):
+   ```bash
+   sbatch scripts/profiling/memprofile_fsdp2.sh 128 false false \
+     /auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth
+   ```
+   Check `post_init_weights` max_reserved_mb vs baseline. Definitively closes the pretrained path.
+
+3. **Run memfrag_fsdp2 for 4000+ iters** (expensive, ~2–3 hrs):
+   To verify fragmentation truly stays flat past the first checkpoint at iter 3750.
+   ```bash
+   sbatch scripts/profiling/memfrag_fsdp2.sh 128 false 4500 50
+   ```
+
+4. **Accept and move on**: For our own training (DDP bs=256+ES), the OOM risk is fully
+   characterized. The colleague's OOM is on a config (FSDP2 bs=128 no ES) we don't recommend.
+   The safe resolution is: use DDP+ES for single-node, or use FSDP2+ES if FSDP2 is required.

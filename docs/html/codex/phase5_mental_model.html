@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 5 Mental Model</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">DINOv3 Phase 5</div>
+      <nav class="nav" aria-label="Phase 5 pages">
+        <a href="phase5_current.html">Current</a>
+        <a href="phase5_experiments.html">Experiments</a>
+        <a href="phase5_mental_model.html" aria-current="page">Mental Model</a>
+        <a href="phase5_archive.html">Archive</a>
+      </nav>
+      <p class="source-note">Use this page when the jargon starts hiding the idea.</p>
+    </aside>
+
+    <main class="content">
+      <p class="eyebrow">Concepts over chronology</p>
+      <h1>The useful model is: local compute is decent; multi-GPU communication is eating the win.</h1>
+      <p class="lede">Phase 5 makes more sense once you separate local GPU efficiency from distributed scaling. Many apparent contradictions are just those two forces pulling in different directions.</p>
+
+      <h2>The System Picture</h2>
+      <div class="flow">
+        <div class="flow-step" data-step="1">
+          <strong>Each rank processes multi-crop ViT work.</strong> Local compute is mostly transformer matmuls and attention over global and local crops.
+        </div>
+        <div class="flow-step" data-step="2">
+          <strong>FSDP2 shards parameters and communicates around blocks.</strong> All-gather brings shards in; reduce-scatter moves gradients out. With many blocks, the collective schedule is frequent.
+        </div>
+        <div class="flow-step" data-step="3">
+          <strong>Activation checkpointing changes the live memory set.</strong> Selective and full AC save memory by recomputing parts of the forward pass during backward.
+        </div>
+        <div class="flow-step" data-step="4">
+          <strong>The current bottleneck is not one missing low-level knob.</strong> Existing traces show NCCL dominates kernel time and overlaps poorly with compute.
+        </div>
+      </div>
+
+      <h2>Mental Models</h2>
+      <div class="grid two">
+        <article class="card">
+          <h3>MFU is a speedometer, not the engine</h3>
+          <p>MFU says how much of dense H100 BF16 peak the training loop is converting into useful model FLOPs. Low MFU does not say why it is low. Here, the single-GPU numbers are much better than 8-GPU numbers, so the missing MFU is mostly a distributed-scaling problem.</p>
+        </article>
+        <article class="card">
+          <h3>AC can be faster when memory is the limiter</h3>
+          <p>Textbook AC trades compute for memory and often slows training. In this repo, selective AC improved the bs=96 matrix because the smaller live activation set appears to reduce memory-system pressure enough to offset recompute.</p>
+        </article>
+        <article class="card">
+          <h3>Bigger batch helps locally, then loses at scale</h3>
+          <p>bs=128 is faster per image on one GPU, which means local kernels like the bigger shape. At 8 GPUs, that gain disappears, so the likely culprit is communication, scheduling, rank variance, or overlap.</p>
+        </article>
+        <article class="card">
+          <h3>LL128 is a knob, not a strategy</h3>
+          <p>Forcing LL128 helped in the clean Stage A run. Even if that gain is real, it only moves the current 7-8% MFU regime by a modest amount. It does not explain how to reach the 30% target.</p>
+        </article>
+      </div>
+
+      <h2>How to Read New Results</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Observation</th>
+              <th>Likely Meaning</th>
+              <th>Do Next</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Same config changes by 10-20% across runs</td>
+              <td>Node/start-state variance is larger than the knob being tested.</td>
+              <td>Do not narrate a mechanism. Compare only controlled same-window runs.</td>
+            </tr>
+            <tr>
+              <td>Mean improves but CV explodes</td>
+              <td>The result may be a mixed regime or a straggler pattern.</td>
+              <td>Cut late windows and inspect per-rank timing before trusting it.</td>
+            </tr>
+            <tr>
+              <td>Memory changes but img/s does not</td>
+              <td>The knob is useful for stability, not necessarily throughput.</td>
+              <td>Classify it as fallback/safety, not performance default.</td>
+            </tr>
+            <tr>
+              <td>1-GPU improves but 8-GPU regresses</td>
+              <td>Local compute is not the blocker; distributed effects are.</td>
+              <td>Look at NCCL, FSDP2 scheduling, rank stragglers, and overlap.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Glossary</h2>
+      <div class="term-grid">
+        <div class="term"><b>AC</b>Activation checkpointing. Saves less activation memory during forward and recomputes later during backward.</div>
+        <div class="term"><b>Selective AC</b>Checkpointing policy that saves selected expensive operations instead of recomputing everything.</div>
+        <div class="term"><b>Full AC</b>Checkpointing policy that recomputes whole wrapped blocks. Usually saves more memory than selective AC.</div>
+        <div class="term"><b>FSDP2</b>PyTorch's sharded data-parallel training path. It shards model state and coordinates all-gather / reduce-scatter collectives.</div>
+        <div class="term"><b>ZeRO-3</b>Sharding style where parameters, gradients, and optimizer state are partitioned across ranks.</div>
+        <div class="term"><b><code>reshard_after_forward</code></b>Whether FSDP releases gathered parameter shards after forward. True is the current safe default.</div>
+        <div class="term"><b>NCCL</b>NVIDIA communication library used for GPU collectives like all-gather, reduce-scatter, and all-reduce.</div>
+        <div class="term"><b>LL128</b>An NCCL protocol. For this workload, forcing it beat NCCL's automatic protocol choice in Stage A.</div>
+        <div class="term"><b>NORS</b>Short local label for <code>TORCH_NCCL_AVOID_RECORD_STREAMS=1</code>.</div>
+        <div class="term"><b>MFU</b>Model FLOP utilization. Useful model FLOPs divided by dense hardware peak.</div>
+        <div class="term"><b>HFU</b>Hardware FLOP utilization. Includes extra recompute work, so it can rise when AC adds recomputation.</div>
+        <div class="term"><b>CV</b>Coefficient of variation. Standard deviation divided by mean; useful for measuring jitter across different throughput scales.</div>
+        <div class="term"><b>Steady state</b>Post-warmup window after compile and early allocator effects settle. For this project, early windows can be misleading.</div>
+        <div class="term"><b>Straggler</b>A rank that finishes a step later than others. In synchronized training, one slow rank slows everyone.</div>
+        <div class="term"><b>Overlap</b>Hiding communication under computation so NCCL work does not extend the step as much.</div>
+        <div class="term"><b>Regime shift</b>When the same config behaves like a different system across runs, usually due to node state, warmup state, contention, or long-run effects.</div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

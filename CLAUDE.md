@@ -1,0 +1,344 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Satellite-specialized fork of Meta's DINOv3 self-supervised vision foundation model. Trains ViT models on multi-sensor satellite imagery (Sentinel-1, Sentinel-2, NAIP) using DINO + iBOT objectives with configurable DDP/FSDP2 distributed training on H100 GPUs.
+
+## Environment Setup
+
+**Canonical testing env (use this going forward, 2026-06-03)**:
+`/mnt/weka/adovlatyan/.conda/envs/dinov3_env_210clone` — torch **2.10.0+cu128**, triton 3.6.0,
+all deps. It is a clone of Anna's production `dinov3_env`, so testing here matches the **exact
+stack her full-dataset runs use** (`/mnt/weka/akhosrovyan/.conda/envs/dinov3_env`). It is
+adovlatyan-owned (no cross-user permission friction), and its console-script shebangs were
+repaired after cloning so `torchrun` runs directly.
+
+```bash
+# In Slurm scripts — use PATH prepend, NOT conda activate (fails on GPU nodes):
+export PATH="/mnt/weka/adovlatyan/.conda/envs/dinov3_env_210clone/bin:$PATH"
+export CONDA_PREFIX="/mnt/weka/adovlatyan/.conda/envs/dinov3_env_210clone"
+export PYTHONNOUSERSITE=1   # keep ~/.local out of the env (avoids cv2/numpy import conflicts)
+
+# Required env vars
+export PYTHONPATH=.
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+export OMP_NUM_THREADS=8
+```
+
+**Original validation env (torch 2.6)**: `~/.conda/envs/test-conda-slurm` (torch 2.6.0+cu124).
+The DDP+cudagraphs recipe and the 4000-iter soak (job 60959) were validated here; the same
+recipe also passes on torch 2.10 (smoke job 63752), ~10% faster. Use 2.6 only to reproduce
+historical results — otherwise default to the 2.10 env above so testing tracks Anna's stack.
+
+**Requires PyTorch >= 2.6** (not 2.1 — the codebase uses `register_fsdp_forward_method` added in
+2.6). Validated on both 2.6 and 2.10.
+
+**The shared Weka env `/mnt/weka/shared-cache/miniforge3/envs/dinov3` does NOT have torch installed** — do not use it for running jobs.
+
+Check `run.sh` for SLURM configuration (8x H100, 64 CPUs).
+
+## Training Commands
+
+```bash
+# Submit to cluster (preferred)
+sbatch run.sh
+
+# Direct multi-GPU training
+torchrun --nproc_per_node=8 dinov3/train/train.py \
+  --config-file dinov3/configs/ssl_default_config.yaml \
+  --output-dir ./output_satellite_s1_s2ab \
+  --opts student.in_chans=5 teacher.in_chans=5 train.batch_size_per_gpu=64
+
+# Resume from checkpoint
+torchrun ... train.py ... --opts train.output_dir=./output_satellite_s1_s2ab  # finds latest ckpt automatically
+
+# Smoke test (100 iters, no pretrained weights, synthetic data):
+sbatch scripts/smoke/mfu_validation_run.sh
+```
+
+Config CLI overrides use OmegaConf dot-notation: `section.key=value` pairs passed **directly** (no `--opts` prefix — positional after the required args). Example: `student.pretrained_weights="" train.batch_size_per_gpu=32`.
+
+**Pretrained weights**: Default config points to `./pretrained_weights/dinov3_vitb16_pretrain.pth`. The actual file lives at `/auto/home/anna.khosrovyan/dinov3/pretrained_weights/dinov3_vitb16_pretrain.pth` (accessible from GPU nodes; not from headnode container). Use `student.pretrained_weights=""` to skip for smoke tests — the config guards with `if self.cfg.student.pretrained_weights:`.
+
+**Dataset access**: `run.sh` uses `/mnt/weka/akhosrovyan/re-id/pretraining/...` — these paths are **are now allowed for adovlatyan** (but you have to specify the full path, only `re-id/*` is allowed), and should be accessible from GPU nodes when the job is submitted as well. A synthetic dataset exists at `/mnt/weka/adovlatyan/synthetic_intelinair.h5` for local testing.
+
+**Storage**: Use `/mnt/weka/adovlatyan/` for logs and outputs (not `/data/adovlatyan/` which is NFS and deprecated). Log path: `/mnt/weka/adovlatyan/logs/`.
+
+## Code Quality
+
+```bash
+ruff check dinov3/        # lint
+ruff format dinov3/       # format (120-char lines, Python 3.11)
+mypy dinov3/              # type checking
+```
+
+Config: `pyproject.toml`. Pylint is scoped to similarities/misc only.
+
+## Search Tools
+
+For any file search or grep within the current git-indexed repository, use the `fff` MCP tools first.
+Prefer `mcp__fff__find_files` for file discovery and `mcp__fff__grep` / `mcp__fff__multi_grep` for content search instead of shelling out to `find`, `grep`, or `rg`.
+
+For symbol-level navigation in Python files, prefer the **LSP tool** over grep:
+- `goToDefinition` — jump to a symbol's definition (more precise than grepping for the name)
+- `findReferences` / `incomingCalls` / `outgoingCalls` — trace how a function is called across the codebase
+- `hover` — resolve the type of a variable or expression at a specific location
+
+Use LSP when tracing call chains or verifying signatures; use `fff` when you don't have a specific symbol and are exploring by topic or file pattern.
+
+## Claude Code Codex Plugin
+
+If you are running in Claude Code and the `openai-codex` plugin is installed, use the Codex plugin periodically to review code you write in this repository.
+Prefer `/codex:review` for a read-only review of your current changes, and use `/codex:adversarial-review` when you want an explicit challenge pass on assumptions, risks, or design choices.
+Run these reviews before shipping larger or riskier edits, and use the feedback to tighten the patch before finishing.
+
+## Communication Preference
+
+Prefer answers and docs that end with a brief synthesis when it helps orientation.
+A short closing block like `Conclusion:` or `Short version:` is useful when the preceding explanation is longer or more exploratory.
+Keep it concise; do not force the format when the answer is already naturally short.
+
+## Architecture
+
+### Configuration System (`dinov3/configs/`)
+- **`ssl_default_config.yaml`** — master defaults; all keys documented there
+- **`config.py`** — `setup_config()` merges default → file → CLI; `apply_scaling_rules_to_cfg()` auto-scales LR: `LR *= 4 * sqrt(batch_per_gpu * world_size / 1024)`
+- Section breakdown: `student`/`teacher` (arch), `crops` (augmentation), `dino`/`ibot`/`gram` (losses), `optim` (scheduler, LR), `train` (dataset paths, checkpointing), `compute_precision` (bf16/fp32 mix)
+
+### Training Loop (`dinov3/train/train.py`)
+- `main()` → `do_train()` at line 414 is the core loop
+- Each iteration: schedule update → zero_grad → `model.forward_backward()` → grad clip → all-reduce → optimizer step → EMA teacher update
+- **NaN detection**: aborts after 2 consecutive NaN losses
+- **Checkpointing**: every 3750 iters; evals every 12500 iters
+
+### Model Architecture (`dinov3/train/ssl_meta_arch.py`)
+- `SSLMetaArch`: student ViT + EMA teacher + DINO head + iBOT head + optional Gram head
+- Default: `vit_base`, patch 16, **5 input channels** (satellite), RoPE positional embeddings
+- `forward_backward()` computes DINO loss (CLS token distillation) + iBOT loss (masked patch prediction) + KoLeo (collapse prevention)
+- Distributed strategy is configurable. `run.sh` currently uses DDP+expandable-segments; the FSDP2 path uses `FULL_SHARD` / ZeRO-3 (`reshard_after_forward=True` per block) with bf16 params / fp32 reduction.
+
+### LR Schedulers (`dinov3/train/cosine_lr_scheduler.py`)
+- **`WSDLRScheduler`** (primary): Warmup → Stable → Decay (10% of steps). Set via `cfg.optim.lr_scheduler = "wsd"`
+- **`CosineScheduler`** (legacy): linear warmup → cosine decay
+- Separate schedules for weight decay, EMA momentum, teacher temperature
+
+### Satellite Data Pipeline (`dinov3/data/`)
+- **`MixedSatelliteDataset`** (`datasets/mixed_satlas_dataset.py`): composes multiple satellite sources with `dataset_weight` for effective size scaling
+- Dataset spec string format (passed in config): `MixedSatelliteDataset:sen1_data_path=/path:sen1_weight=1.0:sen2a_data_path=...`
+- **`to_five_channels()`** (`datasets/channel_utils.py`): normalizes all sources to 5-channel tensor; each dataset type has its own per-channel statistics
+- Data loaders: `Sen1Dataset`, `Sen2Dataset`, `NaipDataset`, `HDF5Dataset` (BEN/Intelinair/Sen12MS)
+- Multi-crop collation: 2 global (224px) + 8 local (96px) crops with iBOT masks applied in `collate.py`
+
+### Distributed Infra
+- **`dinov3/fsdp/ac_compile_parallelize.py`**: wraps model with DDP or FSDP2, optional `torch.compile`
+- **`dinov3/checkpointer/`**: DCP (Distributed Checkpoint Protocol) for sharded/consolidated saves
+- Sharded checkpoints in `{output_dir}/ckpt/`; last 3 kept by default
+
+## Key Design Decisions
+
+- **5-channel unification**: All satellite sources → 5ch via `to_five_channels()` so a single ViT handles all sensors
+- **Weighted dataset mixing**: `dataset_weight` in `MixedSatelliteDataset` controls effective frequency without full data copies
+- **WSD over cosine**: Better handles large-scale satellite training where cosine decay may be too aggressive
+- **RoPE with `separate` normalization**: X and Y coordinates normalized independently; controlled by `pos_embed_rope_normalize_coords`
+- **Gram loss** (optional): anchors representations to a reference teacher; enable via `cfg.gram`
+
+---
+
+## MFU Tracking & Performance Optimization
+
+> **MFU tracking is implemented** (2026-03-30). See `docs/mfu-results-2026-03-30.md` for baseline
+> numbers and validation results. See `docs/dinov3-mfu-tracking-initial-brief-03-27-26.md` for
+> the full FLOP formula derivation. Utilities in `dinov3/utils/mfu.py`; tests in `tests/test_mfu.py`.
+
+### ViT-B at a Glance (for FLOP counting)
+| Property | Value |
+|---|---|
+| `embed_dim` | 768 |
+| `depth` | 12 layers |
+| `num_heads` | 12 |
+| `patch_size` | 16 |
+| `in_chans` | 5 (satellite) |
+| `n_storage_tokens` | **0** (satellite fork drops register tokens — confirmed from `ssl_default_config.yaml`) |
+| Global crop tokens | **197** (196 patches + 1 CLS + 0 registers) |
+| Local crop tokens | **37** (36 patches + 1 CLS + 0 registers) |
+| H100 BF16 peak (dense) | 989 TFLOPS (NVIDIA publishes 1979 but that assumes 2:4 sparsity) |
+
+`vit_base` defined at `dinov3/models/vision_transformer.py:344`
+
+### Key Entry Points for MFU / Timing Instrumentation
+
+#### Training loop — key locations
+| What | File | Line(s) |
+|---|---|---|
+| `do_train()` function start | `dinov3/train/train.py` | 416 |
+| MFU `flops_per_image` precomputed | `dinov3/train/train.py` | 459 |
+| CUDA event init (`step_start_event`) | `dinov3/train/train.py` | 526 |
+| `step_start_event.record()` | `dinov3/train/train.py` | 558 |
+| `optimizer.zero_grad()` | `dinov3/train/train.py` | 559 |
+| **`model.forward_backward()`** — core compute | `dinov3/train/train.py` | 560 |
+| `optimizer.step()` + `model.update_ema()` | `dinov3/train/train.py` | 606–607 |
+| `step_end_event.record()` + MFU compute | `dinov3/train/train.py` | 608–614 |
+| `metric_logger.update(mfu=, images_per_sec=, ...)` | `dinov3/train/train.py` | 629–637 |
+| WandB log (includes mfu_pct, images_per_sec) | `dinov3/train/train.py` | 639–658 |
+| Eval sync point (`cuda.synchronize`) | `dinov3/train/train.py` | 666 |
+| Checkpoint sync point (`cuda.synchronize`) | `dinov3/train/train.py` | 670 |
+
+#### SSLMetaArch — forward pass breakdown
+| What | File | Line(s) |
+|---|---|---|
+| `forward_backward()` entry | `dinov3/train/ssl_meta_arch.py` | 362 |
+| Teacher forward (`@no_grad`) | `dinov3/train/ssl_meta_arch.py` | 391–398 |
+| Student forward (global + local, joint) | `dinov3/train/ssl_meta_arch.py` | 400–407 |
+| Gram teacher forward (optional) | `dinov3/train/ssl_meta_arch.py` | 409–419 |
+| `compute_losses()` — all 4 loss terms | `dinov3/train/ssl_meta_arch.py` | 421–431 |
+| `backprop_loss()` — `loss.backward()` | `dinov3/train/ssl_meta_arch.py` | 433 |
+| Teacher EMA update (`_foreach_mul_/add_`) | `dinov3/train/ssl_meta_arch.py` | 720–733 |
+| `prepare_for_distributed_training()` | `dinov3/train/ssl_meta_arch.py` | 818–835 |
+
+#### Student forward — joint global+local pass
+`get_student_output()` at `dinov3/train/ssl_meta_arch.py:537` calls
+`backbone.forward_features_list([global_crops, local_crops])` — both resolutions processed
+sequentially in one block loop (they cannot be batched because seq lengths differ: 197 vs 37).
+This is the key perf bottleneck for multi-crop.
+
+#### Loss implementations
+| Loss | File | Lines |
+|---|---|---|
+| DINO CLS token loss (cross-entropy + centering) | `dinov3/loss/dino_clstoken_loss.py` | 16–124 |
+| iBOT masked patch loss (Sinkhorn-Knopp) | `dinov3/loss/ibot_patch_loss.py` | 61–142 |
+| KoLeo diversity regularization | `dinov3/loss/koleo_loss.py` | 14–113 |
+| `compute_losses()` — wires all losses together | `dinov3/train/ssl_meta_arch.py` | 591–691 |
+
+### Distributed & Compilation Infrastructure
+| What | File | Line(s) |
+|---|---|---|
+| FSDP2 wrapping (block-level, with prefetch) | `dinov3/fsdp/ac_compile_parallelize.py` | 110–124 |
+| `torch.compile` per block (backbone) | `dinov3/fsdp/ac_compile_parallelize.py` | 65–87 |
+| Selective activation checkpointing setup | `dinov3/fsdp/ac_compile_parallelize.py` | 25–47 |
+| MixedPrecisionPolicy (BF16 param, FP32 reduce) | `dinov3/fsdp/ac_compile_parallelize.py` | 183–201 |
+| Inference-only model optimization (EMA teacher) | `dinov3/fsdp/ac_compile_parallelize.py` | 212–220 |
+
+### Logging & Metrics
+| What | File | Line(s) |
+|---|---|---|
+| `MetricLogger` class (iter_time, data_time, mem) | `dinov3/logging/helpers.py` | 19–133 |
+| `SmoothedValue` (window=20 rolling avg) | `dinov3/logging/helpers.py` | 136–203 |
+| Memory tracking (`cuda.memory_allocated`) | `dinov3/logging/helpers.py` | 87–89 |
+| WandB init (only rank 0) | `dinov3/train/train.py` | 466–486 |
+| JSON metrics file (`training_metrics.json`) | `dinov3/train/train.py` | 464–465 |
+
+### Config Keys Relevant to Performance
+```yaml
+train.compile: true             # torch.compile per transformer block (already enabled)
+train.cudagraphs: false         # CUDA graph capture (disabled by default)
+train.checkpointing: false      # selective activation checkpointing (off by default)
+train.checkpointing_full: false # full recompute checkpointing
+train.distributed_strategy: fsdp2   # "fsdp2" or "ddp"
+train.fsdp_reshard_after_forward: true   # true=ZeRO-3/default; false=no-release (DDP-like comm, FSDP2 state)
+train.num_workers: 20           # DataLoader workers (run.sh override)
+train.prefetch_factor: 8        # Prefetch batches per worker (run.sh override)
+train.persistent_workers: true  # Keep workers alive between epochs
+compute_precision.param_dtype: bf16   # Parameter dtype
+compute_precision.reduce_dtype: fp32  # Gradient reduction dtype
+crops.local_crops_number: 8     # 8 local crops (affects student FLOP count significantly)
+```
+
+### MFU — Baseline Results
+
+> **Convention**: `compute_dino_flops_per_image()` returns **MACs** (1 MAC = 1 multiply-add,
+> fvcore / DINOv2 paper convention). `compute_mfu()` applies 2× MAC→hardware-FLOP conversion
+> and uses `H100_BF16_TFLOPS = 989.0` (dense, no 2:4 sparsity). NVIDIA's published 1979 TFLOPS
+> assumes structured sparsity; standard transformer training uses dense matmuls so 989 is correct.
+> See `dinov3/utils/mfu.py` and `docs/mfu-results-2026-03-30.md` for full derivation.
+
+**2-GPU baseline** (job 6585, gpu02, bs=32/GPU, torch.compile=True, synthetic data):
+
+| Metric | Value |
+|---|---|
+| MFU hardware dense (post-warmup avg) | **~9.9%** |
+| images/sec (total, 2 GPU) | ~434 |
+| step_time_ms | ~147ms |
+| MACs/image | 226.4 GMACs |
+
+**8-GPU baseline** (job 6770, gpu03, bs=64/GPU, torch.compile=True, real Weka data):
+
+| Metric | Value |
+|---|---|
+| MFU hardware dense (overall avg) | **~11.3%** |
+| MFU hardware dense (steady state iters 100–160) | **~12–13.4%** |
+| images/sec (total, 8 GPU) | ~1970 |
+| images/sec per GPU | ~246 |
+| step_time_ms | ~220–320ms (thermal variance) |
+
+At 8 GPUs, **steady-state MFU already exceeds 10%** (dense). Overall avg ~11.3% includes compile-warmup iterations.
+
+**Note**: First iteration is ~35 seconds (torch.compile warmup). Skip first 1–2 logged points (iters 1–10) for any steady-state analysis.
+
+**MFU screening results (short soaks, NOT a production validation)**:
+
+| Config | MFU avg | img/s | Notes |
+|---|---|---|---|
+| FSDP2 bs=64  | ~11.3% | ~1970 | Original baseline — 8×H100 |
+| DDP   bs=128 | ~22.5% | ~4040 | Short-soak screening (job 9631 family). **Different run from Phase 6** — see below. |
+| FSDP2 bs=256 | ~23.5% | ~4106 | Screening result. **NOT production-viable** (see below). |
+| DDP+ES bs=256 | ~23.9% | ~4190 | Screening result. **NOT production-viable** (see below). |
+
+> **Important (2026-05-12)**: bs=256 screening numbers above are **NOT a production
+> target**. Forget them as guidance. The bs=256 figures came from short 500-iter soaks
+> that did not surface the real long-training memory profile. Separately, **bs=128 FSDP2
+> went OOM in a real long training run** per the researcher whose project this is — our
+> worst-case profiling script did not catch it. See
+> `docs/phase5_perf_plan.md` §10 for the full open question.
+>
+> **The current safe operating point is FSDP2 bs=96** (`run.sh`). DDP bs=128+cudagraphs
+> (Phase 6.A champion, below) is validated for throughput, not long-run convergence.
+
+**Phase 6.A confirmed results (iter 400–999 steady-state, 1000-iter runs)**:
+
+| Config | img/s | MFU | Peak VRAM | Job | Notes |
+|---|---|---|---|---|---|
+| DDP, compile=true, cg=false, bs=96 | 1,387 | 7.94% | 25.8 GB | 48312 | Phase 6 baseline |
+| DDP, cudagraphs=true, bs=96 | 2,009 | 11.50% | ~25.8 GB | 53681 | After `index_select` fix in `block.py` |
+| **DDP, cudagraphs=true, bs=128** | **2,394** | **13.70%** | **34.1 GB** | **53708** | **Phase 6.A champion** |
+| DDP, cudagraphs=true, bs=96, AC=full | 1,378 | 7.89% | 9.6 GB | 53999 | AC frees memory, costs ~31% throughput |
+| DDP, cudagraphs=true, bs=128, AC=full | 1,654 | 9.46% | 12.4 GB | 54000 | AC needed only if bs≥192; host-RAM still limits |
+
+> **Phase 6.A note**: The old "DDP bs=128 → ~22.5% MFU" screening number (job 9631 family) was
+> a short soak without cudagraphs or the `block.py` index_select fix. The Phase 6.A number
+> (13.70%) is from a proper 1000-iter steady-state run with both fixes applied. These are
+> **different experiments** and the numbers are not comparable.
+>
+> bs≥192 hits **host-RAM OOM** (DataLoader prefetch budget: 20 workers × 8 prefetch × 8 ranks
+> exhausts the Slurm cgroup memory allocation). AC does not help because the binding resource
+> is host RAM, not VRAM. See `docs/phase6_perf_plan.md` §12 (6.A.6).
+>
+> **30% MFU target**: ViT-B + DINO+iBOT + 10 crops on a single H100 node is likely capped at
+> 15–25% realistic MFU. The lab's 30% target is aspirational and more achievable at larger model
+> scale or multi-node. See `docs/phase6_perf_plan.md` §12 (6.A.5 realism check).
+
+### Current Performance Priors (2026-04-25)
+- **Use two ceilings in your head**: keep `989 TFLOPS` for standard MFU reporting/comparisons, but use `~794.5 TFLOPS` H100 BF16 MAMF as the realistic matmul ceiling. `23.9% MFU ~= 237 TFLOPS`, which is `~29.8%` of MAMF.
+- **MFU is a relative metric, not an absolute truth**: BF16-mixed training still includes FP32 work, and activation checkpointing raises HFU but not MFU. Cross-check FLOP math once with `torch.utils.flop_counter.FlopCounterMode`, then cache the result.
+- **The current data pipeline is probably not the first bottleneck**: this repo already uses the high-value loader settings from the local knowledge-base (`num_workers>0`, `pin_memory=True`, `non_blocking=True`, `persistent_workers=True`, elevated `prefetch_factor`). Reference benchmarks show `num_workers=0` is disastrous, but gains usually plateau quickly after 2-3 workers.
+- **Batch-size alignment is mostly a red herring**: Tensor Core efficiency depends much more on sequence length and hidden dimension than batch size. ViT-B has `hidden_dim=768` (good) and `seq_len=197` (slightly unaligned), but this is not worth architectural churn.
+- **Periodic multi-GPU MFU dips can be Python GC, not kernels**: desynchronized automatic GC can create rank stragglers. `gc.disable()` + manual `gc.collect()` every 150 iterations is already implemented in `train.py:526-527,585-588`.
+- **DDP vs FSDP2 — empirically resolved by Phase 6.A**: DDP+`cudagraphs=true`+bs=128 is the measured single-node throughput winner (13.70% MFU / 2,394 img/s, job 53708, +72.6% vs FSDP2 bs=96 baseline). Tim Darcet's guidance (2026-04-25) that both are fine when the model fits still holds; the practical conclusion is that `run.sh` stays on FSDP2 bs=96 for stability, while the DDP+cudagraphs path is the target for Phase 6.B work. The 30% gap from Phase 5's FSDP2 screening (reshard_after_forward=True) was FSDP2-vs-DDP communication overhead, now confirmed empirically.
+- **compile_mode: null is the only viable torch.compile path**: `max-autotune-no-cudagraphs` is incompatible with iBOT's dynamic masked-token count (stochastic shape per iter, world-size-dependent). `max-autotune` (with CUDA graphs) was already broken. See `learnings/compile_modes.md`.
+- **`expandable_segments:True` is a DDP+large-batch knob — do not enable for FSDP2.** It was used in the DDP+ES bs=256 screening. For FSDP2 it is not needed and can hurt allocator behavior at smaller batch sizes.
+- See `learnings/README.md` and the topic notes under `learnings/` for the longer-form rationale and references to `~/knowledge-base`.
+
+### Known Performance Considerations
+- **CUDA event timing implemented**: `torch.cuda.Event` pairs wrap `zero_grad` → `update_ema` — GPU-synchronized step time. The wall-clock `time.time()` in `MetricLogger.log_every()` (`helpers.py:69`) is separate and still present (used for eta/data-time).
+- **Two `cuda.synchronize()` calls** in the training loop (`train.py:666,670`) — only at eval/checkpoint, not every iteration. The MFU timing uses `step_end_event.synchronize()` which adds one sync per iter — acceptable overhead.
+- **Async center all-reduce** in DINO/iBOT losses overlaps with computation (uses `async_op=True` in `dino_clstoken_loss.py:101` and `ibot_patch_loss.py`).
+- **`torch._foreach_mul_/add_`** for EMA update (`ssl_meta_arch.py:728–730`) — fused multi-tensor ops, efficient.
+- **`cudnn.benchmark = True`** set globally (`train.py:45`) — auto-selects fastest conv algo.
+- **`matmul.allow_tf32 = True`** set globally (`train.py:44`) — uses TF32 for linear layers.
+
+### Data Pipeline Performance Notes
+- `pin_memory=True` always (`loaders.py:246`)
+- `prefetch_factor=4` default, overridden to 8 in `run.sh`
+- `persistent_workers=True` in `run.sh` — avoids worker respawn overhead
+- No profiling/timing instrumentation in data loading code — if throughput is a bottleneck, instrument `collate_data_and_cast()` (`collate.py:11`) and `make_data_loader()` (`loaders.py:196`)
