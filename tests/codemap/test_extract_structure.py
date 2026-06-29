@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import json
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "docs/codemap/scripts"))
 import extract_structure as es
 
@@ -29,3 +30,24 @@ def test_lens_follows_calls_to_depth():
 def test_lens_records_unresolved_entrypoint():
     lens = es.build_lens(FIX, ["mod_a.py:does_not_exist"], max_depth=2)
     assert "mod_a.py:does_not_exist" in lens["unresolved_entrypoints"]
+
+def test_to_mermaid_renders_edges():
+    g = {"nodes": [{"id": "alpha"}, {"id": "beta"}], "edges": [{"src": "alpha", "dst": "beta"}]}
+    m = es.to_mermaid(g)
+    assert m.startswith("graph TD")
+    assert "alpha" in m and "beta" in m and "-->" in m
+
+def test_build_structure_shape(tmp_path):
+    # minimal config pointing at the fixture package
+    cfg = {"project": {"package_root": str(FIX)},
+           "structure": {"module_overview": True, "max_call_depth": 3,
+                         "lenses": [{"name": "g", "entrypoints": ["mod_a.py:gamma"]}]}}
+    out = es.build_structure(FIX.parents[0], cfg)  # repo_root arg unused for package path here
+    assert out["schema_version"] == 1
+    assert "module_overview" in out and out["lenses"][0]["name"] == "g"
+    assert "g" in out["mermaid"] and "module_overview" in out["mermaid"]
+
+def test_structure_json_serializable():
+    cfg = {"project": {"package_root": str(FIX)},
+           "structure": {"module_overview": True, "lenses": [{"name": "g", "entrypoints": ["mod_a.py:gamma"]}]}}
+    json.dumps(es.build_structure(FIX.parents[0], cfg))  # must not raise

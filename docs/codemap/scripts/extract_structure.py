@@ -3,6 +3,9 @@ call resolution (orientation aid, not a sound static analysis)."""
 from __future__ import annotations
 import ast
 from pathlib import Path
+import re, sys, datetime
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cm_common as cm
 
 def _iter_py(package_root: Path):
     for p in sorted(Path(package_root).rglob("*.py")):
@@ -125,3 +128,52 @@ def build_lens(package_root, entrypoints, max_depth=3) -> dict:
             "nodes": sorted(nodes.values(), key=lambda n: n["id"]),
             "edges": [{"src": s, "dst": d, "kind": "call"} for s, d in sorted(edges)],
             "unresolved_entrypoints": unresolved}
+
+def _safe(node_id: str) -> str:
+    return re.sub(r"[^0-9a-zA-Z_]", "_", node_id)
+
+def to_mermaid(graph: dict, *, directed=True) -> str:
+    lines = ["graph TD"]
+    for n in graph["nodes"]:
+        nid = _safe(n["id"]); label = n.get("label", n["id"])
+        lines.append(f'  {nid}["{label}"]')
+    arrow = "-->" if directed else "---"
+    for e in graph["edges"]:
+        lines.append(f'  {_safe(e["src"])} {arrow} {_safe(e["dst"])}')
+    return "\n".join(lines)
+
+def build_structure(repo_root: Path, cfg: dict) -> dict:
+    pkg = Path(cfg["project"]["package_root"])
+    if not pkg.is_absolute():
+        pkg = Path(repo_root) / pkg
+    sc = cfg["structure"]
+    overview = build_module_overview(pkg) if sc.get("module_overview", True) else {"nodes": [], "edges": []}
+    lenses, mermaid = [], {}
+    if overview["nodes"]:
+        mermaid["module_overview"] = to_mermaid(overview)
+    for lc in sc.get("lenses", []):
+        lens = build_lens(pkg, lc["entrypoints"], sc.get("max_call_depth", 3))
+        lens["name"] = lc["name"]; lens["description"] = lc.get("description", "")
+        lenses.append(lens)
+        mermaid[lc["name"]] = to_mermaid(lens)
+    return {"schema_version": cm.SCHEMA_VERSION,
+            "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "git_sha": cm.git_sha(repo_root) if (Path(repo_root) / ".git").exists() else "nogit",
+            "package_root": str(pkg), "module_overview": overview,
+            "lenses": lenses, "mermaid": mermaid}
+
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--repo", default=".")
+    args = ap.parse_args(argv)
+    repo = Path(args.repo).resolve()
+    cfg = cm.load_config(repo)
+    out = build_structure(repo, cfg)
+    sha = cm.git_sha(repo)
+    d = cm.snapshot_dir(repo, cfg, sha)
+    cm.write_json(d / "structure.json", out)
+    print(d / "structure.json")
+
+if __name__ == "__main__":
+    main()
