@@ -49,7 +49,7 @@ def build_change(old_dir, new_dir) -> dict:
             "state_delta": diff_state(o_state, n_state), "summary": ""}
 
 def _previous_dir(snap_root: Path, new_dir: Path):
-    dirs = [p for p in snap_root.iterdir() if p.is_dir() and not p.is_symlink() and p != new_dir]
+    dirs = [p for p in snap_root.iterdir() if p.is_dir() and not p.is_symlink() and p.resolve() != Path(new_dir).resolve()]
     dirs.sort(key=lambda p: p.stat().st_mtime)
     return dirs[-1] if dirs else None
 
@@ -58,8 +58,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(); ap.add_argument("--repo", default="."); ap.add_argument("--new", required=True); ap.add_argument("--old", default=None)
     args = ap.parse_args(argv)
     repo = Path(args.repo).resolve(); cfg = cm.load_config(repo)
-    new_dir = Path(args.new); snap_root = Path(repo) / cfg["snapshots"]["dir"]
-    old_dir = Path(args.old) if args.old else _previous_dir(snap_root, new_dir)
+    new_dir = Path(args.new).resolve(); snap_root = Path(repo) / cfg["snapshots"]["dir"]
+    old_dir = Path(args.old).resolve() if args.old else _previous_dir(snap_root, new_dir)
     out = build_change(old_dir, new_dir) if old_dir else {
         "schema_version": cm.SCHEMA_VERSION, "from_sha": None, "to_sha": new_dir.name,
         "structure_delta": {}, "state_delta": {}, "summary": "first snapshot — no baseline"}
