@@ -1,10 +1,7 @@
 """Render snapshot JSON into self-contained HTML (client-side Mermaid)."""
 from __future__ import annotations
-import html, json
+import html, json, re
 from pathlib import Path
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import cm_common as cm
 
 CDN = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"
 
@@ -33,14 +30,13 @@ def structure_fragment(structure: dict) -> str:
 
 def _md_lite(text: str) -> str:
     t = html.escape(text or "")
-    import re
     t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
     return "<br>".join(t.splitlines())
 
 def state_fragment(state: dict) -> str:
     vs = state.get("vs_compare_branch", {})
     facts = (f'branch <code>{html.escape(str(state.get("branch")))}</code> · '
-             f'ahead {vs.get("ahead")} / behind {vs.get("behind")}')
+             f'ahead {html.escape(str(vs.get("ahead", "?")))} / behind {html.escape(str(vs.get("behind", "?")))}')
     return (f'<section class="youarehere"><h2>You are here</h2>'
             f'<p class="facts">{facts}</p><div>{_md_lite(state.get("narrative",""))}</div></section>')
 
