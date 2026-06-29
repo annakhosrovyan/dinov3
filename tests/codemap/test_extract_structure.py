@@ -51,3 +51,17 @@ def test_structure_json_serializable():
     cfg = {"project": {"package_root": str(FIX)},
            "structure": {"module_overview": True, "lenses": [{"name": "g", "entrypoints": ["mod_a.py:gamma"]}]}}
     json.dumps(es.build_structure(FIX.parents[0], cfg))  # must not raise
+
+def test_lens_whole_module_entrypoint():
+    """A colon-less entrypoint 'relpath.py' should seed ALL top-level defs as BFS starts."""
+    lens = es.build_lens(FIX, ["mod_a.py"], max_depth=3)
+    # mod_a.py is not unresolved — it expands to alpha + gamma
+    assert "mod_a.py" not in lens["unresolved_entrypoints"]
+    node_ids = {n["id"] for n in lens["nodes"]}
+    # alpha and gamma are top-level defs in mod_a; beta is reached via call following
+    assert "alpha" in node_ids
+    assert "gamma" in node_ids
+    assert "beta" in node_ids
+    edges = {(e["src"], e["dst"]) for e in lens["edges"]}
+    assert ("gamma", "alpha") in edges
+    assert ("alpha", "beta") in edges

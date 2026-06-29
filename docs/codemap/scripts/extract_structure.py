@@ -85,24 +85,44 @@ def _called_names(node) -> list[str]:
                 out.append(f.attr)
     return out
 
-def _resolve_entrypoint(package_root, table, ep):
+def _resolve_entrypoint(package_root, table, ep) -> list[str]:
+    """Return a list of start simple-names for the entrypoint.
+
+    Returns length-1 list for ':qualname' form, length-N for whole-module form,
+    empty list if unresolved.
+    """
+    collisions = table.get("_collisions", {})
     if ":" in ep:
         _, qual = ep.split(":", 1)
         simple = qual.split(".")[-1]
-    else:
-        simple = None  # whole-module handled by caller
-    if simple and simple in table and simple not in table.get("_collisions", {}):
-        return simple
-    return None
+        if simple in table and simple not in collisions:
+            return [simple]
+        return []
+    # Whole-module form: 'relpath.py' — expand to all top-level defs in that file.
+    # Normalize separators and do a component-boundary suffix match.
+    relpath = ep.replace("\\", "/")
+    results = []
+    for simple, entry in table.items():
+        if simple.startswith("_"):
+            continue  # skip _collisions and any private sentinel keys
+        if simple in collisions:
+            continue
+        # Top-level only: no "." in qualname
+        if "." in entry.get("qualname", simple):
+            continue
+        filepath = entry.get("file", "").replace("\\", "/")
+        if ("/" + filepath).endswith("/" + relpath):
+            results.append(simple)
+    return results
 
 def build_lens(package_root, entrypoints, max_depth=3) -> dict:
     table = build_symbol_table(Path(package_root))
     collisions = table.get("_collisions", {})
     start, unresolved = [], []
     for ep in entrypoints:
-        r = _resolve_entrypoint(package_root, table, ep)
-        if r:
-            start.append(r)
+        names = _resolve_entrypoint(package_root, table, ep)
+        if names:
+            start.extend(names)
         else:
             unresolved.append(ep)
     nodes, edges, seen = {}, set(), set()
