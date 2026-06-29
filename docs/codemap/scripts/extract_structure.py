@@ -147,7 +147,7 @@ def build_lens(package_root, entrypoints, max_depth=3) -> dict:
     # Build qualname → entry reverse lookup (covers both unique entries and collisions).
     qname_table: dict = {}
     for k, v in table.items():
-        if k.startswith("_"):
+        if k == "_collisions":
             continue
         qname_table[v["qualname"]] = v
     for entries in collisions.values():

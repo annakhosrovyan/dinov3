@@ -82,3 +82,22 @@ def test_lens_disambiguates_collided_method():
     edges = {(e["src"], e["dst"]) for e in lens["edges"]}
     # Engine.run calls self.helper() → Engine.helper
     assert ("Engine.run", "Engine.helper") in edges
+
+
+def test_lens_expands_through_underscore_function():
+    """BFS must expand underscore-prefixed functions as callees, not just seeds.
+
+    epsilon -> _delta -> beta.
+    The bug skipped _delta in qname_table, so beta was never reached.
+    """
+    lens = es.build_lens(FIX, ["mod_b.py:epsilon"], max_depth=3)
+    # entrypoint must resolve
+    assert "mod_b.py:epsilon" not in lens["unresolved_entrypoints"]
+    node_ids = {n["id"] for n in lens["nodes"]}
+    # All three nodes must appear
+    assert "epsilon" in node_ids, f"epsilon missing from {node_ids}"
+    assert "_delta" in node_ids, f"_delta missing from {node_ids}"
+    assert "beta" in node_ids, f"beta missing — _delta subtree not expanded: {node_ids}"
+    edges = {(e["src"], e["dst"]) for e in lens["edges"]}
+    assert ("epsilon", "_delta") in edges, f"epsilon->_delta edge missing: {edges}"
+    assert ("_delta", "beta") in edges, f"_delta->beta edge missing (bug): {edges}"
