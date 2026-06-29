@@ -1,0 +1,35 @@
+project:
+  name: dinov3-satellite
+  one_liner: "Satellite-specialized DINOv3 SSL ViT; perf-optimization fork (DDP/FSDP2, cudagraphs)"
+  package_root: dinov3
+  python: /mnt/weka/adovlatyan/.conda/envs/dinov3_env_210clone/bin/python
+
+structure:
+  module_overview: true          # render coarse package-level import/interaction graph
+  max_call_depth: 3              # how deep to follow calls from each entrypoint
+  lenses:                        # curated hot-paths = the readable, intentional drill-downs
+    - name: train-loop
+      description: "Core training iteration"
+      entrypoints: ["dinov3/train/train.py:do_train"]
+    - name: loss-forward
+      description: "Student/teacher forward + 4 loss terms + backward"
+      entrypoints: ["dinov3/train/ssl_meta_arch.py:SSLMetaArch.forward_backward"]
+    - name: distributed-wrap
+      description: "DDP/FSDP2 wrap, torch.compile, activation checkpointing"
+      entrypoints: ["dinov3/fsdp/ac_compile_parallelize.py"]
+    - name: data-pipeline
+      description: "Loader + multi-crop collate"
+      entrypoints:
+        - "dinov3/data/loaders.py:make_data_loader"
+        - "dinov3/data/collate.py:collate_data_and_cast"
+
+state:
+  compare_branch: master
+  phase_docs: ["docs/phase7_perf_plan.md"]
+  memory_dir: "/home/adovlatyan/.claude/projects/-home-adovlatyan-dinov3-performance-optimizations-dinov3/memory"
+  current_goal_anchor: "docs/phase7_perf_plan.md#7.8"   # optional; where 'what we're trying now' lives
+  job_log_glob: "/mnt/weka/adovlatyan/logs/**"          # optional, surfaces recent/open jobs
+
+snapshots:
+  dir: docs/codemap/snapshots
+  keep_last: 10
