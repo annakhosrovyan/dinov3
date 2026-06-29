@@ -62,7 +62,7 @@ def render_atlas(structure: dict, state: dict, change: dict) -> str:
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Codemap Atlas</title><style>{_CSS}</style>
-<script type="module">import mermaid from "{CDN}";mermaid.initialize({{startOnLoad:true,securityLevel:'loose'}});</script>
+<script type="module">import mermaid from "{CDN}";mermaid.initialize({{startOnLoad:true,securityLevel:'strict'}});</script>
 </head><body><h1>Codemap Atlas</h1>{body}</body></html>"""
 
 def main(argv=None):

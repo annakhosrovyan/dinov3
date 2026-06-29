@@ -16,13 +16,15 @@ One-command orientation. Orchestrates the other three codemap skills, then fuses
 4. Fuse: `<python> docs/codemap/scripts/render_html.py --repo . --atlas docs/codemap/snapshots/<sha>`
    → writes docs/codemap/atlas.html.
 5. Prune + symlink: run a tiny python snippet using cm_common:
-   `<python> -c "import sys; sys.path.insert(0,'docs/codemap/scripts'); import cm_common as cm, yaml, pathlib;
+   `<python> -c "import sys; sys.path.insert(0,'docs/codemap/scripts'); import cm_common as cm, pathlib;
    repo=pathlib.Path('.').resolve(); cfg=cm.load_config(repo);
    print('removed', cm.prune_snapshots(repo,cfg));
    cm.update_latest_symlink(repo/cfg['snapshots']['dir'], cm.git_sha(repo))"`
 6. Tell the user: atlas written to docs/codemap/atlas.html (open in a browser on the Mac), plus a
    2-3 line spoken summary of the "you are here" narrative and the biggest change since last time.
-7. Offer to commit the snapshot + atlas (don't auto-commit unless the user asked).
+7. Offer to commit the snapshot + atlas (don't auto-commit unless the user asked). Suggested commit
+   command: `git add docs/codemap/atlas.html docs/codemap/snapshots && git commit -m "chore(codemap): update atlas <sha>"`.
+   Staging the whole `docs/codemap/snapshots` path ensures pruned-away snapshot dirs are recorded as deletions, keeping the tree clean so the next run's SHA isn't marked `-dirty`.
 
 ## Notes
 - This is the skill to reach for first when re-orienting. The other three are for targeted refreshes.

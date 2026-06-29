@@ -24,3 +24,4 @@ description: Show what changed in the codebase map since the last codemap snapsh
 - First run has no baseline — say so, don't fabricate a diff.
 - The structural diff is name-based and approximate (orientation aid); don't over-claim a removed
   edge means dead code — say "the map no longer follows X→Y", and suggest verifying.
+- Reliable diffs require **clean-commit** snapshots: a `<sha>-dirty` snapshot captures the working-tree state at run time and is OVERWRITTEN if you re-run at the same HEAD with different uncommitted changes. To compare two points in history, snapshot at clean commits.
