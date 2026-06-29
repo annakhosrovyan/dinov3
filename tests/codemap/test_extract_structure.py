@@ -65,3 +65,20 @@ def test_lens_whole_module_entrypoint():
     edges = {(e["src"], e["dst"]) for e in lens["edges"]}
     assert ("gamma", "alpha") in edges
     assert ("alpha", "beta") in edges
+
+
+def test_lens_disambiguates_collided_method():
+    """A 'relpath.py:Class.method' entrypoint with a name collision resolves unambiguously."""
+    # mod_c.py has Engine.run and Decoy.run — 'run' is a collided simple name.
+    lens = es.build_lens(FIX, ["mod_c.py:Engine.run"], max_depth=3)
+    # Must resolve — not land in unresolved_entrypoints
+    assert "mod_c.py:Engine.run" not in lens["unresolved_entrypoints"]
+    node_ids = {n["id"] for n in lens["nodes"]}
+    # Engine.run is the seed; Engine.helper is reached via self.helper() call
+    assert "Engine.run" in node_ids
+    assert "Engine.helper" in node_ids
+    # Decoy.run was NOT selected — should not appear
+    assert "Decoy.run" not in node_ids
+    edges = {(e["src"], e["dst"]) for e in lens["edges"]}
+    # Engine.run calls self.helper() → Engine.helper
+    assert ("Engine.run", "Engine.helper") in edges

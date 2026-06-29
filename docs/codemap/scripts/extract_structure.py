@@ -86,17 +86,43 @@ def _called_names(node) -> list[str]:
     return out
 
 def _resolve_entrypoint(package_root, table, ep) -> list[str]:
-    """Return a list of start simple-names for the entrypoint.
+    """Return a list of start **qualnames** for the entrypoint.
 
-    Returns length-1 list for ':qualname' form, length-N for whole-module form,
+    Returns length-1 list for 'relpath.py:Qualname' form, length-N for whole-module form,
     empty list if unresolved.
+
+    Disambiguation for 'relpath.py:Qualname':
+    - Collect all candidates for the simple name (primary table entry + collision list).
+    - If the relpath is provided, filter by file suffix match AND qualname equality.
+      If exactly one candidate matches, use it.
+    - Otherwise fall back: if simple name is unique (not collided), use it.
+    - Else unresolved.
     """
     collisions = table.get("_collisions", {})
     if ":" in ep:
-        _, qual = ep.split(":", 1)
+        relpath, qual = ep.split(":", 1)
         simple = qual.split(".")[-1]
+        # Collect ALL candidates.  Note: collisions[simple] already contains the
+        # first entry (table[simple]) as its first element, so we must not double-count.
+        candidates: list
+        if simple in collisions:
+            candidates = collisions[simple]   # all candidates, including the first one
+        elif simple in table:
+            candidates = [table[simple]]
+        else:
+            candidates = []
+        # Try file+qualname disambiguation using component-boundary suffix match
+        relpath_norm = relpath.replace("\\", "/")
+        matched = [
+            c for c in candidates
+            if ("/" + c["file"].replace("\\", "/")).endswith("/" + relpath_norm)
+            and c["qualname"] == qual
+        ]
+        if len(matched) == 1:
+            return [matched[0]["qualname"]]
+        # Fallback: unique simple name (not collided)
         if simple in table and simple not in collisions:
-            return [simple]
+            return [table[simple]["qualname"]]
         return []
     # Whole-module form: 'relpath.py' — expand to all top-level defs in that file.
     # Normalize separators and do a component-boundary suffix match.
@@ -112,38 +138,54 @@ def _resolve_entrypoint(package_root, table, ep) -> list[str]:
             continue
         filepath = entry.get("file", "").replace("\\", "/")
         if ("/" + filepath).endswith("/" + relpath):
-            results.append(simple)
+            results.append(entry["qualname"])
     return results
 
 def build_lens(package_root, entrypoints, max_depth=3) -> dict:
     table = build_symbol_table(Path(package_root))
     collisions = table.get("_collisions", {})
+    # Build qualname → entry reverse lookup (covers both unique entries and collisions).
+    qname_table: dict = {}
+    for k, v in table.items():
+        if k.startswith("_"):
+            continue
+        qname_table[v["qualname"]] = v
+    for entries in collisions.values():
+        for e in entries:
+            qname_table[e["qualname"]] = e
     start, unresolved = [], []
     for ep in entrypoints:
-        names = _resolve_entrypoint(package_root, table, ep)
-        if names:
-            start.extend(names)
+        qnames = _resolve_entrypoint(package_root, table, ep)
+        if qnames:
+            start.extend(qnames)
         else:
             unresolved.append(ep)
     nodes, edges, seen = {}, set(), set()
-    frontier = [(s, 0) for s in start]
-    for s in start:
-        e = table[s]; nodes[s] = {"id": s, "file": e["file"], "line": e["line"], "kind": e["kind"]}
+    frontier = [(q, 0) for q in start]
+    for q in start:
+        e = qname_table.get(q)
+        if e:
+            nodes[q] = {"id": q, "file": e["file"], "line": e["line"], "kind": e["kind"]}
     while frontier:
-        name, depth = frontier.pop(0)
-        if name in seen or depth >= max_depth:
+        qname, depth = frontier.pop(0)
+        if qname in seen or depth >= max_depth:
             continue
-        seen.add(name)
-        entry = table.get(name)
+        seen.add(qname)
+        entry = qname_table.get(qname)
         if not entry:
             continue
         for callee in _called_names(entry["_node"]):
-            if callee in table and callee not in collisions and callee != name:
+            # Callee resolution is best-effort by simple name: skip collisions.
+            if callee in table and callee not in collisions:
                 ce = table[callee]
-                nodes.setdefault(callee, {"id": callee, "file": ce["file"],
-                                          "line": ce["line"], "kind": ce["kind"]})
-                edges.add((name, callee))
-                frontier.append((callee, depth + 1))
+                callee_qname = ce["qualname"]
+                if callee_qname == qname:
+                    continue  # skip self-calls
+                if callee_qname not in nodes:
+                    nodes[callee_qname] = {"id": callee_qname, "file": ce["file"],
+                                           "line": ce["line"], "kind": ce["kind"]}
+                edges.add((qname, callee_qname))
+                frontier.append((callee_qname, depth + 1))
     return {"entrypoints": entrypoints,
             "nodes": sorted(nodes.values(), key=lambda n: n["id"]),
             "edges": [{"src": s, "dst": d, "kind": "call"} for s, d in sorted(edges)],
