@@ -5,6 +5,14 @@
 **Status:** Approved architecture; implementation plan to follow
 **Repo at design time:** `dinov3-performance-optimizations/dinov3`, branch `exp/ddp-fullgraph-head-static-shapes`, SHA `1b78e8f`
 
+> **Superseded 2026-07-01 (as-built layout differs).** This spec describes the original repo-embedded
+> layout. As shipped, the engine and skills do NOT live in this repo: the engine (stdlib scripts) is at
+> `~/.claude/codemap/scripts/` and the four skills are real files at `~/.claude/skills/codemap-*`. Each
+> repo keeps only `docs/codemap/codemap.config.yaml` + generated `snapshots/`/`atlas.html`. The renderer
+> also emits **self-contained inline SVG**, not client-side Mermaid. So references below to
+> `docs/codemap/scripts/...` and `tests/codemap/...` are the design-time paths, not the current ones.
+> Current architecture: `docs/codemap/README.md`.
+
 ---
 
 ## 1. Problem

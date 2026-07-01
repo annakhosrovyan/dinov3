@@ -6,6 +6,14 @@
 
 **Architecture:** Deterministic Python scripts (stdlib `ast` + `git`) extract *facts* into versioned JSON; Claude skills synthesize *understanding* (narrative, change summary); an HTML template fuses both into pannable Mermaid diagrams (rendered client-side, no graphviz). Every run writes a snapshot keyed to the git SHA, so "diff vs last run" and "diff vs commit X" are one operation.
 
+> **Superseded 2026-07-01 (as-built layout differs).** Two things changed after this plan was written:
+> (1) the renderer emits **self-contained inline SVG**, not client-side Mermaid (the CDN dependency broke
+> offline); (2) the engine + skills were moved out of the repo to a shared home — engine at
+> `~/.claude/codemap/scripts/`, skills at `~/.claude/skills/codemap-*`, each repo keeping only
+> `docs/codemap/codemap.config.yaml` + generated artifacts. Task steps below that write to
+> `docs/codemap/scripts/...` or `tests/codemap/...` describe the original build layout. Current
+> architecture: `docs/codemap/README.md`.
+
 **Tech Stack:** Python 3.11 stdlib only for extraction (`ast`, `subprocess`+git, `json`, `pathlib`); `PyYAML` (already in env) for config; Mermaid.js via CDN for client-side rendering; pytest for tests.
 
 **Design spec:** `docs/superpowers/specs/2026-06-29-codemap-atlas-design.md` — read it first.
