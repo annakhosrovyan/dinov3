@@ -1,0 +1,701 @@
+<section><h2>Structural map</h2>
+<details open><summary>Module overview</summary>
+<pre class="mermaid">
+graph TD
+  dinov3[&quot;dinov3&quot;]
+  dinov3_checkpointer[&quot;checkpointer&quot;]
+  dinov3_checkpointer_checkpointer[&quot;checkpointer&quot;]
+  dinov3_configs[&quot;configs&quot;]
+  dinov3_configs_config[&quot;config&quot;]
+  dinov3_configs_train[&quot;train&quot;]
+  dinov3_configs_train_multidist_tests[&quot;multidist_tests&quot;]
+  dinov3_data[&quot;data&quot;]
+  dinov3_data_adapters[&quot;adapters&quot;]
+  dinov3_data_collate[&quot;collate&quot;]
+  dinov3_data_datasets[&quot;datasets&quot;]
+  dinov3_data_datasets_augmentation[&quot;augmentation&quot;]
+  dinov3_data_datasets_channel_utils[&quot;channel_utils&quot;]
+  dinov3_data_datasets_hdf5_augmentation[&quot;hdf5_augmentation&quot;]
+  dinov3_data_datasets_hdf5_dataset[&quot;hdf5_dataset&quot;]
+  dinov3_data_datasets_maid_dataset[&quot;maid_dataset&quot;]
+  dinov3_data_datasets_mixed_satlas_dataset[&quot;mixed_satlas_dataset&quot;]
+  dinov3_data_datasets_satlas_datasets[&quot;satlas_datasets&quot;]
+  dinov3_data_loaders[&quot;loaders&quot;]
+  dinov3_data_masking[&quot;masking&quot;]
+  dinov3_data_meta_loaders[&quot;meta_loaders&quot;]
+  dinov3_data_samplers[&quot;samplers&quot;]
+  dinov3_data_transforms[&quot;transforms&quot;]
+  dinov3_distributed[&quot;distributed&quot;]
+  dinov3_distributed_torch_distributed_primitives[&quot;torch_distributed_primitives&quot;]
+  dinov3_distributed_torch_distributed_wrapper[&quot;torch_distributed_wrapper&quot;]
+  dinov3_env[&quot;env&quot;]
+  dinov3_eval[&quot;eval&quot;]
+  dinov3_eval_accumulators[&quot;accumulators&quot;]
+  dinov3_eval_data[&quot;data&quot;]
+  dinov3_eval_depth[&quot;depth&quot;]
+  dinov3_eval_depth_checkpoint_utils[&quot;checkpoint_utils&quot;]
+  dinov3_eval_depth_config[&quot;config&quot;]
+  dinov3_eval_depth_configs[&quot;configs&quot;]
+  dinov3_eval_depth_data[&quot;data&quot;]
+  dinov3_eval_depth_datasets[&quot;datasets&quot;]
+  dinov3_eval_depth_datasets_datasets_utils[&quot;datasets_utils&quot;]
+  dinov3_eval_depth_eval[&quot;eval&quot;]
+  dinov3_eval_depth_loss[&quot;loss&quot;]
+  dinov3_eval_depth_metrics[&quot;metrics&quot;]
+  dinov3_eval_depth_models[&quot;models&quot;]
+  dinov3_eval_depth_models_dpt_head[&quot;dpt_head&quot;]
+  dinov3_eval_depth_models_embed[&quot;embed&quot;]
+  dinov3_eval_depth_models_encoder[&quot;encoder&quot;]
+  dinov3_eval_depth_models_linear_head[&quot;linear_head&quot;]
+  dinov3_eval_depth_run[&quot;run&quot;]
+  dinov3_eval_depth_schedulers[&quot;schedulers&quot;]
+  dinov3_eval_depth_train[&quot;train&quot;]
+  dinov3_eval_depth_transforms[&quot;transforms&quot;]
+  dinov3_eval_depth_utils[&quot;utils&quot;]
+  dinov3_eval_depth_visualization_utils[&quot;visualization_utils&quot;]
+  dinov3_eval_detection[&quot;detection&quot;]
+  dinov3_eval_detection_config[&quot;config&quot;]
+  dinov3_eval_detection_models[&quot;models&quot;]
+  dinov3_eval_detection_models_backbone[&quot;backbone&quot;]
+  dinov3_eval_detection_models_detr[&quot;detr&quot;]
+  dinov3_eval_detection_models_global_ape_decoder[&quot;global_ape_decoder&quot;]
+  dinov3_eval_detection_models_global_rpe_decomp_decoder[&quot;global_rpe_decomp_decoder&quot;]
+  dinov3_eval_detection_models_position_encoding[&quot;position_encoding&quot;]
+  dinov3_eval_detection_models_transformer[&quot;transformer&quot;]
+  dinov3_eval_detection_models_transformer_encoder[&quot;transformer_encoder&quot;]
+  dinov3_eval_detection_models_utils[&quot;utils&quot;]
+  dinov3_eval_detection_models_windows[&quot;windows&quot;]
+  dinov3_eval_detection_util[&quot;util&quot;]
+  dinov3_eval_detection_util_box_ops[&quot;box_ops&quot;]
+  dinov3_eval_detection_util_misc[&quot;misc&quot;]
+  dinov3_eval_helpers[&quot;helpers&quot;]
+  dinov3_eval_knn[&quot;knn&quot;]
+  dinov3_eval_linear[&quot;linear&quot;]
+  dinov3_eval_log_regression[&quot;log_regression&quot;]
+  dinov3_eval_metrics[&quot;metrics&quot;]
+  dinov3_eval_metrics_classification[&quot;classification&quot;]
+  dinov3_eval_metrics_imagenet_c[&quot;imagenet_c&quot;]
+  dinov3_eval_results[&quot;results&quot;]
+  dinov3_eval_segmentation[&quot;segmentation&quot;]
+  dinov3_eval_segmentation_config[&quot;config&quot;]
+  dinov3_eval_segmentation_configs[&quot;configs&quot;]
+  dinov3_eval_segmentation_eval[&quot;eval&quot;]
+  dinov3_eval_segmentation_inference[&quot;inference&quot;]
+  dinov3_eval_segmentation_loss[&quot;loss&quot;]
+  dinov3_eval_segmentation_metrics[&quot;metrics&quot;]
+  dinov3_eval_segmentation_models[&quot;models&quot;]
+  dinov3_eval_segmentation_models_backbone[&quot;backbone&quot;]
+  dinov3_eval_segmentation_models_backbone_dinov3_adapter[&quot;dinov3_adapter&quot;]
+  dinov3_eval_segmentation_models_heads[&quot;heads&quot;]
+  dinov3_eval_segmentation_models_heads_linear_head[&quot;linear_head&quot;]
+  dinov3_eval_segmentation_models_heads_mask2former_head[&quot;mask2former_head&quot;]
+  dinov3_eval_segmentation_models_heads_mask2former_transformer_decoder[&quot;mask2former_transformer_decoder&quot;]
+  dinov3_eval_segmentation_models_heads_pixel_decoder[&quot;pixel_decoder&quot;]
+  dinov3_eval_segmentation_models_utils[&quot;utils&quot;]
+  dinov3_eval_segmentation_models_utils_batch_norm[&quot;batch_norm&quot;]
+  dinov3_eval_segmentation_models_utils_ms_deform_attn[&quot;ms_deform_attn&quot;]
+  dinov3_eval_segmentation_models_utils_ops[&quot;ops&quot;]
+  dinov3_eval_segmentation_models_utils_ops_functions[&quot;functions&quot;]
+  dinov3_eval_segmentation_models_utils_ops_functions_ms_deform_attn_func[&quot;ms_deform_attn_func&quot;]
+  dinov3_eval_segmentation_models_utils_ops_modules[&quot;modules&quot;]
+  dinov3_eval_segmentation_models_utils_ops_modules_ms_deform_attn[&quot;ms_deform_attn&quot;]
+  dinov3_eval_segmentation_models_utils_ops_setup[&quot;setup&quot;]
+  dinov3_eval_segmentation_models_utils_ops_src[&quot;src&quot;]
+  dinov3_eval_segmentation_models_utils_ops_src_cpu[&quot;cpu&quot;]
+  dinov3_eval_segmentation_models_utils_ops_src_cuda[&quot;cuda&quot;]
+  dinov3_eval_segmentation_models_utils_ops_test[&quot;test&quot;]
+  dinov3_eval_segmentation_models_utils_position_encoding[&quot;position_encoding&quot;]
+  dinov3_eval_segmentation_models_utils_transformer[&quot;transformer&quot;]
+  dinov3_eval_segmentation_run[&quot;run&quot;]
+  dinov3_eval_segmentation_schedulers[&quot;schedulers&quot;]
+  dinov3_eval_segmentation_train[&quot;train&quot;]
+  dinov3_eval_segmentation_transforms[&quot;transforms&quot;]
+  dinov3_eval_setup[&quot;setup&quot;]
+  dinov3_eval_text[&quot;text&quot;]
+  dinov3_eval_text_ac_comp_parallelize[&quot;ac_comp_parallelize&quot;]
+  dinov3_eval_text_build_dinotxt[&quot;build_dinotxt&quot;]
+  dinov3_eval_text_clip_loss[&quot;clip_loss&quot;]
+  dinov3_eval_text_configs[&quot;configs&quot;]
+  dinov3_eval_text_dinotxt_model[&quot;dinotxt_model&quot;]
+  dinov3_eval_text_gram_loss[&quot;gram_loss&quot;]
+  dinov3_eval_text_text_tower[&quot;text_tower&quot;]
+  dinov3_eval_text_text_transformer[&quot;text_transformer&quot;]
+  dinov3_eval_text_tokenizer[&quot;tokenizer&quot;]
+  dinov3_eval_text_train_dinotxt[&quot;train_dinotxt&quot;]
+  dinov3_eval_text_vision_tower[&quot;vision_tower&quot;]
+  dinov3_eval_utils[&quot;utils&quot;]
+  dinov3_fsdp[&quot;fsdp&quot;]
+  dinov3_fsdp_ac_compile_parallelize[&quot;ac_compile_parallelize&quot;]
+  dinov3_hub[&quot;hub&quot;]
+  dinov3_hub_backbones[&quot;backbones&quot;]
+  dinov3_hub_classifiers[&quot;classifiers&quot;]
+  dinov3_hub_depthers[&quot;depthers&quot;]
+  dinov3_hub_detectors[&quot;detectors&quot;]
+  dinov3_hub_dinotxt[&quot;dinotxt&quot;]
+  dinov3_hub_segmentors[&quot;segmentors&quot;]
+  dinov3_hub_utils[&quot;utils&quot;]
+  dinov3_layers[&quot;layers&quot;]
+  dinov3_layers_attention[&quot;attention&quot;]
+  dinov3_layers_block[&quot;block&quot;]
+  dinov3_layers_dino_head[&quot;dino_head&quot;]
+  dinov3_layers_ffn_layers[&quot;ffn_layers&quot;]
+  dinov3_layers_fp8_linear[&quot;fp8_linear&quot;]
+  dinov3_layers_layer_scale[&quot;layer_scale&quot;]
+  dinov3_layers_patch_embed[&quot;patch_embed&quot;]
+  dinov3_layers_rms_norm[&quot;rms_norm&quot;]
+  dinov3_layers_rope_position_encoding[&quot;rope_position_encoding&quot;]
+  dinov3_layers_sparse_linear[&quot;sparse_linear&quot;]
+  dinov3_logging[&quot;logging&quot;]
+  dinov3_logging_helpers[&quot;helpers&quot;]
+  dinov3_loss[&quot;loss&quot;]
+  dinov3_loss_dino_clstoken_loss[&quot;dino_clstoken_loss&quot;]
+  dinov3_loss_gram_loss[&quot;gram_loss&quot;]
+  dinov3_loss_ibot_patch_loss[&quot;ibot_patch_loss&quot;]
+  dinov3_loss_koleo_loss[&quot;koleo_loss&quot;]
+  dinov3_models[&quot;models&quot;]
+  dinov3_models_convnext[&quot;convnext&quot;]
+  dinov3_models_vision_transformer[&quot;vision_transformer&quot;]
+  dinov3_run[&quot;run&quot;]
+  dinov3_run_init[&quot;init&quot;]
+  dinov3_run_submit[&quot;submit&quot;]
+  dinov3_thirdparty[&quot;thirdparty&quot;]
+  dinov3_thirdparty_CLIP[&quot;CLIP&quot;]
+  dinov3_thirdparty_CLIP_clip[&quot;clip&quot;]
+  dinov3_thirdparty_CLIP_clip_simple_tokenizer[&quot;simple_tokenizer&quot;]
+  dinov3_train[&quot;train&quot;]
+  dinov3_train_cosine_lr_scheduler[&quot;cosine_lr_scheduler&quot;]
+  dinov3_train_multidist_meta_arch[&quot;multidist_meta_arch&quot;]
+  dinov3_train_param_groups[&quot;param_groups&quot;]
+  dinov3_train_ssl_meta_arch[&quot;ssl_meta_arch&quot;]
+  dinov3_train_train[&quot;train&quot;]
+  dinov3_utils[&quot;utils&quot;]
+  dinov3_utils_cluster[&quot;cluster&quot;]
+  dinov3_utils_custom_callable[&quot;custom_callable&quot;]
+  dinov3_utils_dtype[&quot;dtype&quot;]
+  dinov3_utils_mfu[&quot;mfu&quot;]
+  dinov3_utils_profiling[&quot;profiling&quot;]
+  dinov3_utils_utils[&quot;utils&quot;]
+  dinov3_configs_config --&gt; dinov3
+  dinov3_configs_config --&gt; dinov3_distributed
+  dinov3_configs_config --&gt; dinov3_logging
+  dinov3_configs_config --&gt; dinov3_utils
+  dinov3_data_datasets_augmentation --&gt; dinov3
+  dinov3_data_datasets_augmentation --&gt; dinov3_data_datasets_channel_utils
+  dinov3_data_datasets_hdf5_augmentation --&gt; dinov3
+  dinov3_data_datasets_hdf5_augmentation --&gt; dinov3_data_datasets_channel_utils
+  dinov3_data_datasets_hdf5_dataset --&gt; dinov3
+  dinov3_data_datasets_hdf5_dataset --&gt; dinov3_data_datasets_channel_utils
+  dinov3_data_datasets_maid_dataset --&gt; dinov3
+  dinov3_data_datasets_maid_dataset --&gt; dinov3_data_datasets_channel_utils
+  dinov3_data_datasets_mixed_satlas_dataset --&gt; dinov3
+  dinov3_data_datasets_mixed_satlas_dataset --&gt; dinov3_data_datasets_channel_utils
+  dinov3_data_datasets_mixed_satlas_dataset --&gt; dinov3_data_datasets_hdf5_dataset
+  dinov3_data_datasets_mixed_satlas_dataset --&gt; dinov3_data_datasets_maid_dataset
+  dinov3_data_datasets_mixed_satlas_dataset --&gt; dinov3_data_datasets_satlas_datasets
+  dinov3_data_datasets_satlas_datasets --&gt; dinov3
+  dinov3_data_datasets_satlas_datasets --&gt; dinov3_data_datasets_channel_utils
+  dinov3_data_samplers --&gt; dinov3
+  dinov3_data_samplers --&gt; dinov3_distributed
+  dinov3_eval_accumulators --&gt; dinov3
+  dinov3_eval_accumulators --&gt; dinov3_distributed
+  dinov3_eval_data --&gt; dinov3
+  dinov3_eval_data --&gt; dinov3_eval_utils
+  dinov3_eval_depth_config --&gt; dinov3
+  dinov3_eval_depth_config --&gt; dinov3_data_transforms
+  dinov3_eval_depth_config --&gt; dinov3_eval_depth_loss
+  dinov3_eval_depth_config --&gt; dinov3_eval_depth_models
+  dinov3_eval_depth_config --&gt; dinov3_eval_depth_transforms
+  dinov3_eval_depth_config --&gt; dinov3_eval_setup
+  dinov3_eval_depth_data --&gt; dinov3
+  dinov3_eval_depth_data --&gt; dinov3_data
+  dinov3_eval_depth_data --&gt; dinov3_distributed
+  dinov3_eval_depth_eval --&gt; dinov3
+  dinov3_eval_depth_eval --&gt; dinov3_distributed
+  dinov3_eval_depth_eval --&gt; dinov3_eval_depth_config
+  dinov3_eval_depth_eval --&gt; dinov3_eval_depth_data
+  dinov3_eval_depth_eval --&gt; dinov3_eval_depth_datasets_datasets_utils
+  dinov3_eval_depth_eval --&gt; dinov3_eval_depth_metrics
+  dinov3_eval_depth_eval --&gt; dinov3_eval_depth_transforms
+  dinov3_eval_depth_eval --&gt; dinov3_eval_depth_utils
+  dinov3_eval_depth_eval --&gt; dinov3_eval_depth_visualization_utils
+  dinov3_eval_depth_eval --&gt; dinov3_logging
+  dinov3_eval_depth_models --&gt; dinov3
+  dinov3_eval_depth_models --&gt; dinov3_eval_depth_checkpoint_utils
+  dinov3_eval_depth_models --&gt; dinov3_eval_depth_utils
+  dinov3_eval_depth_models_encoder --&gt; dinov3
+  dinov3_eval_depth_models_encoder --&gt; dinov3_eval_depth_models_embed
+  dinov3_eval_depth_run --&gt; dinov3
+  dinov3_eval_depth_run --&gt; dinov3_distributed
+  dinov3_eval_depth_run --&gt; dinov3_eval_depth_checkpoint_utils
+  dinov3_eval_depth_run --&gt; dinov3_eval_depth_config
+  dinov3_eval_depth_run --&gt; dinov3_eval_depth_eval
+  dinov3_eval_depth_run --&gt; dinov3_eval_depth_models
+  dinov3_eval_depth_run --&gt; dinov3_eval_depth_train
+  dinov3_eval_depth_run --&gt; dinov3_eval_helpers
+  dinov3_eval_depth_run --&gt; dinov3_eval_setup
+  dinov3_eval_depth_run --&gt; dinov3_hub_depthers
+  dinov3_eval_depth_run --&gt; dinov3_run_init
+  dinov3_eval_depth_train --&gt; dinov3
+  dinov3_eval_depth_train --&gt; dinov3_distributed
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_checkpoint_utils
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_config
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_data
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_datasets_datasets_utils
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_eval
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_loss
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_metrics
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_models
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_schedulers
+  dinov3_eval_depth_train --&gt; dinov3_eval_depth_utils
+  dinov3_eval_depth_train --&gt; dinov3_logging
+  dinov3_eval_depth_train --&gt; dinov3_utils
+  dinov3_eval_depth_transforms --&gt; dinov3
+  dinov3_eval_depth_transforms --&gt; dinov3_data_transforms
+  dinov3_eval_depth_visualization_utils --&gt; dinov3
+  dinov3_eval_depth_visualization_utils --&gt; dinov3_data_transforms
+  dinov3_eval_depth_visualization_utils --&gt; dinov3_eval_depth_config
+  dinov3_eval_detection_util_misc --&gt; dinov3_distributed
+  dinov3_eval_helpers --&gt; dinov3_distributed
+  dinov3_eval_helpers --&gt; dinov3_eval
+  dinov3_eval_helpers --&gt; dinov3_eval_results
+  dinov3_eval_knn --&gt; dinov3
+  dinov3_eval_knn --&gt; dinov3_data
+  dinov3_eval_knn --&gt; dinov3_data_adapters
+  dinov3_eval_knn --&gt; dinov3_data_transforms
+  dinov3_eval_knn --&gt; dinov3_distributed
+  dinov3_eval_knn --&gt; dinov3_eval_data
+  dinov3_eval_knn --&gt; dinov3_eval_helpers
+  dinov3_eval_knn --&gt; dinov3_eval_metrics
+  dinov3_eval_knn --&gt; dinov3_eval_setup
+  dinov3_eval_knn --&gt; dinov3_eval_utils
+  dinov3_eval_knn --&gt; dinov3_run_init
+  dinov3_eval_linear --&gt; dinov3
+  dinov3_eval_linear --&gt; dinov3_checkpointer
+  dinov3_eval_linear --&gt; dinov3_data
+  dinov3_eval_linear --&gt; dinov3_data_adapters
+  dinov3_eval_linear --&gt; dinov3_data_transforms
+  dinov3_eval_linear --&gt; dinov3_distributed
+  dinov3_eval_linear --&gt; dinov3_eval_data
+  dinov3_eval_linear --&gt; dinov3_eval_helpers
+  dinov3_eval_linear --&gt; dinov3_eval_metrics
+  dinov3_eval_linear --&gt; dinov3_eval_setup
+  dinov3_eval_linear --&gt; dinov3_eval_utils
+  dinov3_eval_linear --&gt; dinov3_logging
+  dinov3_eval_linear --&gt; dinov3_run_init
+  dinov3_eval_log_regression --&gt; dinov3
+  dinov3_eval_log_regression --&gt; dinov3_data
+  dinov3_eval_log_regression --&gt; dinov3_data_adapters
+  dinov3_eval_log_regression --&gt; dinov3_data_transforms
+  dinov3_eval_log_regression --&gt; dinov3_distributed
+  dinov3_eval_log_regression --&gt; dinov3_eval_data
+  dinov3_eval_log_regression --&gt; dinov3_eval_helpers
+  dinov3_eval_log_regression --&gt; dinov3_eval_metrics
+  dinov3_eval_log_regression --&gt; dinov3_eval_setup
+  dinov3_eval_log_regression --&gt; dinov3_eval_utils
+  dinov3_eval_log_regression --&gt; dinov3_run_init
+  dinov3_eval_log_regression --&gt; dinov3_utils_dtype
+  dinov3_eval_segmentation_config --&gt; dinov3
+  dinov3_eval_segmentation_config --&gt; dinov3_data_transforms
+  dinov3_eval_segmentation_config --&gt; dinov3_eval_segmentation_models
+  dinov3_eval_segmentation_config --&gt; dinov3_eval_setup
+  dinov3_eval_segmentation_eval --&gt; dinov3
+  dinov3_eval_segmentation_eval --&gt; dinov3_data
+  dinov3_eval_segmentation_eval --&gt; dinov3_distributed
+  dinov3_eval_segmentation_eval --&gt; dinov3_eval_segmentation_inference
+  dinov3_eval_segmentation_eval --&gt; dinov3_eval_segmentation_metrics
+  dinov3_eval_segmentation_eval --&gt; dinov3_eval_segmentation_models
+  dinov3_eval_segmentation_eval --&gt; dinov3_eval_segmentation_transforms
+  dinov3_eval_segmentation_eval --&gt; dinov3_hub_segmentors
+  dinov3_eval_segmentation_eval --&gt; dinov3_logging
+  dinov3_eval_segmentation_models --&gt; dinov3
+  dinov3_eval_segmentation_models --&gt; dinov3_eval_segmentation_models_backbone_dinov3_adapter
+  dinov3_eval_segmentation_models --&gt; dinov3_eval_segmentation_models_heads_linear_head
+  dinov3_eval_segmentation_models --&gt; dinov3_eval_segmentation_models_heads_mask2former_head
+  dinov3_eval_segmentation_models --&gt; dinov3_eval_utils
+  dinov3_eval_segmentation_models_backbone_dinov3_adapter --&gt; dinov3
+  dinov3_eval_segmentation_models_backbone_dinov3_adapter --&gt; dinov3_eval_segmentation_models_utils_ms_deform_attn
+  dinov3_eval_segmentation_models_heads_mask2former_head --&gt; dinov3
+  dinov3_eval_segmentation_models_heads_mask2former_head --&gt; dinov3_eval_segmentation_models_heads_mask2former_transformer_decoder
+  dinov3_eval_segmentation_models_heads_mask2former_head --&gt; dinov3_eval_segmentation_models_heads_pixel_decoder
+  dinov3_eval_segmentation_models_heads_mask2former_transformer_decoder --&gt; dinov3
+  dinov3_eval_segmentation_models_heads_mask2former_transformer_decoder --&gt; dinov3_eval_segmentation_models_utils_position_encoding
+  dinov3_eval_segmentation_models_heads_pixel_decoder --&gt; dinov3
+  dinov3_eval_segmentation_models_heads_pixel_decoder --&gt; dinov3_eval_segmentation_models_utils_batch_norm
+  dinov3_eval_segmentation_models_heads_pixel_decoder --&gt; dinov3_eval_segmentation_models_utils_ms_deform_attn
+  dinov3_eval_segmentation_models_heads_pixel_decoder --&gt; dinov3_eval_segmentation_models_utils_position_encoding
+  dinov3_eval_segmentation_models_heads_pixel_decoder --&gt; dinov3_eval_segmentation_models_utils_transformer
+  dinov3_eval_segmentation_models_utils_batch_norm --&gt; dinov3_distributed
+  dinov3_eval_segmentation_run --&gt; dinov3
+  dinov3_eval_segmentation_run --&gt; dinov3_eval_helpers
+  dinov3_eval_segmentation_run --&gt; dinov3_eval_segmentation_config
+  dinov3_eval_segmentation_run --&gt; dinov3_eval_segmentation_eval
+  dinov3_eval_segmentation_run --&gt; dinov3_eval_segmentation_train
+  dinov3_eval_segmentation_run --&gt; dinov3_eval_setup
+  dinov3_eval_segmentation_run --&gt; dinov3_run_init
+  dinov3_eval_segmentation_train --&gt; dinov3
+  dinov3_eval_segmentation_train --&gt; dinov3_data
+  dinov3_eval_segmentation_train --&gt; dinov3_distributed
+  dinov3_eval_segmentation_train --&gt; dinov3_eval_segmentation_eval
+  dinov3_eval_segmentation_train --&gt; dinov3_eval_segmentation_loss
+  dinov3_eval_segmentation_train --&gt; dinov3_eval_segmentation_metrics
+  dinov3_eval_segmentation_train --&gt; dinov3_eval_segmentation_models
+  dinov3_eval_segmentation_train --&gt; dinov3_eval_segmentation_schedulers
+  dinov3_eval_segmentation_train --&gt; dinov3_eval_segmentation_transforms
+  dinov3_eval_segmentation_train --&gt; dinov3_logging
+  dinov3_eval_segmentation_transforms --&gt; dinov3
+  dinov3_eval_segmentation_transforms --&gt; dinov3_data_transforms
+  dinov3_eval_segmentation_transforms --&gt; dinov3_eval_segmentation_metrics
+  dinov3_eval_setup --&gt; dinov3
+  dinov3_eval_setup --&gt; dinov3_configs
+  dinov3_eval_setup --&gt; dinov3_models
+  dinov3_eval_text_build_dinotxt --&gt; dinov3
+  dinov3_eval_text_build_dinotxt --&gt; dinov3_checkpointer
+  dinov3_eval_text_build_dinotxt --&gt; dinov3_data
+  dinov3_eval_text_build_dinotxt --&gt; dinov3_distributed
+  dinov3_eval_text_build_dinotxt --&gt; dinov3_eval_text_ac_comp_parallelize
+  dinov3_eval_text_build_dinotxt --&gt; dinov3_eval_text_dinotxt_model
+  dinov3_eval_text_build_dinotxt --&gt; dinov3_eval_text_tokenizer
+  dinov3_eval_text_dinotxt_model --&gt; dinov3
+  dinov3_eval_text_dinotxt_model --&gt; dinov3_eval_text_text_tower
+  dinov3_eval_text_dinotxt_model --&gt; dinov3_eval_text_vision_tower
+  dinov3_eval_text_text_tower --&gt; dinov3
+  dinov3_eval_text_text_tower --&gt; dinov3_eval_text_text_transformer
+  dinov3_eval_text_text_tower --&gt; dinov3_layers
+  dinov3_eval_text_text_transformer --&gt; dinov3
+  dinov3_eval_text_text_transformer --&gt; dinov3_layers
+  dinov3_eval_text_tokenizer --&gt; dinov3
+  dinov3_eval_text_tokenizer --&gt; dinov3_thirdparty_CLIP_clip_simple_tokenizer
+  dinov3_eval_text_train_dinotxt --&gt; dinov3
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_checkpointer
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_configs
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_data
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_distributed
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_eval_text_build_dinotxt
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_eval_text_clip_loss
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_eval_text_dinotxt_model
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_eval_text_gram_loss
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_logging
+  dinov3_eval_text_train_dinotxt --&gt; dinov3_train_cosine_lr_scheduler
+  dinov3_eval_text_vision_tower --&gt; dinov3
+  dinov3_eval_text_vision_tower --&gt; dinov3_layers
+  dinov3_eval_text_vision_tower --&gt; dinov3_models
+  dinov3_eval_text_vision_tower --&gt; dinov3_models_vision_transformer
+  dinov3_eval_text_vision_tower --&gt; dinov3_utils
+  dinov3_eval_utils --&gt; dinov3
+  dinov3_eval_utils --&gt; dinov3_data
+  dinov3_eval_utils --&gt; dinov3_distributed
+  dinov3_eval_utils --&gt; dinov3_eval_accumulators
+  dinov3_eval_utils --&gt; dinov3_logging
+  dinov3_fsdp_ac_compile_parallelize --&gt; dinov3
+  dinov3_fsdp_ac_compile_parallelize --&gt; dinov3_models_convnext
+  dinov3_fsdp_ac_compile_parallelize --&gt; dinov3_models_vision_transformer
+  dinov3_fsdp_ac_compile_parallelize --&gt; dinov3_utils
+  dinov3_fsdp_ac_compile_parallelize --&gt; dinov3_utils_utils
+  dinov3_hub_backbones --&gt; dinov3
+  dinov3_hub_backbones --&gt; dinov3_checkpointer_checkpointer
+  dinov3_hub_depthers --&gt; dinov3
+  dinov3_hub_depthers --&gt; dinov3_eval_depth_models
+  dinov3_hub_detectors --&gt; dinov3
+  dinov3_hub_detectors --&gt; dinov3_eval_detection_config
+  dinov3_hub_detectors --&gt; dinov3_eval_detection_models_detr
+  dinov3_hub_detectors --&gt; dinov3_eval_detection_models_position_encoding
+  dinov3_hub_dinotxt --&gt; dinov3
+  dinov3_hub_dinotxt --&gt; dinov3_eval_text_dinotxt_model
+  dinov3_hub_dinotxt --&gt; dinov3_eval_text_text_transformer
+  dinov3_hub_dinotxt --&gt; dinov3_eval_text_tokenizer
+  dinov3_hub_segmentors --&gt; dinov3
+  dinov3_hub_segmentors --&gt; dinov3_eval_segmentation_models
+  dinov3_layers_attention --&gt; dinov3
+  dinov3_layers_attention --&gt; dinov3_utils
+  dinov3_layers_block --&gt; dinov3
+  dinov3_layers_block --&gt; dinov3_utils
+  dinov3_layers_ffn_layers --&gt; dinov3
+  dinov3_layers_ffn_layers --&gt; dinov3_utils
+  dinov3_layers_fp8_linear --&gt; dinov3
+  dinov3_layers_fp8_linear --&gt; dinov3_layers_attention
+  dinov3_layers_fp8_linear --&gt; dinov3_utils
+  dinov3_layers_sparse_linear --&gt; dinov3
+  dinov3_layers_sparse_linear --&gt; dinov3_utils
+  dinov3_logging --&gt; dinov3
+  dinov3_logging --&gt; dinov3_distributed
+  dinov3_logging --&gt; dinov3_logging_helpers
+  dinov3_logging_helpers --&gt; dinov3_distributed
+  dinov3_loss_dino_clstoken_loss --&gt; dinov3
+  dinov3_loss_dino_clstoken_loss --&gt; dinov3_distributed
+  dinov3_loss_ibot_patch_loss --&gt; dinov3
+  dinov3_loss_ibot_patch_loss --&gt; dinov3_distributed
+  dinov3_loss_koleo_loss --&gt; dinov3_distributed
+  dinov3_models --&gt; dinov3
+  dinov3_models --&gt; dinov3_checkpointer
+  dinov3_models --&gt; dinov3_fsdp_ac_compile_parallelize
+  dinov3_models --&gt; dinov3_layers_fp8_linear
+  dinov3_models_vision_transformer --&gt; dinov3
+  dinov3_models_vision_transformer --&gt; dinov3_layers
+  dinov3_models_vision_transformer --&gt; dinov3_utils
+  dinov3_run_init --&gt; dinov3
+  dinov3_run_init --&gt; dinov3_configs
+  dinov3_run_submit --&gt; dinov3
+  dinov3_run_submit --&gt; dinov3_logging
+  dinov3_run_submit --&gt; dinov3_utils_cluster
+  dinov3_run_submit --&gt; dinov3_utils_custom_callable
+  dinov3_train_ssl_meta_arch --&gt; dinov3
+  dinov3_train_ssl_meta_arch --&gt; dinov3_checkpointer
+  dinov3_train_ssl_meta_arch --&gt; dinov3_configs
+  dinov3_train_ssl_meta_arch --&gt; dinov3_data_datasets_augmentation
+  dinov3_train_ssl_meta_arch --&gt; dinov3_data_datasets_hdf5_augmentation
+  dinov3_train_ssl_meta_arch --&gt; dinov3_distributed
+  dinov3_train_ssl_meta_arch --&gt; dinov3_fsdp_ac_compile_parallelize
+  dinov3_train_ssl_meta_arch --&gt; dinov3_layers_dino_head
+  dinov3_train_ssl_meta_arch --&gt; dinov3_loss
+  dinov3_train_ssl_meta_arch --&gt; dinov3_models
+  dinov3_train_ssl_meta_arch --&gt; dinov3_train_cosine_lr_scheduler
+  dinov3_train_ssl_meta_arch --&gt; dinov3_train_param_groups
+  dinov3_train_ssl_meta_arch --&gt; dinov3_utils
+  dinov3_train_ssl_meta_arch --&gt; dinov3_utils_profiling
+  dinov3_train_train --&gt; dinov3
+  dinov3_train_train --&gt; dinov3_checkpointer
+  dinov3_train_train --&gt; dinov3_configs
+  dinov3_train_train --&gt; dinov3_data
+  dinov3_train_train --&gt; dinov3_distributed
+  dinov3_train_train --&gt; dinov3_logging
+  dinov3_train_train --&gt; dinov3_train_cosine_lr_scheduler
+  dinov3_train_train --&gt; dinov3_train_multidist_meta_arch
+  dinov3_train_train --&gt; dinov3_train_ssl_meta_arch
+  dinov3_train_train --&gt; dinov3_utils_mfu
+  dinov3_train_train --&gt; dinov3_utils_profiling
+</pre></details>
+<details open><summary>train-loop — Core training iteration</summary>
+<pre class="mermaid">
+graph TD
+  CombinedDataLoader[&quot;CombinedDataLoader&quot;]
+  CombinedDataLoader_homogeneous_iterator[&quot;CombinedDataLoader.homogeneous_iterator&quot;]
+  CosineScheduler[&quot;CosineScheduler&quot;]
+  FileFormat_guess[&quot;FileFormat.guess&quot;]
+  MaskingGenerator[&quot;MaskingGenerator&quot;]
+  MetricLogger[&quot;MetricLogger&quot;]
+  MetricLogger_dump_in_output_file[&quot;MetricLogger.dump_in_output_file&quot;]
+  MetricLogger_log_every[&quot;MetricLogger.log_every&quot;]
+  NVTXRange[&quot;NVTXRange&quot;]
+  SSLMetaArch_build_data_augmentation_dino[&quot;SSLMetaArch.build_data_augmentation_dino&quot;]
+  SSLMetaArch_get_maybe_fused_params_for_submodel[&quot;SSLMetaArch.get_maybe_fused_params_for_submodel&quot;]
+  SSLMetaArch_get_params_groups[&quot;SSLMetaArch.get_params_groups&quot;]
+  SSLMetaArch_gram_load_ema_teacher[&quot;SSLMetaArch.gram_load_ema_teacher&quot;]
+  SSLMetaArch_set_nvtx[&quot;SSLMetaArch.set_nvtx&quot;]
+  SSLMetaArch_update_ema[&quot;SSLMetaArch.update_ema&quot;]
+  SSLMetaArch_update_gram[&quot;SSLMetaArch.update_gram&quot;]
+  SmoothedValue[&quot;SmoothedValue&quot;]
+  SmoothedValue_max[&quot;SmoothedValue.max&quot;]
+  SmoothedValue_median[&quot;SmoothedValue.median&quot;]
+  WSDLRScheduler[&quot;WSDLRScheduler&quot;]
+  _assert_valid_dtypes[&quot;_assert_valid_dtypes&quot;]
+  _is_int[&quot;_is_int&quot;]
+  _log_rank_topology[&quot;_log_rank_topology&quot;]
+  apply_optim_scheduler[&quot;apply_optim_scheduler&quot;]
+  build_data_loader_from_cfg[&quot;build_data_loader_from_cfg&quot;]
+  build_multi_resolution_data_loader_from_cfg[&quot;build_multi_resolution_data_loader_from_cfg&quot;]
+  build_optimizer[&quot;build_optimizer&quot;]
+  build_profiler[&quot;build_profiler&quot;]
+  build_schedulers[&quot;build_schedulers&quot;]
+  build_schedulers_v2[&quot;build_schedulers_v2&quot;]
+  compute_dino_flops_per_image[&quot;compute_dino_flops_per_image&quot;]
+  compute_mfu[&quot;compute_mfu&quot;]
+  do_test[&quot;do_test&quot;]
+  do_train[&quot;do_train&quot;]
+  enable_graph_break_logging[&quot;enable_graph_break_logging&quot;]
+  find_all_checkpoints[&quot;find_all_checkpoints&quot;]
+  fuse_params_groups[&quot;fuse_params_groups&quot;]
+  get_memory_stats[&quot;get_memory_stats&quot;]
+  get_params_groups_with_decay_fsdp[&quot;get_params_groups_with_decay_fsdp&quot;]
+  get_process_subgroup[&quot;get_process_subgroup&quot;]
+  get_rank[&quot;get_rank&quot;]
+  get_run_metadata[&quot;get_run_metadata&quot;]
+  get_subgroup_size[&quot;get_subgroup_size&quot;]
+  get_world_size[&quot;get_world_size&quot;]
+  is_distributed_enabled[&quot;is_distributed_enabled&quot;]
+  is_subgroup_main_process[&quot;is_subgroup_main_process&quot;]
+  keep_checkpoint_copy[&quot;keep_checkpoint_copy&quot;]
+  keep_last_n_checkpoints[&quot;keep_last_n_checkpoints&quot;]
+  linear_warmup_cosine_decay[&quot;linear_warmup_cosine_decay&quot;]
+  log_fragmentation_stats[&quot;log_fragmentation_stats&quot;]
+  log_phase_memory[&quot;log_phase_memory&quot;]
+  make_data_loader[&quot;make_data_loader&quot;]
+  make_dataset[&quot;make_dataset&quot;]
+  make_nvtx[&quot;make_nvtx&quot;]
+  memory_profile_enabled[&quot;memory_profile_enabled&quot;]
+  register_dont_save_hooks[&quot;register_dont_save_hooks&quot;]
+  save[&quot;save&quot;]
+  vit_forward_flops[&quot;vit_forward_flops&quot;]
+  CombinedDataLoader --&gt; CombinedDataLoader_homogeneous_iterator
+  MetricLogger --&gt; MetricLogger_dump_in_output_file
+  MetricLogger --&gt; SmoothedValue
+  MetricLogger --&gt; get_rank
+  MetricLogger_log_every --&gt; MetricLogger_dump_in_output_file
+  MetricLogger_log_every --&gt; SmoothedValue
+  MetricLogger_log_every --&gt; get_rank
+  SSLMetaArch_get_maybe_fused_params_for_submodel --&gt; fuse_params_groups
+  SSLMetaArch_get_maybe_fused_params_for_submodel --&gt; get_params_groups_with_decay_fsdp
+  SSLMetaArch_get_params_groups --&gt; SSLMetaArch_get_maybe_fused_params_for_submodel
+  SmoothedValue --&gt; SmoothedValue_max
+  SmoothedValue --&gt; SmoothedValue_median
+  WSDLRScheduler --&gt; SmoothedValue_max
+  _log_rank_topology --&gt; get_rank
+  build_data_loader_from_cfg --&gt; MaskingGenerator
+  build_data_loader_from_cfg --&gt; SSLMetaArch_build_data_augmentation_dino
+  build_data_loader_from_cfg --&gt; get_subgroup_size
+  build_data_loader_from_cfg --&gt; get_world_size
+  build_data_loader_from_cfg --&gt; make_data_loader
+  build_data_loader_from_cfg --&gt; make_dataset
+  build_multi_resolution_data_loader_from_cfg --&gt; CombinedDataLoader
+  build_multi_resolution_data_loader_from_cfg --&gt; build_data_loader_from_cfg
+  build_schedulers --&gt; CosineScheduler
+  build_schedulers --&gt; WSDLRScheduler
+  build_schedulers --&gt; build_schedulers_v2
+  build_schedulers_v2 --&gt; get_world_size
+  build_schedulers_v2 --&gt; linear_warmup_cosine_decay
+  compute_dino_flops_per_image --&gt; vit_forward_flops
+  do_test --&gt; is_subgroup_main_process
+  do_test --&gt; save
+  do_train --&gt; MetricLogger
+  do_train --&gt; MetricLogger_log_every
+  do_train --&gt; SSLMetaArch_get_params_groups
+  do_train --&gt; SSLMetaArch_gram_load_ema_teacher
+  do_train --&gt; SSLMetaArch_set_nvtx
+  do_train --&gt; SSLMetaArch_update_ema
+  do_train --&gt; SSLMetaArch_update_gram
+  do_train --&gt; SmoothedValue_max
+  do_train --&gt; _log_rank_topology
+  do_train --&gt; apply_optim_scheduler
+  do_train --&gt; build_multi_resolution_data_loader_from_cfg
+  do_train --&gt; build_optimizer
+  do_train --&gt; build_profiler
+  do_train --&gt; build_schedulers
+  do_train --&gt; compute_dino_flops_per_image
+  do_train --&gt; compute_mfu
+  do_train --&gt; do_test
+  do_train --&gt; enable_graph_break_logging
+  do_train --&gt; get_memory_stats
+  do_train --&gt; get_process_subgroup
+  do_train --&gt; get_rank
+  do_train --&gt; get_run_metadata
+  do_train --&gt; get_subgroup_size
+  do_train --&gt; get_world_size
+  do_train --&gt; is_subgroup_main_process
+  do_train --&gt; keep_checkpoint_copy
+  do_train --&gt; keep_last_n_checkpoints
+  do_train --&gt; log_fragmentation_stats
+  do_train --&gt; log_phase_memory
+  do_train --&gt; make_nvtx
+  do_train --&gt; memory_profile_enabled
+  do_train --&gt; register_dont_save_hooks
+  find_all_checkpoints --&gt; _is_int
+  get_rank --&gt; is_distributed_enabled
+  get_subgroup_size --&gt; get_process_subgroup
+  get_subgroup_size --&gt; get_world_size
+  get_world_size --&gt; is_distributed_enabled
+  is_subgroup_main_process --&gt; get_process_subgroup
+  is_subgroup_main_process --&gt; get_rank
+  keep_last_n_checkpoints --&gt; find_all_checkpoints
+  log_fragmentation_stats --&gt; SmoothedValue_max
+  make_nvtx --&gt; NVTXRange
+  save --&gt; FileFormat_guess
+  save --&gt; _assert_valid_dtypes
+</pre>
+</details>
+<details open><summary>loss-forward — Student/teacher forward + 4 loss terms + backward</summary>
+<pre class="mermaid">
+graph TD
+  SSLMetaArch_backprop_loss[&quot;SSLMetaArch.backprop_loss&quot;]
+  SSLMetaArch_compute_losses[&quot;SSLMetaArch.compute_losses&quot;]
+  SSLMetaArch_forward_backward[&quot;SSLMetaArch.forward_backward&quot;]
+  SSLMetaArch_get_gram_teacher_output[&quot;SSLMetaArch.get_gram_teacher_output&quot;]
+  SSLMetaArch_get_student_output[&quot;SSLMetaArch.get_student_output&quot;]
+  iBOTPatchLoss_forward_masked[&quot;iBOTPatchLoss.forward_masked&quot;]
+  interpolate[&quot;interpolate&quot;]
+  lossfunc[&quot;lossfunc&quot;]
+  SSLMetaArch_compute_losses --&gt; iBOTPatchLoss_forward_masked
+  SSLMetaArch_forward_backward --&gt; SSLMetaArch_backprop_loss
+  SSLMetaArch_forward_backward --&gt; SSLMetaArch_compute_losses
+  SSLMetaArch_forward_backward --&gt; SSLMetaArch_get_gram_teacher_output
+  SSLMetaArch_forward_backward --&gt; SSLMetaArch_get_student_output
+  SSLMetaArch_get_gram_teacher_output --&gt; interpolate
+  iBOTPatchLoss_forward_masked --&gt; lossfunc
+</pre>
+</details>
+<details open><summary>distributed-wrap — DDP/FSDP2 wrap, torch.compile, activation checkpointing</summary>
+<pre class="mermaid">
+graph TD
+  NestedTensor[&quot;NestedTensor&quot;]
+  NestedTensor_to[&quot;NestedTensor.to&quot;]
+  _ac_compile_parallelize_ddp[&quot;_ac_compile_parallelize_ddp&quot;]
+  _ac_compile_parallelize_fsdp[&quot;_ac_compile_parallelize_fsdp&quot;]
+  _compile_path_desc[&quot;_compile_path_desc&quot;]
+  _get_compile_mode[&quot;_get_compile_mode&quot;]
+  ac_compile_parallelize[&quot;ac_compile_parallelize&quot;]
+  activation_checkpoint_convnext[&quot;activation_checkpoint_convnext&quot;]
+  activation_checkpoint_transformer[&quot;activation_checkpoint_transformer&quot;]
+  compile_convnext[&quot;compile_convnext&quot;]
+  compile_transformer[&quot;compile_transformer&quot;]
+  fsdp_convnext[&quot;fsdp_convnext&quot;]
+  fsdp_transformer[&quot;fsdp_transformer&quot;]
+  get_activation_checkpoint_wrapper[&quot;get_activation_checkpoint_wrapper&quot;]
+  get_world_size[&quot;get_world_size&quot;]
+  has_batchnorms[&quot;has_batchnorms&quot;]
+  is_distributed_enabled[&quot;is_distributed_enabled&quot;]
+  wrap_compile_block[&quot;wrap_compile_block&quot;]
+  NestedTensor_to --&gt; NestedTensor
+  _ac_compile_parallelize_ddp --&gt; NestedTensor_to
+  _ac_compile_parallelize_fsdp --&gt; get_world_size
+  ac_compile_parallelize --&gt; _ac_compile_parallelize_ddp
+  ac_compile_parallelize --&gt; _ac_compile_parallelize_fsdp
+  ac_compile_parallelize --&gt; _compile_path_desc
+  ac_compile_parallelize --&gt; _get_compile_mode
+  ac_compile_parallelize --&gt; has_batchnorms
+  ac_compile_parallelize --&gt; wrap_compile_block
+  activation_checkpoint_convnext --&gt; get_activation_checkpoint_wrapper
+  activation_checkpoint_transformer --&gt; get_activation_checkpoint_wrapper
+  compile_convnext --&gt; _compile_path_desc
+  compile_convnext --&gt; _get_compile_mode
+  compile_convnext --&gt; wrap_compile_block
+  compile_transformer --&gt; _compile_path_desc
+  compile_transformer --&gt; _get_compile_mode
+  compile_transformer --&gt; wrap_compile_block
+  get_world_size --&gt; is_distributed_enabled
+</pre>
+</details>
+<details open><summary>data-pipeline — Loader + multi-crop collate</summary>
+<pre class="mermaid">
+graph TD
+  EpochSampler[&quot;EpochSampler&quot;]
+  InfiniteSampler[&quot;InfiniteSampler&quot;]
+  NestedTensor[&quot;NestedTensor&quot;]
+  NestedTensor_record_stream[&quot;NestedTensor.record_stream&quot;]
+  NestedTensor_to[&quot;NestedTensor.to&quot;]
+  ShardedInfiniteSampler[&quot;ShardedInfiniteSampler&quot;]
+  _generate_randperm_indices[&quot;_generate_randperm_indices&quot;]
+  _get_torch_dtype[&quot;_get_torch_dtype&quot;]
+  _make_sampler[&quot;_make_sampler&quot;]
+  _make_seed[&quot;_make_seed&quot;]
+  collate_data_and_cast[&quot;collate_data_and_cast&quot;]
+  get_rank[&quot;get_rank&quot;]
+  get_world_size[&quot;get_world_size&quot;]
+  make_data_loader[&quot;make_data_loader&quot;]
+  EpochSampler --&gt; get_rank
+  EpochSampler --&gt; get_world_size
+  InfiniteSampler --&gt; _generate_randperm_indices
+  InfiniteSampler --&gt; get_rank
+  InfiniteSampler --&gt; get_world_size
+  NestedTensor --&gt; NestedTensor_record_stream
+  NestedTensor --&gt; NestedTensor_to
+  NestedTensor_to --&gt; NestedTensor
+  ShardedInfiniteSampler --&gt; _get_torch_dtype
+  ShardedInfiniteSampler --&gt; _make_seed
+  ShardedInfiniteSampler --&gt; get_rank
+  ShardedInfiniteSampler --&gt; get_world_size
+  _make_sampler --&gt; EpochSampler
+  _make_sampler --&gt; InfiniteSampler
+  _make_sampler --&gt; ShardedInfiniteSampler
+  collate_data_and_cast --&gt; NestedTensor_to
+  make_data_loader --&gt; _make_sampler
+</pre>
+</details>
+</section>

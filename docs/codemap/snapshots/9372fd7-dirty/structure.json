@@ -1,0 +1,3831 @@
+{
+  "generated_at": "2026-06-29T18:38:57",
+  "git_sha": "9372fd7-dirty",
+  "lenses": [
+    {
+      "description": "Core training iteration",
+      "edges": [
+        {
+          "dst": "CombinedDataLoader.homogeneous_iterator",
+          "kind": "call",
+          "src": "CombinedDataLoader"
+        },
+        {
+          "dst": "MetricLogger.dump_in_output_file",
+          "kind": "call",
+          "src": "MetricLogger"
+        },
+        {
+          "dst": "SmoothedValue",
+          "kind": "call",
+          "src": "MetricLogger"
+        },
+        {
+          "dst": "get_rank",
+          "kind": "call",
+          "src": "MetricLogger"
+        },
+        {
+          "dst": "MetricLogger.dump_in_output_file",
+          "kind": "call",
+          "src": "MetricLogger.log_every"
+        },
+        {
+          "dst": "SmoothedValue",
+          "kind": "call",
+          "src": "MetricLogger.log_every"
+        },
+        {
+          "dst": "get_rank",
+          "kind": "call",
+          "src": "MetricLogger.log_every"
+        },
+        {
+          "dst": "fuse_params_groups",
+          "kind": "call",
+          "src": "SSLMetaArch.get_maybe_fused_params_for_submodel"
+        },
+        {
+          "dst": "get_params_groups_with_decay_fsdp",
+          "kind": "call",
+          "src": "SSLMetaArch.get_maybe_fused_params_for_submodel"
+        },
+        {
+          "dst": "SSLMetaArch.get_maybe_fused_params_for_submodel",
+          "kind": "call",
+          "src": "SSLMetaArch.get_params_groups"
+        },
+        {
+          "dst": "SmoothedValue.max",
+          "kind": "call",
+          "src": "SmoothedValue"
+        },
+        {
+          "dst": "SmoothedValue.median",
+          "kind": "call",
+          "src": "SmoothedValue"
+        },
+        {
+          "dst": "SmoothedValue.max",
+          "kind": "call",
+          "src": "WSDLRScheduler"
+        },
+        {
+          "dst": "get_rank",
+          "kind": "call",
+          "src": "_log_rank_topology"
+        },
+        {
+          "dst": "MaskingGenerator",
+          "kind": "call",
+          "src": "build_data_loader_from_cfg"
+        },
+        {
+          "dst": "SSLMetaArch.build_data_augmentation_dino",
+          "kind": "call",
+          "src": "build_data_loader_from_cfg"
+        },
+        {
+          "dst": "get_subgroup_size",
+          "kind": "call",
+          "src": "build_data_loader_from_cfg"
+        },
+        {
+          "dst": "get_world_size",
+          "kind": "call",
+          "src": "build_data_loader_from_cfg"
+        },
+        {
+          "dst": "make_data_loader",
+          "kind": "call",
+          "src": "build_data_loader_from_cfg"
+        },
+        {
+          "dst": "make_dataset",
+          "kind": "call",
+          "src": "build_data_loader_from_cfg"
+        },
+        {
+          "dst": "CombinedDataLoader",
+          "kind": "call",
+          "src": "build_multi_resolution_data_loader_from_cfg"
+        },
+        {
+          "dst": "build_data_loader_from_cfg",
+          "kind": "call",
+          "src": "build_multi_resolution_data_loader_from_cfg"
+        },
+        {
+          "dst": "CosineScheduler",
+          "kind": "call",
+          "src": "build_schedulers"
+        },
+        {
+          "dst": "WSDLRScheduler",
+          "kind": "call",
+          "src": "build_schedulers"
+        },
+        {
+          "dst": "build_schedulers_v2",
+          "kind": "call",
+          "src": "build_schedulers"
+        },
+        {
+          "dst": "get_world_size",
+          "kind": "call",
+          "src": "build_schedulers_v2"
+        },
+        {
+          "dst": "linear_warmup_cosine_decay",
+          "kind": "call",
+          "src": "build_schedulers_v2"
+        },
+        {
+          "dst": "vit_forward_flops",
+          "kind": "call",
+          "src": "compute_dino_flops_per_image"
+        },
+        {
+          "dst": "is_subgroup_main_process",
+          "kind": "call",
+          "src": "do_test"
+        },
+        {
+          "dst": "save",
+          "kind": "call",
+          "src": "do_test"
+        },
+        {
+          "dst": "MetricLogger",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "MetricLogger.log_every",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "SSLMetaArch.get_params_groups",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "SSLMetaArch.gram_load_ema_teacher",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "SSLMetaArch.set_nvtx",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "SSLMetaArch.update_ema",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "SSLMetaArch.update_gram",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "SmoothedValue.max",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "_log_rank_topology",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "apply_optim_scheduler",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "build_multi_resolution_data_loader_from_cfg",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "build_optimizer",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "build_profiler",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "build_schedulers",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "compute_dino_flops_per_image",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "compute_mfu",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "do_test",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "enable_graph_break_logging",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "get_memory_stats",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "get_process_subgroup",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "get_rank",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "get_run_metadata",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "get_subgroup_size",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "get_world_size",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "is_subgroup_main_process",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "keep_checkpoint_copy",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "keep_last_n_checkpoints",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "log_fragmentation_stats",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "log_phase_memory",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "make_nvtx",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "memory_profile_enabled",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "register_dont_save_hooks",
+          "kind": "call",
+          "src": "do_train"
+        },
+        {
+          "dst": "_is_int",
+          "kind": "call",
+          "src": "find_all_checkpoints"
+        },
+        {
+          "dst": "is_distributed_enabled",
+          "kind": "call",
+          "src": "get_rank"
+        },
+        {
+          "dst": "get_process_subgroup",
+          "kind": "call",
+          "src": "get_subgroup_size"
+        },
+        {
+          "dst": "get_world_size",
+          "kind": "call",
+          "src": "get_subgroup_size"
+        },
+        {
+          "dst": "is_distributed_enabled",
+          "kind": "call",
+          "src": "get_world_size"
+        },
+        {
+          "dst": "get_process_subgroup",
+          "kind": "call",
+          "src": "is_subgroup_main_process"
+        },
+        {
+          "dst": "get_rank",
+          "kind": "call",
+          "src": "is_subgroup_main_process"
+        },
+        {
+          "dst": "find_all_checkpoints",
+          "kind": "call",
+          "src": "keep_last_n_checkpoints"
+        },
+        {
+          "dst": "SmoothedValue.max",
+          "kind": "call",
+          "src": "log_fragmentation_stats"
+        },
+        {
+          "dst": "NVTXRange",
+          "kind": "call",
+          "src": "make_nvtx"
+        },
+        {
+          "dst": "FileFormat.guess",
+          "kind": "call",
+          "src": "save"
+        },
+        {
+          "dst": "_assert_valid_dtypes",
+          "kind": "call",
+          "src": "save"
+        }
+      ],
+      "entrypoints": [
+        "dinov3/train/train.py:do_train"
+      ],
+      "name": "train-loop",
+      "nodes": [
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/meta_loaders.py",
+          "id": "CombinedDataLoader",
+          "kind": "class",
+          "line": 16
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/meta_loaders.py",
+          "id": "CombinedDataLoader.homogeneous_iterator",
+          "kind": "method",
+          "line": 56
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/cosine_lr_scheduler.py",
+          "id": "CosineScheduler",
+          "kind": "class",
+          "line": 13
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/results.py",
+          "id": "FileFormat.guess",
+          "kind": "method",
+          "line": 42
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/masking.py",
+          "id": "MaskingGenerator",
+          "kind": "class",
+          "line": 12
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/logging/helpers.py",
+          "id": "MetricLogger",
+          "kind": "class",
+          "line": 28
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/logging/helpers.py",
+          "id": "MetricLogger.dump_in_output_file",
+          "kind": "method",
+          "line": 61
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/logging/helpers.py",
+          "id": "MetricLogger.log_every",
+          "kind": "method",
+          "line": 74
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "NVTXRange",
+          "kind": "class",
+          "line": 19
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.build_data_augmentation_dino",
+          "kind": "method",
+          "line": 790
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.get_maybe_fused_params_for_submodel",
+          "kind": "method",
+          "line": 829
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.get_params_groups",
+          "kind": "method",
+          "line": 847
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.gram_load_ema_teacher",
+          "kind": "method",
+          "line": 730
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.set_nvtx",
+          "kind": "method",
+          "line": 375
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.update_ema",
+          "kind": "method",
+          "line": 756
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.update_gram",
+          "kind": "method",
+          "line": 771
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/logging/helpers.py",
+          "id": "SmoothedValue",
+          "kind": "class",
+          "line": 154
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/logging/helpers.py",
+          "id": "SmoothedValue.max",
+          "kind": "method",
+          "line": 203
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/logging/helpers.py",
+          "id": "SmoothedValue.median",
+          "kind": "method",
+          "line": 187
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/cosine_lr_scheduler.py",
+          "id": "WSDLRScheduler",
+          "kind": "class",
+          "line": 54
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/results.py",
+          "id": "_assert_valid_dtypes",
+          "kind": "function",
+          "line": 117
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/checkpointer/checkpointer.py",
+          "id": "_is_int",
+          "kind": "function",
+          "line": 375
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "_log_rank_topology",
+          "kind": "function",
+          "line": 426
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "apply_optim_scheduler",
+          "kind": "function",
+          "line": 260
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "build_data_loader_from_cfg",
+          "kind": "function",
+          "line": 301
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "build_multi_resolution_data_loader_from_cfg",
+          "kind": "function",
+          "line": 378
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "build_optimizer",
+          "kind": "function",
+          "line": 110
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "build_profiler",
+          "kind": "function",
+          "line": 50
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "build_schedulers",
+          "kind": "function",
+          "line": 114
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "build_schedulers_v2",
+          "kind": "function",
+          "line": 188
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/mfu.py",
+          "id": "compute_dino_flops_per_image",
+          "kind": "function",
+          "line": 52
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/mfu.py",
+          "id": "compute_mfu",
+          "kind": "function",
+          "line": 111
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "do_test",
+          "kind": "function",
+          "line": 272
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/train.py",
+          "id": "do_train",
+          "kind": "function",
+          "line": 463
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "enable_graph_break_logging",
+          "kind": "function",
+          "line": 116
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/checkpointer/checkpointer.py",
+          "id": "find_all_checkpoints",
+          "kind": "function",
+          "line": 336
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/param_groups.py",
+          "id": "fuse_params_groups",
+          "kind": "function",
+          "line": 111
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "get_memory_stats",
+          "kind": "function",
+          "line": 129
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/param_groups.py",
+          "id": "get_params_groups_with_decay_fsdp",
+          "kind": "function",
+          "line": 125
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "get_process_subgroup",
+          "kind": "function",
+          "line": 322
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "get_rank",
+          "kind": "function",
+          "line": 33
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "get_run_metadata",
+          "kind": "function",
+          "line": 214
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "get_subgroup_size",
+          "kind": "function",
+          "line": 338
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "get_world_size",
+          "kind": "function",
+          "line": 43
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "is_distributed_enabled",
+          "kind": "function",
+          "line": 25
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "is_subgroup_main_process",
+          "kind": "function",
+          "line": 346
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/checkpointer/checkpointer.py",
+          "id": "keep_checkpoint_copy",
+          "kind": "function",
+          "line": 367
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/checkpointer/checkpointer.py",
+          "id": "keep_last_n_checkpoints",
+          "kind": "function",
+          "line": 354
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/cosine_lr_scheduler.py",
+          "id": "linear_warmup_cosine_decay",
+          "kind": "function",
+          "line": 96
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "log_fragmentation_stats",
+          "kind": "function",
+          "line": 170
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "log_phase_memory",
+          "kind": "function",
+          "line": 146
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/loaders.py",
+          "id": "make_data_loader",
+          "kind": "function",
+          "line": 196
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/loaders.py",
+          "id": "make_dataset",
+          "kind": "function",
+          "line": 94
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "make_nvtx",
+          "kind": "function",
+          "line": 38
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/profiling.py",
+          "id": "memory_profile_enabled",
+          "kind": "function",
+          "line": 141
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/checkpointer/checkpointer.py",
+          "id": "register_dont_save_hooks",
+          "kind": "function",
+          "line": 285
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/results.py",
+          "id": "save",
+          "kind": "function",
+          "line": 190
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/mfu.py",
+          "id": "vit_forward_flops",
+          "kind": "function",
+          "line": 20
+        }
+      ],
+      "unresolved_entrypoints": []
+    },
+    {
+      "description": "Student/teacher forward + 4 loss terms + backward",
+      "edges": [
+        {
+          "dst": "iBOTPatchLoss.forward_masked",
+          "kind": "call",
+          "src": "SSLMetaArch.compute_losses"
+        },
+        {
+          "dst": "SSLMetaArch.backprop_loss",
+          "kind": "call",
+          "src": "SSLMetaArch.forward_backward"
+        },
+        {
+          "dst": "SSLMetaArch.compute_losses",
+          "kind": "call",
+          "src": "SSLMetaArch.forward_backward"
+        },
+        {
+          "dst": "SSLMetaArch.get_gram_teacher_output",
+          "kind": "call",
+          "src": "SSLMetaArch.forward_backward"
+        },
+        {
+          "dst": "SSLMetaArch.get_student_output",
+          "kind": "call",
+          "src": "SSLMetaArch.forward_backward"
+        },
+        {
+          "dst": "interpolate",
+          "kind": "call",
+          "src": "SSLMetaArch.get_gram_teacher_output"
+        },
+        {
+          "dst": "lossfunc",
+          "kind": "call",
+          "src": "iBOTPatchLoss.forward_masked"
+        }
+      ],
+      "entrypoints": [
+        "dinov3/train/ssl_meta_arch.py:SSLMetaArch.forward_backward"
+      ],
+      "name": "loss-forward",
+      "nodes": [
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.backprop_loss",
+          "kind": "method",
+          "line": 753
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.compute_losses",
+          "kind": "method",
+          "line": 627
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.forward_backward",
+          "kind": "method",
+          "line": 379
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.get_gram_teacher_output",
+          "kind": "method",
+          "line": 519
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/train/ssl_meta_arch.py",
+          "id": "SSLMetaArch.get_student_output",
+          "kind": "method",
+          "line": 573
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/loss/ibot_patch_loss.py",
+          "id": "iBOTPatchLoss.forward_masked",
+          "kind": "method",
+          "line": 96
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/detection/util/misc.py",
+          "id": "interpolate",
+          "kind": "function",
+          "line": 149
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/loss/ibot_patch_loss.py",
+          "id": "lossfunc",
+          "kind": "function",
+          "line": 16
+        }
+      ],
+      "unresolved_entrypoints": []
+    },
+    {
+      "description": "DDP/FSDP2 wrap, torch.compile, activation checkpointing",
+      "edges": [
+        {
+          "dst": "NestedTensor",
+          "kind": "call",
+          "src": "NestedTensor.to"
+        },
+        {
+          "dst": "NestedTensor.to",
+          "kind": "call",
+          "src": "_ac_compile_parallelize_ddp"
+        },
+        {
+          "dst": "get_world_size",
+          "kind": "call",
+          "src": "_ac_compile_parallelize_fsdp"
+        },
+        {
+          "dst": "_ac_compile_parallelize_ddp",
+          "kind": "call",
+          "src": "ac_compile_parallelize"
+        },
+        {
+          "dst": "_ac_compile_parallelize_fsdp",
+          "kind": "call",
+          "src": "ac_compile_parallelize"
+        },
+        {
+          "dst": "_compile_path_desc",
+          "kind": "call",
+          "src": "ac_compile_parallelize"
+        },
+        {
+          "dst": "_get_compile_mode",
+          "kind": "call",
+          "src": "ac_compile_parallelize"
+        },
+        {
+          "dst": "has_batchnorms",
+          "kind": "call",
+          "src": "ac_compile_parallelize"
+        },
+        {
+          "dst": "wrap_compile_block",
+          "kind": "call",
+          "src": "ac_compile_parallelize"
+        },
+        {
+          "dst": "get_activation_checkpoint_wrapper",
+          "kind": "call",
+          "src": "activation_checkpoint_convnext"
+        },
+        {
+          "dst": "get_activation_checkpoint_wrapper",
+          "kind": "call",
+          "src": "activation_checkpoint_transformer"
+        },
+        {
+          "dst": "_compile_path_desc",
+          "kind": "call",
+          "src": "compile_convnext"
+        },
+        {
+          "dst": "_get_compile_mode",
+          "kind": "call",
+          "src": "compile_convnext"
+        },
+        {
+          "dst": "wrap_compile_block",
+          "kind": "call",
+          "src": "compile_convnext"
+        },
+        {
+          "dst": "_compile_path_desc",
+          "kind": "call",
+          "src": "compile_transformer"
+        },
+        {
+          "dst": "_get_compile_mode",
+          "kind": "call",
+          "src": "compile_transformer"
+        },
+        {
+          "dst": "wrap_compile_block",
+          "kind": "call",
+          "src": "compile_transformer"
+        },
+        {
+          "dst": "is_distributed_enabled",
+          "kind": "call",
+          "src": "get_world_size"
+        }
+      ],
+      "entrypoints": [
+        "dinov3/fsdp/ac_compile_parallelize.py"
+      ],
+      "name": "distributed-wrap",
+      "nodes": [
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/detection/util/misc.py",
+          "id": "NestedTensor",
+          "kind": "class",
+          "line": 100
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/detection/util/misc.py",
+          "id": "NestedTensor.to",
+          "kind": "method",
+          "line": 105
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "_ac_compile_parallelize_ddp",
+          "kind": "function",
+          "line": 316
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "_ac_compile_parallelize_fsdp",
+          "kind": "function",
+          "line": 253
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "_compile_path_desc",
+          "kind": "function",
+          "line": 86
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "_get_compile_mode",
+          "kind": "function",
+          "line": 80
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "ac_compile_parallelize",
+          "kind": "function",
+          "line": 164
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "activation_checkpoint_convnext",
+          "kind": "function",
+          "line": 50
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "activation_checkpoint_transformer",
+          "kind": "function",
+          "line": 59
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "compile_convnext",
+          "kind": "function",
+          "line": 96
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "compile_transformer",
+          "kind": "function",
+          "line": 114
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "fsdp_convnext",
+          "kind": "function",
+          "line": 130
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "fsdp_transformer",
+          "kind": "function",
+          "line": 149
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "get_activation_checkpoint_wrapper",
+          "kind": "function",
+          "line": 25
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "get_world_size",
+          "kind": "function",
+          "line": 43
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/utils/utils.py",
+          "id": "has_batchnorms",
+          "kind": "function",
+          "line": 125
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "is_distributed_enabled",
+          "kind": "function",
+          "line": 25
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/fsdp/ac_compile_parallelize.py",
+          "id": "wrap_compile_block",
+          "kind": "function",
+          "line": 65
+        }
+      ],
+      "unresolved_entrypoints": []
+    },
+    {
+      "description": "Loader + multi-crop collate",
+      "edges": [
+        {
+          "dst": "get_rank",
+          "kind": "call",
+          "src": "EpochSampler"
+        },
+        {
+          "dst": "get_world_size",
+          "kind": "call",
+          "src": "EpochSampler"
+        },
+        {
+          "dst": "_generate_randperm_indices",
+          "kind": "call",
+          "src": "InfiniteSampler"
+        },
+        {
+          "dst": "get_rank",
+          "kind": "call",
+          "src": "InfiniteSampler"
+        },
+        {
+          "dst": "get_world_size",
+          "kind": "call",
+          "src": "InfiniteSampler"
+        },
+        {
+          "dst": "NestedTensor.record_stream",
+          "kind": "call",
+          "src": "NestedTensor"
+        },
+        {
+          "dst": "NestedTensor.to",
+          "kind": "call",
+          "src": "NestedTensor"
+        },
+        {
+          "dst": "NestedTensor",
+          "kind": "call",
+          "src": "NestedTensor.to"
+        },
+        {
+          "dst": "_get_torch_dtype",
+          "kind": "call",
+          "src": "ShardedInfiniteSampler"
+        },
+        {
+          "dst": "_make_seed",
+          "kind": "call",
+          "src": "ShardedInfiniteSampler"
+        },
+        {
+          "dst": "get_rank",
+          "kind": "call",
+          "src": "ShardedInfiniteSampler"
+        },
+        {
+          "dst": "get_world_size",
+          "kind": "call",
+          "src": "ShardedInfiniteSampler"
+        },
+        {
+          "dst": "EpochSampler",
+          "kind": "call",
+          "src": "_make_sampler"
+        },
+        {
+          "dst": "InfiniteSampler",
+          "kind": "call",
+          "src": "_make_sampler"
+        },
+        {
+          "dst": "ShardedInfiniteSampler",
+          "kind": "call",
+          "src": "_make_sampler"
+        },
+        {
+          "dst": "NestedTensor.to",
+          "kind": "call",
+          "src": "collate_data_and_cast"
+        },
+        {
+          "dst": "_make_sampler",
+          "kind": "call",
+          "src": "make_data_loader"
+        }
+      ],
+      "entrypoints": [
+        "dinov3/data/loaders.py:make_data_loader",
+        "dinov3/data/collate.py:collate_data_and_cast"
+      ],
+      "name": "data-pipeline",
+      "nodes": [
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/samplers.py",
+          "id": "EpochSampler",
+          "kind": "class",
+          "line": 17
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/samplers.py",
+          "id": "InfiniteSampler",
+          "kind": "class",
+          "line": 78
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/detection/util/misc.py",
+          "id": "NestedTensor",
+          "kind": "class",
+          "line": 100
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/detection/util/misc.py",
+          "id": "NestedTensor.record_stream",
+          "kind": "method",
+          "line": 115
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/eval/detection/util/misc.py",
+          "id": "NestedTensor.to",
+          "kind": "method",
+          "line": 105
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/samplers.py",
+          "id": "ShardedInfiniteSampler",
+          "kind": "class",
+          "line": 165
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/samplers.py",
+          "id": "_generate_randperm_indices",
+          "kind": "function",
+          "line": 63
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/samplers.py",
+          "id": "_get_torch_dtype",
+          "kind": "function",
+          "line": 59
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/loaders.py",
+          "id": "_make_sampler",
+          "kind": "function",
+          "line": 131
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/samplers.py",
+          "id": "_make_seed",
+          "kind": "function",
+          "line": 160
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/collate.py",
+          "id": "collate_data_and_cast",
+          "kind": "function",
+          "line": 11
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "get_rank",
+          "kind": "function",
+          "line": 33
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/distributed/torch_distributed_wrapper.py",
+          "id": "get_world_size",
+          "kind": "function",
+          "line": 43
+        },
+        {
+          "file": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3/data/loaders.py",
+          "id": "make_data_loader",
+          "kind": "function",
+          "line": 196
+        }
+      ],
+      "unresolved_entrypoints": []
+    }
+  ],
+  "mermaid": {
+    "data-pipeline": "graph TD\n  EpochSampler[\"EpochSampler\"]\n  InfiniteSampler[\"InfiniteSampler\"]\n  NestedTensor[\"NestedTensor\"]\n  NestedTensor_record_stream[\"NestedTensor.record_stream\"]\n  NestedTensor_to[\"NestedTensor.to\"]\n  ShardedInfiniteSampler[\"ShardedInfiniteSampler\"]\n  _generate_randperm_indices[\"_generate_randperm_indices\"]\n  _get_torch_dtype[\"_get_torch_dtype\"]\n  _make_sampler[\"_make_sampler\"]\n  _make_seed[\"_make_seed\"]\n  collate_data_and_cast[\"collate_data_and_cast\"]\n  get_rank[\"get_rank\"]\n  get_world_size[\"get_world_size\"]\n  make_data_loader[\"make_data_loader\"]\n  EpochSampler --> get_rank\n  EpochSampler --> get_world_size\n  InfiniteSampler --> _generate_randperm_indices\n  InfiniteSampler --> get_rank\n  InfiniteSampler --> get_world_size\n  NestedTensor --> NestedTensor_record_stream\n  NestedTensor --> NestedTensor_to\n  NestedTensor_to --> NestedTensor\n  ShardedInfiniteSampler --> _get_torch_dtype\n  ShardedInfiniteSampler --> _make_seed\n  ShardedInfiniteSampler --> get_rank\n  ShardedInfiniteSampler --> get_world_size\n  _make_sampler --> EpochSampler\n  _make_sampler --> InfiniteSampler\n  _make_sampler --> ShardedInfiniteSampler\n  collate_data_and_cast --> NestedTensor_to\n  make_data_loader --> _make_sampler",
+    "distributed-wrap": "graph TD\n  NestedTensor[\"NestedTensor\"]\n  NestedTensor_to[\"NestedTensor.to\"]\n  _ac_compile_parallelize_ddp[\"_ac_compile_parallelize_ddp\"]\n  _ac_compile_parallelize_fsdp[\"_ac_compile_parallelize_fsdp\"]\n  _compile_path_desc[\"_compile_path_desc\"]\n  _get_compile_mode[\"_get_compile_mode\"]\n  ac_compile_parallelize[\"ac_compile_parallelize\"]\n  activation_checkpoint_convnext[\"activation_checkpoint_convnext\"]\n  activation_checkpoint_transformer[\"activation_checkpoint_transformer\"]\n  compile_convnext[\"compile_convnext\"]\n  compile_transformer[\"compile_transformer\"]\n  fsdp_convnext[\"fsdp_convnext\"]\n  fsdp_transformer[\"fsdp_transformer\"]\n  get_activation_checkpoint_wrapper[\"get_activation_checkpoint_wrapper\"]\n  get_world_size[\"get_world_size\"]\n  has_batchnorms[\"has_batchnorms\"]\n  is_distributed_enabled[\"is_distributed_enabled\"]\n  wrap_compile_block[\"wrap_compile_block\"]\n  NestedTensor_to --> NestedTensor\n  _ac_compile_parallelize_ddp --> NestedTensor_to\n  _ac_compile_parallelize_fsdp --> get_world_size\n  ac_compile_parallelize --> _ac_compile_parallelize_ddp\n  ac_compile_parallelize --> _ac_compile_parallelize_fsdp\n  ac_compile_parallelize --> _compile_path_desc\n  ac_compile_parallelize --> _get_compile_mode\n  ac_compile_parallelize --> has_batchnorms\n  ac_compile_parallelize --> wrap_compile_block\n  activation_checkpoint_convnext --> get_activation_checkpoint_wrapper\n  activation_checkpoint_transformer --> get_activation_checkpoint_wrapper\n  compile_convnext --> _compile_path_desc\n  compile_convnext --> _get_compile_mode\n  compile_convnext --> wrap_compile_block\n  compile_transformer --> _compile_path_desc\n  compile_transformer --> _get_compile_mode\n  compile_transformer --> wrap_compile_block\n  get_world_size --> is_distributed_enabled",
+    "loss-forward": "graph TD\n  SSLMetaArch_backprop_loss[\"SSLMetaArch.backprop_loss\"]\n  SSLMetaArch_compute_losses[\"SSLMetaArch.compute_losses\"]\n  SSLMetaArch_forward_backward[\"SSLMetaArch.forward_backward\"]\n  SSLMetaArch_get_gram_teacher_output[\"SSLMetaArch.get_gram_teacher_output\"]\n  SSLMetaArch_get_student_output[\"SSLMetaArch.get_student_output\"]\n  iBOTPatchLoss_forward_masked[\"iBOTPatchLoss.forward_masked\"]\n  interpolate[\"interpolate\"]\n  lossfunc[\"lossfunc\"]\n  SSLMetaArch_compute_losses --> iBOTPatchLoss_forward_masked\n  SSLMetaArch_forward_backward --> SSLMetaArch_backprop_loss\n  SSLMetaArch_forward_backward --> SSLMetaArch_compute_losses\n  SSLMetaArch_forward_backward --> SSLMetaArch_get_gram_teacher_output\n  SSLMetaArch_forward_backward --> SSLMetaArch_get_student_output\n  SSLMetaArch_get_gram_teacher_output --> interpolate\n  iBOTPatchLoss_forward_masked --> lossfunc",
+    "module_overview": "graph TD\n  dinov3[\"dinov3\"]\n  dinov3_checkpointer[\"checkpointer\"]\n  dinov3_checkpointer_checkpointer[\"checkpointer\"]\n  dinov3_configs[\"configs\"]\n  dinov3_configs_config[\"config\"]\n  dinov3_configs_train[\"train\"]\n  dinov3_configs_train_multidist_tests[\"multidist_tests\"]\n  dinov3_data[\"data\"]\n  dinov3_data_adapters[\"adapters\"]\n  dinov3_data_collate[\"collate\"]\n  dinov3_data_datasets[\"datasets\"]\n  dinov3_data_datasets_augmentation[\"augmentation\"]\n  dinov3_data_datasets_channel_utils[\"channel_utils\"]\n  dinov3_data_datasets_hdf5_augmentation[\"hdf5_augmentation\"]\n  dinov3_data_datasets_hdf5_dataset[\"hdf5_dataset\"]\n  dinov3_data_datasets_maid_dataset[\"maid_dataset\"]\n  dinov3_data_datasets_mixed_satlas_dataset[\"mixed_satlas_dataset\"]\n  dinov3_data_datasets_satlas_datasets[\"satlas_datasets\"]\n  dinov3_data_loaders[\"loaders\"]\n  dinov3_data_masking[\"masking\"]\n  dinov3_data_meta_loaders[\"meta_loaders\"]\n  dinov3_data_samplers[\"samplers\"]\n  dinov3_data_transforms[\"transforms\"]\n  dinov3_distributed[\"distributed\"]\n  dinov3_distributed_torch_distributed_primitives[\"torch_distributed_primitives\"]\n  dinov3_distributed_torch_distributed_wrapper[\"torch_distributed_wrapper\"]\n  dinov3_env[\"env\"]\n  dinov3_eval[\"eval\"]\n  dinov3_eval_accumulators[\"accumulators\"]\n  dinov3_eval_data[\"data\"]\n  dinov3_eval_depth[\"depth\"]\n  dinov3_eval_depth_checkpoint_utils[\"checkpoint_utils\"]\n  dinov3_eval_depth_config[\"config\"]\n  dinov3_eval_depth_configs[\"configs\"]\n  dinov3_eval_depth_data[\"data\"]\n  dinov3_eval_depth_datasets[\"datasets\"]\n  dinov3_eval_depth_datasets_datasets_utils[\"datasets_utils\"]\n  dinov3_eval_depth_eval[\"eval\"]\n  dinov3_eval_depth_loss[\"loss\"]\n  dinov3_eval_depth_metrics[\"metrics\"]\n  dinov3_eval_depth_models[\"models\"]\n  dinov3_eval_depth_models_dpt_head[\"dpt_head\"]\n  dinov3_eval_depth_models_embed[\"embed\"]\n  dinov3_eval_depth_models_encoder[\"encoder\"]\n  dinov3_eval_depth_models_linear_head[\"linear_head\"]\n  dinov3_eval_depth_run[\"run\"]\n  dinov3_eval_depth_schedulers[\"schedulers\"]\n  dinov3_eval_depth_train[\"train\"]\n  dinov3_eval_depth_transforms[\"transforms\"]\n  dinov3_eval_depth_utils[\"utils\"]\n  dinov3_eval_depth_visualization_utils[\"visualization_utils\"]\n  dinov3_eval_detection[\"detection\"]\n  dinov3_eval_detection_config[\"config\"]\n  dinov3_eval_detection_models[\"models\"]\n  dinov3_eval_detection_models_backbone[\"backbone\"]\n  dinov3_eval_detection_models_detr[\"detr\"]\n  dinov3_eval_detection_models_global_ape_decoder[\"global_ape_decoder\"]\n  dinov3_eval_detection_models_global_rpe_decomp_decoder[\"global_rpe_decomp_decoder\"]\n  dinov3_eval_detection_models_position_encoding[\"position_encoding\"]\n  dinov3_eval_detection_models_transformer[\"transformer\"]\n  dinov3_eval_detection_models_transformer_encoder[\"transformer_encoder\"]\n  dinov3_eval_detection_models_utils[\"utils\"]\n  dinov3_eval_detection_models_windows[\"windows\"]\n  dinov3_eval_detection_util[\"util\"]\n  dinov3_eval_detection_util_box_ops[\"box_ops\"]\n  dinov3_eval_detection_util_misc[\"misc\"]\n  dinov3_eval_helpers[\"helpers\"]\n  dinov3_eval_knn[\"knn\"]\n  dinov3_eval_linear[\"linear\"]\n  dinov3_eval_log_regression[\"log_regression\"]\n  dinov3_eval_metrics[\"metrics\"]\n  dinov3_eval_metrics_classification[\"classification\"]\n  dinov3_eval_metrics_imagenet_c[\"imagenet_c\"]\n  dinov3_eval_results[\"results\"]\n  dinov3_eval_segmentation[\"segmentation\"]\n  dinov3_eval_segmentation_config[\"config\"]\n  dinov3_eval_segmentation_configs[\"configs\"]\n  dinov3_eval_segmentation_eval[\"eval\"]\n  dinov3_eval_segmentation_inference[\"inference\"]\n  dinov3_eval_segmentation_loss[\"loss\"]\n  dinov3_eval_segmentation_metrics[\"metrics\"]\n  dinov3_eval_segmentation_models[\"models\"]\n  dinov3_eval_segmentation_models_backbone[\"backbone\"]\n  dinov3_eval_segmentation_models_backbone_dinov3_adapter[\"dinov3_adapter\"]\n  dinov3_eval_segmentation_models_heads[\"heads\"]\n  dinov3_eval_segmentation_models_heads_linear_head[\"linear_head\"]\n  dinov3_eval_segmentation_models_heads_mask2former_head[\"mask2former_head\"]\n  dinov3_eval_segmentation_models_heads_mask2former_transformer_decoder[\"mask2former_transformer_decoder\"]\n  dinov3_eval_segmentation_models_heads_pixel_decoder[\"pixel_decoder\"]\n  dinov3_eval_segmentation_models_utils[\"utils\"]\n  dinov3_eval_segmentation_models_utils_batch_norm[\"batch_norm\"]\n  dinov3_eval_segmentation_models_utils_ms_deform_attn[\"ms_deform_attn\"]\n  dinov3_eval_segmentation_models_utils_ops[\"ops\"]\n  dinov3_eval_segmentation_models_utils_ops_functions[\"functions\"]\n  dinov3_eval_segmentation_models_utils_ops_functions_ms_deform_attn_func[\"ms_deform_attn_func\"]\n  dinov3_eval_segmentation_models_utils_ops_modules[\"modules\"]\n  dinov3_eval_segmentation_models_utils_ops_modules_ms_deform_attn[\"ms_deform_attn\"]\n  dinov3_eval_segmentation_models_utils_ops_setup[\"setup\"]\n  dinov3_eval_segmentation_models_utils_ops_src[\"src\"]\n  dinov3_eval_segmentation_models_utils_ops_src_cpu[\"cpu\"]\n  dinov3_eval_segmentation_models_utils_ops_src_cuda[\"cuda\"]\n  dinov3_eval_segmentation_models_utils_ops_test[\"test\"]\n  dinov3_eval_segmentation_models_utils_position_encoding[\"position_encoding\"]\n  dinov3_eval_segmentation_models_utils_transformer[\"transformer\"]\n  dinov3_eval_segmentation_run[\"run\"]\n  dinov3_eval_segmentation_schedulers[\"schedulers\"]\n  dinov3_eval_segmentation_train[\"train\"]\n  dinov3_eval_segmentation_transforms[\"transforms\"]\n  dinov3_eval_setup[\"setup\"]\n  dinov3_eval_text[\"text\"]\n  dinov3_eval_text_ac_comp_parallelize[\"ac_comp_parallelize\"]\n  dinov3_eval_text_build_dinotxt[\"build_dinotxt\"]\n  dinov3_eval_text_clip_loss[\"clip_loss\"]\n  dinov3_eval_text_configs[\"configs\"]\n  dinov3_eval_text_dinotxt_model[\"dinotxt_model\"]\n  dinov3_eval_text_gram_loss[\"gram_loss\"]\n  dinov3_eval_text_text_tower[\"text_tower\"]\n  dinov3_eval_text_text_transformer[\"text_transformer\"]\n  dinov3_eval_text_tokenizer[\"tokenizer\"]\n  dinov3_eval_text_train_dinotxt[\"train_dinotxt\"]\n  dinov3_eval_text_vision_tower[\"vision_tower\"]\n  dinov3_eval_utils[\"utils\"]\n  dinov3_fsdp[\"fsdp\"]\n  dinov3_fsdp_ac_compile_parallelize[\"ac_compile_parallelize\"]\n  dinov3_hub[\"hub\"]\n  dinov3_hub_backbones[\"backbones\"]\n  dinov3_hub_classifiers[\"classifiers\"]\n  dinov3_hub_depthers[\"depthers\"]\n  dinov3_hub_detectors[\"detectors\"]\n  dinov3_hub_dinotxt[\"dinotxt\"]\n  dinov3_hub_segmentors[\"segmentors\"]\n  dinov3_hub_utils[\"utils\"]\n  dinov3_layers[\"layers\"]\n  dinov3_layers_attention[\"attention\"]\n  dinov3_layers_block[\"block\"]\n  dinov3_layers_dino_head[\"dino_head\"]\n  dinov3_layers_ffn_layers[\"ffn_layers\"]\n  dinov3_layers_fp8_linear[\"fp8_linear\"]\n  dinov3_layers_layer_scale[\"layer_scale\"]\n  dinov3_layers_patch_embed[\"patch_embed\"]\n  dinov3_layers_rms_norm[\"rms_norm\"]\n  dinov3_layers_rope_position_encoding[\"rope_position_encoding\"]\n  dinov3_layers_sparse_linear[\"sparse_linear\"]\n  dinov3_logging[\"logging\"]\n  dinov3_logging_helpers[\"helpers\"]\n  dinov3_loss[\"loss\"]\n  dinov3_loss_dino_clstoken_loss[\"dino_clstoken_loss\"]\n  dinov3_loss_gram_loss[\"gram_loss\"]\n  dinov3_loss_ibot_patch_loss[\"ibot_patch_loss\"]\n  dinov3_loss_koleo_loss[\"koleo_loss\"]\n  dinov3_models[\"models\"]\n  dinov3_models_convnext[\"convnext\"]\n  dinov3_models_vision_transformer[\"vision_transformer\"]\n  dinov3_run[\"run\"]\n  dinov3_run_init[\"init\"]\n  dinov3_run_submit[\"submit\"]\n  dinov3_thirdparty[\"thirdparty\"]\n  dinov3_thirdparty_CLIP[\"CLIP\"]\n  dinov3_thirdparty_CLIP_clip[\"clip\"]\n  dinov3_thirdparty_CLIP_clip_simple_tokenizer[\"simple_tokenizer\"]\n  dinov3_train[\"train\"]\n  dinov3_train_cosine_lr_scheduler[\"cosine_lr_scheduler\"]\n  dinov3_train_multidist_meta_arch[\"multidist_meta_arch\"]\n  dinov3_train_param_groups[\"param_groups\"]\n  dinov3_train_ssl_meta_arch[\"ssl_meta_arch\"]\n  dinov3_train_train[\"train\"]\n  dinov3_utils[\"utils\"]\n  dinov3_utils_cluster[\"cluster\"]\n  dinov3_utils_custom_callable[\"custom_callable\"]\n  dinov3_utils_dtype[\"dtype\"]\n  dinov3_utils_mfu[\"mfu\"]\n  dinov3_utils_profiling[\"profiling\"]\n  dinov3_utils_utils[\"utils\"]\n  dinov3_configs_config --> dinov3\n  dinov3_configs_config --> dinov3_distributed\n  dinov3_configs_config --> dinov3_logging\n  dinov3_configs_config --> dinov3_utils\n  dinov3_data_datasets_augmentation --> dinov3\n  dinov3_data_datasets_augmentation --> dinov3_data_datasets_channel_utils\n  dinov3_data_datasets_hdf5_augmentation --> dinov3\n  dinov3_data_datasets_hdf5_augmentation --> dinov3_data_datasets_channel_utils\n  dinov3_data_datasets_hdf5_dataset --> dinov3\n  dinov3_data_datasets_hdf5_dataset --> dinov3_data_datasets_channel_utils\n  dinov3_data_datasets_maid_dataset --> dinov3\n  dinov3_data_datasets_maid_dataset --> dinov3_data_datasets_channel_utils\n  dinov3_data_datasets_mixed_satlas_dataset --> dinov3\n  dinov3_data_datasets_mixed_satlas_dataset --> dinov3_data_datasets_channel_utils\n  dinov3_data_datasets_mixed_satlas_dataset --> dinov3_data_datasets_hdf5_dataset\n  dinov3_data_datasets_mixed_satlas_dataset --> dinov3_data_datasets_maid_dataset\n  dinov3_data_datasets_mixed_satlas_dataset --> dinov3_data_datasets_satlas_datasets\n  dinov3_data_datasets_satlas_datasets --> dinov3\n  dinov3_data_datasets_satlas_datasets --> dinov3_data_datasets_channel_utils\n  dinov3_data_samplers --> dinov3\n  dinov3_data_samplers --> dinov3_distributed\n  dinov3_eval_accumulators --> dinov3\n  dinov3_eval_accumulators --> dinov3_distributed\n  dinov3_eval_data --> dinov3\n  dinov3_eval_data --> dinov3_eval_utils\n  dinov3_eval_depth_config --> dinov3\n  dinov3_eval_depth_config --> dinov3_data_transforms\n  dinov3_eval_depth_config --> dinov3_eval_depth_loss\n  dinov3_eval_depth_config --> dinov3_eval_depth_models\n  dinov3_eval_depth_config --> dinov3_eval_depth_transforms\n  dinov3_eval_depth_config --> dinov3_eval_setup\n  dinov3_eval_depth_data --> dinov3\n  dinov3_eval_depth_data --> dinov3_data\n  dinov3_eval_depth_data --> dinov3_distributed\n  dinov3_eval_depth_eval --> dinov3\n  dinov3_eval_depth_eval --> dinov3_distributed\n  dinov3_eval_depth_eval --> dinov3_eval_depth_config\n  dinov3_eval_depth_eval --> dinov3_eval_depth_data\n  dinov3_eval_depth_eval --> dinov3_eval_depth_datasets_datasets_utils\n  dinov3_eval_depth_eval --> dinov3_eval_depth_metrics\n  dinov3_eval_depth_eval --> dinov3_eval_depth_transforms\n  dinov3_eval_depth_eval --> dinov3_eval_depth_utils\n  dinov3_eval_depth_eval --> dinov3_eval_depth_visualization_utils\n  dinov3_eval_depth_eval --> dinov3_logging\n  dinov3_eval_depth_models --> dinov3\n  dinov3_eval_depth_models --> dinov3_eval_depth_checkpoint_utils\n  dinov3_eval_depth_models --> dinov3_eval_depth_utils\n  dinov3_eval_depth_models_encoder --> dinov3\n  dinov3_eval_depth_models_encoder --> dinov3_eval_depth_models_embed\n  dinov3_eval_depth_run --> dinov3\n  dinov3_eval_depth_run --> dinov3_distributed\n  dinov3_eval_depth_run --> dinov3_eval_depth_checkpoint_utils\n  dinov3_eval_depth_run --> dinov3_eval_depth_config\n  dinov3_eval_depth_run --> dinov3_eval_depth_eval\n  dinov3_eval_depth_run --> dinov3_eval_depth_models\n  dinov3_eval_depth_run --> dinov3_eval_depth_train\n  dinov3_eval_depth_run --> dinov3_eval_helpers\n  dinov3_eval_depth_run --> dinov3_eval_setup\n  dinov3_eval_depth_run --> dinov3_hub_depthers\n  dinov3_eval_depth_run --> dinov3_run_init\n  dinov3_eval_depth_train --> dinov3\n  dinov3_eval_depth_train --> dinov3_distributed\n  dinov3_eval_depth_train --> dinov3_eval_depth_checkpoint_utils\n  dinov3_eval_depth_train --> dinov3_eval_depth_config\n  dinov3_eval_depth_train --> dinov3_eval_depth_data\n  dinov3_eval_depth_train --> dinov3_eval_depth_datasets_datasets_utils\n  dinov3_eval_depth_train --> dinov3_eval_depth_eval\n  dinov3_eval_depth_train --> dinov3_eval_depth_loss\n  dinov3_eval_depth_train --> dinov3_eval_depth_metrics\n  dinov3_eval_depth_train --> dinov3_eval_depth_models\n  dinov3_eval_depth_train --> dinov3_eval_depth_schedulers\n  dinov3_eval_depth_train --> dinov3_eval_depth_utils\n  dinov3_eval_depth_train --> dinov3_logging\n  dinov3_eval_depth_train --> dinov3_utils\n  dinov3_eval_depth_transforms --> dinov3\n  dinov3_eval_depth_transforms --> dinov3_data_transforms\n  dinov3_eval_depth_visualization_utils --> dinov3\n  dinov3_eval_depth_visualization_utils --> dinov3_data_transforms\n  dinov3_eval_depth_visualization_utils --> dinov3_eval_depth_config\n  dinov3_eval_detection_util_misc --> dinov3_distributed\n  dinov3_eval_helpers --> dinov3_distributed\n  dinov3_eval_helpers --> dinov3_eval\n  dinov3_eval_helpers --> dinov3_eval_results\n  dinov3_eval_knn --> dinov3\n  dinov3_eval_knn --> dinov3_data\n  dinov3_eval_knn --> dinov3_data_adapters\n  dinov3_eval_knn --> dinov3_data_transforms\n  dinov3_eval_knn --> dinov3_distributed\n  dinov3_eval_knn --> dinov3_eval_data\n  dinov3_eval_knn --> dinov3_eval_helpers\n  dinov3_eval_knn --> dinov3_eval_metrics\n  dinov3_eval_knn --> dinov3_eval_setup\n  dinov3_eval_knn --> dinov3_eval_utils\n  dinov3_eval_knn --> dinov3_run_init\n  dinov3_eval_linear --> dinov3\n  dinov3_eval_linear --> dinov3_checkpointer\n  dinov3_eval_linear --> dinov3_data\n  dinov3_eval_linear --> dinov3_data_adapters\n  dinov3_eval_linear --> dinov3_data_transforms\n  dinov3_eval_linear --> dinov3_distributed\n  dinov3_eval_linear --> dinov3_eval_data\n  dinov3_eval_linear --> dinov3_eval_helpers\n  dinov3_eval_linear --> dinov3_eval_metrics\n  dinov3_eval_linear --> dinov3_eval_setup\n  dinov3_eval_linear --> dinov3_eval_utils\n  dinov3_eval_linear --> dinov3_logging\n  dinov3_eval_linear --> dinov3_run_init\n  dinov3_eval_log_regression --> dinov3\n  dinov3_eval_log_regression --> dinov3_data\n  dinov3_eval_log_regression --> dinov3_data_adapters\n  dinov3_eval_log_regression --> dinov3_data_transforms\n  dinov3_eval_log_regression --> dinov3_distributed\n  dinov3_eval_log_regression --> dinov3_eval_data\n  dinov3_eval_log_regression --> dinov3_eval_helpers\n  dinov3_eval_log_regression --> dinov3_eval_metrics\n  dinov3_eval_log_regression --> dinov3_eval_setup\n  dinov3_eval_log_regression --> dinov3_eval_utils\n  dinov3_eval_log_regression --> dinov3_run_init\n  dinov3_eval_log_regression --> dinov3_utils_dtype\n  dinov3_eval_segmentation_config --> dinov3\n  dinov3_eval_segmentation_config --> dinov3_data_transforms\n  dinov3_eval_segmentation_config --> dinov3_eval_segmentation_models\n  dinov3_eval_segmentation_config --> dinov3_eval_setup\n  dinov3_eval_segmentation_eval --> dinov3\n  dinov3_eval_segmentation_eval --> dinov3_data\n  dinov3_eval_segmentation_eval --> dinov3_distributed\n  dinov3_eval_segmentation_eval --> dinov3_eval_segmentation_inference\n  dinov3_eval_segmentation_eval --> dinov3_eval_segmentation_metrics\n  dinov3_eval_segmentation_eval --> dinov3_eval_segmentation_models\n  dinov3_eval_segmentation_eval --> dinov3_eval_segmentation_transforms\n  dinov3_eval_segmentation_eval --> dinov3_hub_segmentors\n  dinov3_eval_segmentation_eval --> dinov3_logging\n  dinov3_eval_segmentation_models --> dinov3\n  dinov3_eval_segmentation_models --> dinov3_eval_segmentation_models_backbone_dinov3_adapter\n  dinov3_eval_segmentation_models --> dinov3_eval_segmentation_models_heads_linear_head\n  dinov3_eval_segmentation_models --> dinov3_eval_segmentation_models_heads_mask2former_head\n  dinov3_eval_segmentation_models --> dinov3_eval_utils\n  dinov3_eval_segmentation_models_backbone_dinov3_adapter --> dinov3\n  dinov3_eval_segmentation_models_backbone_dinov3_adapter --> dinov3_eval_segmentation_models_utils_ms_deform_attn\n  dinov3_eval_segmentation_models_heads_mask2former_head --> dinov3\n  dinov3_eval_segmentation_models_heads_mask2former_head --> dinov3_eval_segmentation_models_heads_mask2former_transformer_decoder\n  dinov3_eval_segmentation_models_heads_mask2former_head --> dinov3_eval_segmentation_models_heads_pixel_decoder\n  dinov3_eval_segmentation_models_heads_mask2former_transformer_decoder --> dinov3\n  dinov3_eval_segmentation_models_heads_mask2former_transformer_decoder --> dinov3_eval_segmentation_models_utils_position_encoding\n  dinov3_eval_segmentation_models_heads_pixel_decoder --> dinov3\n  dinov3_eval_segmentation_models_heads_pixel_decoder --> dinov3_eval_segmentation_models_utils_batch_norm\n  dinov3_eval_segmentation_models_heads_pixel_decoder --> dinov3_eval_segmentation_models_utils_ms_deform_attn\n  dinov3_eval_segmentation_models_heads_pixel_decoder --> dinov3_eval_segmentation_models_utils_position_encoding\n  dinov3_eval_segmentation_models_heads_pixel_decoder --> dinov3_eval_segmentation_models_utils_transformer\n  dinov3_eval_segmentation_models_utils_batch_norm --> dinov3_distributed\n  dinov3_eval_segmentation_run --> dinov3\n  dinov3_eval_segmentation_run --> dinov3_eval_helpers\n  dinov3_eval_segmentation_run --> dinov3_eval_segmentation_config\n  dinov3_eval_segmentation_run --> dinov3_eval_segmentation_eval\n  dinov3_eval_segmentation_run --> dinov3_eval_segmentation_train\n  dinov3_eval_segmentation_run --> dinov3_eval_setup\n  dinov3_eval_segmentation_run --> dinov3_run_init\n  dinov3_eval_segmentation_train --> dinov3\n  dinov3_eval_segmentation_train --> dinov3_data\n  dinov3_eval_segmentation_train --> dinov3_distributed\n  dinov3_eval_segmentation_train --> dinov3_eval_segmentation_eval\n  dinov3_eval_segmentation_train --> dinov3_eval_segmentation_loss\n  dinov3_eval_segmentation_train --> dinov3_eval_segmentation_metrics\n  dinov3_eval_segmentation_train --> dinov3_eval_segmentation_models\n  dinov3_eval_segmentation_train --> dinov3_eval_segmentation_schedulers\n  dinov3_eval_segmentation_train --> dinov3_eval_segmentation_transforms\n  dinov3_eval_segmentation_train --> dinov3_logging\n  dinov3_eval_segmentation_transforms --> dinov3\n  dinov3_eval_segmentation_transforms --> dinov3_data_transforms\n  dinov3_eval_segmentation_transforms --> dinov3_eval_segmentation_metrics\n  dinov3_eval_setup --> dinov3\n  dinov3_eval_setup --> dinov3_configs\n  dinov3_eval_setup --> dinov3_models\n  dinov3_eval_text_build_dinotxt --> dinov3\n  dinov3_eval_text_build_dinotxt --> dinov3_checkpointer\n  dinov3_eval_text_build_dinotxt --> dinov3_data\n  dinov3_eval_text_build_dinotxt --> dinov3_distributed\n  dinov3_eval_text_build_dinotxt --> dinov3_eval_text_ac_comp_parallelize\n  dinov3_eval_text_build_dinotxt --> dinov3_eval_text_dinotxt_model\n  dinov3_eval_text_build_dinotxt --> dinov3_eval_text_tokenizer\n  dinov3_eval_text_dinotxt_model --> dinov3\n  dinov3_eval_text_dinotxt_model --> dinov3_eval_text_text_tower\n  dinov3_eval_text_dinotxt_model --> dinov3_eval_text_vision_tower\n  dinov3_eval_text_text_tower --> dinov3\n  dinov3_eval_text_text_tower --> dinov3_eval_text_text_transformer\n  dinov3_eval_text_text_tower --> dinov3_layers\n  dinov3_eval_text_text_transformer --> dinov3\n  dinov3_eval_text_text_transformer --> dinov3_layers\n  dinov3_eval_text_tokenizer --> dinov3\n  dinov3_eval_text_tokenizer --> dinov3_thirdparty_CLIP_clip_simple_tokenizer\n  dinov3_eval_text_train_dinotxt --> dinov3\n  dinov3_eval_text_train_dinotxt --> dinov3_checkpointer\n  dinov3_eval_text_train_dinotxt --> dinov3_configs\n  dinov3_eval_text_train_dinotxt --> dinov3_data\n  dinov3_eval_text_train_dinotxt --> dinov3_distributed\n  dinov3_eval_text_train_dinotxt --> dinov3_eval_text_build_dinotxt\n  dinov3_eval_text_train_dinotxt --> dinov3_eval_text_clip_loss\n  dinov3_eval_text_train_dinotxt --> dinov3_eval_text_dinotxt_model\n  dinov3_eval_text_train_dinotxt --> dinov3_eval_text_gram_loss\n  dinov3_eval_text_train_dinotxt --> dinov3_logging\n  dinov3_eval_text_train_dinotxt --> dinov3_train_cosine_lr_scheduler\n  dinov3_eval_text_vision_tower --> dinov3\n  dinov3_eval_text_vision_tower --> dinov3_layers\n  dinov3_eval_text_vision_tower --> dinov3_models\n  dinov3_eval_text_vision_tower --> dinov3_models_vision_transformer\n  dinov3_eval_text_vision_tower --> dinov3_utils\n  dinov3_eval_utils --> dinov3\n  dinov3_eval_utils --> dinov3_data\n  dinov3_eval_utils --> dinov3_distributed\n  dinov3_eval_utils --> dinov3_eval_accumulators\n  dinov3_eval_utils --> dinov3_logging\n  dinov3_fsdp_ac_compile_parallelize --> dinov3\n  dinov3_fsdp_ac_compile_parallelize --> dinov3_models_convnext\n  dinov3_fsdp_ac_compile_parallelize --> dinov3_models_vision_transformer\n  dinov3_fsdp_ac_compile_parallelize --> dinov3_utils\n  dinov3_fsdp_ac_compile_parallelize --> dinov3_utils_utils\n  dinov3_hub_backbones --> dinov3\n  dinov3_hub_backbones --> dinov3_checkpointer_checkpointer\n  dinov3_hub_depthers --> dinov3\n  dinov3_hub_depthers --> dinov3_eval_depth_models\n  dinov3_hub_detectors --> dinov3\n  dinov3_hub_detectors --> dinov3_eval_detection_config\n  dinov3_hub_detectors --> dinov3_eval_detection_models_detr\n  dinov3_hub_detectors --> dinov3_eval_detection_models_position_encoding\n  dinov3_hub_dinotxt --> dinov3\n  dinov3_hub_dinotxt --> dinov3_eval_text_dinotxt_model\n  dinov3_hub_dinotxt --> dinov3_eval_text_text_transformer\n  dinov3_hub_dinotxt --> dinov3_eval_text_tokenizer\n  dinov3_hub_segmentors --> dinov3\n  dinov3_hub_segmentors --> dinov3_eval_segmentation_models\n  dinov3_layers_attention --> dinov3\n  dinov3_layers_attention --> dinov3_utils\n  dinov3_layers_block --> dinov3\n  dinov3_layers_block --> dinov3_utils\n  dinov3_layers_ffn_layers --> dinov3\n  dinov3_layers_ffn_layers --> dinov3_utils\n  dinov3_layers_fp8_linear --> dinov3\n  dinov3_layers_fp8_linear --> dinov3_layers_attention\n  dinov3_layers_fp8_linear --> dinov3_utils\n  dinov3_layers_sparse_linear --> dinov3\n  dinov3_layers_sparse_linear --> dinov3_utils\n  dinov3_logging --> dinov3\n  dinov3_logging --> dinov3_distributed\n  dinov3_logging --> dinov3_logging_helpers\n  dinov3_logging_helpers --> dinov3_distributed\n  dinov3_loss_dino_clstoken_loss --> dinov3\n  dinov3_loss_dino_clstoken_loss --> dinov3_distributed\n  dinov3_loss_ibot_patch_loss --> dinov3\n  dinov3_loss_ibot_patch_loss --> dinov3_distributed\n  dinov3_loss_koleo_loss --> dinov3_distributed\n  dinov3_models --> dinov3\n  dinov3_models --> dinov3_checkpointer\n  dinov3_models --> dinov3_fsdp_ac_compile_parallelize\n  dinov3_models --> dinov3_layers_fp8_linear\n  dinov3_models_vision_transformer --> dinov3\n  dinov3_models_vision_transformer --> dinov3_layers\n  dinov3_models_vision_transformer --> dinov3_utils\n  dinov3_run_init --> dinov3\n  dinov3_run_init --> dinov3_configs\n  dinov3_run_submit --> dinov3\n  dinov3_run_submit --> dinov3_logging\n  dinov3_run_submit --> dinov3_utils_cluster\n  dinov3_run_submit --> dinov3_utils_custom_callable\n  dinov3_train_ssl_meta_arch --> dinov3\n  dinov3_train_ssl_meta_arch --> dinov3_checkpointer\n  dinov3_train_ssl_meta_arch --> dinov3_configs\n  dinov3_train_ssl_meta_arch --> dinov3_data_datasets_augmentation\n  dinov3_train_ssl_meta_arch --> dinov3_data_datasets_hdf5_augmentation\n  dinov3_train_ssl_meta_arch --> dinov3_distributed\n  dinov3_train_ssl_meta_arch --> dinov3_fsdp_ac_compile_parallelize\n  dinov3_train_ssl_meta_arch --> dinov3_layers_dino_head\n  dinov3_train_ssl_meta_arch --> dinov3_loss\n  dinov3_train_ssl_meta_arch --> dinov3_models\n  dinov3_train_ssl_meta_arch --> dinov3_train_cosine_lr_scheduler\n  dinov3_train_ssl_meta_arch --> dinov3_train_param_groups\n  dinov3_train_ssl_meta_arch --> dinov3_utils\n  dinov3_train_ssl_meta_arch --> dinov3_utils_profiling\n  dinov3_train_train --> dinov3\n  dinov3_train_train --> dinov3_checkpointer\n  dinov3_train_train --> dinov3_configs\n  dinov3_train_train --> dinov3_data\n  dinov3_train_train --> dinov3_distributed\n  dinov3_train_train --> dinov3_logging\n  dinov3_train_train --> dinov3_train_cosine_lr_scheduler\n  dinov3_train_train --> dinov3_train_multidist_meta_arch\n  dinov3_train_train --> dinov3_train_ssl_meta_arch\n  dinov3_train_train --> dinov3_utils_mfu\n  dinov3_train_train --> dinov3_utils_profiling",
+    "train-loop": "graph TD\n  CombinedDataLoader[\"CombinedDataLoader\"]\n  CombinedDataLoader_homogeneous_iterator[\"CombinedDataLoader.homogeneous_iterator\"]\n  CosineScheduler[\"CosineScheduler\"]\n  FileFormat_guess[\"FileFormat.guess\"]\n  MaskingGenerator[\"MaskingGenerator\"]\n  MetricLogger[\"MetricLogger\"]\n  MetricLogger_dump_in_output_file[\"MetricLogger.dump_in_output_file\"]\n  MetricLogger_log_every[\"MetricLogger.log_every\"]\n  NVTXRange[\"NVTXRange\"]\n  SSLMetaArch_build_data_augmentation_dino[\"SSLMetaArch.build_data_augmentation_dino\"]\n  SSLMetaArch_get_maybe_fused_params_for_submodel[\"SSLMetaArch.get_maybe_fused_params_for_submodel\"]\n  SSLMetaArch_get_params_groups[\"SSLMetaArch.get_params_groups\"]\n  SSLMetaArch_gram_load_ema_teacher[\"SSLMetaArch.gram_load_ema_teacher\"]\n  SSLMetaArch_set_nvtx[\"SSLMetaArch.set_nvtx\"]\n  SSLMetaArch_update_ema[\"SSLMetaArch.update_ema\"]\n  SSLMetaArch_update_gram[\"SSLMetaArch.update_gram\"]\n  SmoothedValue[\"SmoothedValue\"]\n  SmoothedValue_max[\"SmoothedValue.max\"]\n  SmoothedValue_median[\"SmoothedValue.median\"]\n  WSDLRScheduler[\"WSDLRScheduler\"]\n  _assert_valid_dtypes[\"_assert_valid_dtypes\"]\n  _is_int[\"_is_int\"]\n  _log_rank_topology[\"_log_rank_topology\"]\n  apply_optim_scheduler[\"apply_optim_scheduler\"]\n  build_data_loader_from_cfg[\"build_data_loader_from_cfg\"]\n  build_multi_resolution_data_loader_from_cfg[\"build_multi_resolution_data_loader_from_cfg\"]\n  build_optimizer[\"build_optimizer\"]\n  build_profiler[\"build_profiler\"]\n  build_schedulers[\"build_schedulers\"]\n  build_schedulers_v2[\"build_schedulers_v2\"]\n  compute_dino_flops_per_image[\"compute_dino_flops_per_image\"]\n  compute_mfu[\"compute_mfu\"]\n  do_test[\"do_test\"]\n  do_train[\"do_train\"]\n  enable_graph_break_logging[\"enable_graph_break_logging\"]\n  find_all_checkpoints[\"find_all_checkpoints\"]\n  fuse_params_groups[\"fuse_params_groups\"]\n  get_memory_stats[\"get_memory_stats\"]\n  get_params_groups_with_decay_fsdp[\"get_params_groups_with_decay_fsdp\"]\n  get_process_subgroup[\"get_process_subgroup\"]\n  get_rank[\"get_rank\"]\n  get_run_metadata[\"get_run_metadata\"]\n  get_subgroup_size[\"get_subgroup_size\"]\n  get_world_size[\"get_world_size\"]\n  is_distributed_enabled[\"is_distributed_enabled\"]\n  is_subgroup_main_process[\"is_subgroup_main_process\"]\n  keep_checkpoint_copy[\"keep_checkpoint_copy\"]\n  keep_last_n_checkpoints[\"keep_last_n_checkpoints\"]\n  linear_warmup_cosine_decay[\"linear_warmup_cosine_decay\"]\n  log_fragmentation_stats[\"log_fragmentation_stats\"]\n  log_phase_memory[\"log_phase_memory\"]\n  make_data_loader[\"make_data_loader\"]\n  make_dataset[\"make_dataset\"]\n  make_nvtx[\"make_nvtx\"]\n  memory_profile_enabled[\"memory_profile_enabled\"]\n  register_dont_save_hooks[\"register_dont_save_hooks\"]\n  save[\"save\"]\n  vit_forward_flops[\"vit_forward_flops\"]\n  CombinedDataLoader --> CombinedDataLoader_homogeneous_iterator\n  MetricLogger --> MetricLogger_dump_in_output_file\n  MetricLogger --> SmoothedValue\n  MetricLogger --> get_rank\n  MetricLogger_log_every --> MetricLogger_dump_in_output_file\n  MetricLogger_log_every --> SmoothedValue\n  MetricLogger_log_every --> get_rank\n  SSLMetaArch_get_maybe_fused_params_for_submodel --> fuse_params_groups\n  SSLMetaArch_get_maybe_fused_params_for_submodel --> get_params_groups_with_decay_fsdp\n  SSLMetaArch_get_params_groups --> SSLMetaArch_get_maybe_fused_params_for_submodel\n  SmoothedValue --> SmoothedValue_max\n  SmoothedValue --> SmoothedValue_median\n  WSDLRScheduler --> SmoothedValue_max\n  _log_rank_topology --> get_rank\n  build_data_loader_from_cfg --> MaskingGenerator\n  build_data_loader_from_cfg --> SSLMetaArch_build_data_augmentation_dino\n  build_data_loader_from_cfg --> get_subgroup_size\n  build_data_loader_from_cfg --> get_world_size\n  build_data_loader_from_cfg --> make_data_loader\n  build_data_loader_from_cfg --> make_dataset\n  build_multi_resolution_data_loader_from_cfg --> CombinedDataLoader\n  build_multi_resolution_data_loader_from_cfg --> build_data_loader_from_cfg\n  build_schedulers --> CosineScheduler\n  build_schedulers --> WSDLRScheduler\n  build_schedulers --> build_schedulers_v2\n  build_schedulers_v2 --> get_world_size\n  build_schedulers_v2 --> linear_warmup_cosine_decay\n  compute_dino_flops_per_image --> vit_forward_flops\n  do_test --> is_subgroup_main_process\n  do_test --> save\n  do_train --> MetricLogger\n  do_train --> MetricLogger_log_every\n  do_train --> SSLMetaArch_get_params_groups\n  do_train --> SSLMetaArch_gram_load_ema_teacher\n  do_train --> SSLMetaArch_set_nvtx\n  do_train --> SSLMetaArch_update_ema\n  do_train --> SSLMetaArch_update_gram\n  do_train --> SmoothedValue_max\n  do_train --> _log_rank_topology\n  do_train --> apply_optim_scheduler\n  do_train --> build_multi_resolution_data_loader_from_cfg\n  do_train --> build_optimizer\n  do_train --> build_profiler\n  do_train --> build_schedulers\n  do_train --> compute_dino_flops_per_image\n  do_train --> compute_mfu\n  do_train --> do_test\n  do_train --> enable_graph_break_logging\n  do_train --> get_memory_stats\n  do_train --> get_process_subgroup\n  do_train --> get_rank\n  do_train --> get_run_metadata\n  do_train --> get_subgroup_size\n  do_train --> get_world_size\n  do_train --> is_subgroup_main_process\n  do_train --> keep_checkpoint_copy\n  do_train --> keep_last_n_checkpoints\n  do_train --> log_fragmentation_stats\n  do_train --> log_phase_memory\n  do_train --> make_nvtx\n  do_train --> memory_profile_enabled\n  do_train --> register_dont_save_hooks\n  find_all_checkpoints --> _is_int\n  get_rank --> is_distributed_enabled\n  get_subgroup_size --> get_process_subgroup\n  get_subgroup_size --> get_world_size\n  get_world_size --> is_distributed_enabled\n  is_subgroup_main_process --> get_process_subgroup\n  is_subgroup_main_process --> get_rank\n  keep_last_n_checkpoints --> find_all_checkpoints\n  log_fragmentation_stats --> SmoothedValue_max\n  make_nvtx --> NVTXRange\n  save --> FileFormat_guess\n  save --> _assert_valid_dtypes"
+  },
+  "module_overview": {
+    "edges": [
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.configs.config",
+        "weight": 5
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.configs.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.configs.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.configs.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.data.datasets.augmentation",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.channel_utils",
+        "kind": "import",
+        "src": "dinov3.data.datasets.augmentation",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.data.datasets.hdf5_augmentation",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.channel_utils",
+        "kind": "import",
+        "src": "dinov3.data.datasets.hdf5_augmentation",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.data.datasets.hdf5_dataset",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.channel_utils",
+        "kind": "import",
+        "src": "dinov3.data.datasets.hdf5_dataset",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.data.datasets.maid_dataset",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.channel_utils",
+        "kind": "import",
+        "src": "dinov3.data.datasets.maid_dataset",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.data.datasets.mixed_satlas_dataset",
+        "weight": 8
+      },
+      {
+        "dst": "dinov3.data.datasets.channel_utils",
+        "kind": "import",
+        "src": "dinov3.data.datasets.mixed_satlas_dataset",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.hdf5_dataset",
+        "kind": "import",
+        "src": "dinov3.data.datasets.mixed_satlas_dataset",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.maid_dataset",
+        "kind": "import",
+        "src": "dinov3.data.datasets.mixed_satlas_dataset",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.satlas_datasets",
+        "kind": "import",
+        "src": "dinov3.data.datasets.mixed_satlas_dataset",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.data.datasets.satlas_datasets",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.channel_utils",
+        "kind": "import",
+        "src": "dinov3.data.datasets.satlas_datasets",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.data.samplers",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.data.samplers",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.accumulators",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.accumulators",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.data",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.utils",
+        "kind": "import",
+        "src": "dinov3.eval.data",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.config",
+        "weight": 7
+      },
+      {
+        "dst": "dinov3.data.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.depth.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.loss",
+        "kind": "import",
+        "src": "dinov3.eval.depth.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.models",
+        "kind": "import",
+        "src": "dinov3.eval.depth.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.depth.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.setup",
+        "kind": "import",
+        "src": "dinov3.eval.depth.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.data",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.depth.data",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.depth.data",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 15
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.config",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.data",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.datasets.datasets_utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.metrics",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.visualization_utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.eval.depth.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.models",
+        "weight": 3
+      },
+      {
+        "dst": "dinov3.eval.depth.checkpoint_utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.models",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.models",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.models.encoder",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.eval.depth.models.embed",
+        "kind": "import",
+        "src": "dinov3.eval.depth.models.encoder",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 12
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.checkpoint_utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.config",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.eval",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.models",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.train",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.helpers",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.setup",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.hub.depthers",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.run.init",
+        "kind": "import",
+        "src": "dinov3.eval.depth.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 20
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.checkpoint_utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.config",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.data",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.datasets.datasets_utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.eval",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.loss",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.metrics",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.models",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.schedulers",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.eval.depth.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.transforms",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.data.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.depth.transforms",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.depth.visualization_utils",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.data.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.depth.visualization_utils",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.depth.config",
+        "kind": "import",
+        "src": "dinov3.eval.depth.visualization_utils",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.detection.util.misc",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.helpers",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval",
+        "kind": "import",
+        "src": "dinov3.eval.helpers",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.results",
+        "kind": "import",
+        "src": "dinov3.eval.helpers",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 25
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.adapters",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.eval.data",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.helpers",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.metrics",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.setup",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.utils",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.run.init",
+        "kind": "import",
+        "src": "dinov3.eval.knn",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 30
+      },
+      {
+        "dst": "dinov3.checkpointer",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.adapters",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.data",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.helpers",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.metrics",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.setup",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.utils",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.run.init",
+        "kind": "import",
+        "src": "dinov3.eval.linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 26
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.adapters",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.data",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.helpers",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.metrics",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.setup",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.utils",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.run.init",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils.dtype",
+        "kind": "import",
+        "src": "dinov3.eval.log_regression",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.config",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.data.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.setup",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.config",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 11
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.inference",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.metrics",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.hub.segmentors",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.eval",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.backbone.dinov3_adapter",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.heads.linear_head",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.heads.mask2former_head",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.utils",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.backbone.dinov3_adapter",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.utils.ms_deform_attn",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.backbone.dinov3_adapter",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.mask2former_head",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.heads.mask2former_transformer_decoder",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.mask2former_head",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.heads.pixel_decoder",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.mask2former_head",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.mask2former_transformer_decoder",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.utils.position_encoding",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.mask2former_transformer_decoder",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.pixel_decoder",
+        "weight": 5
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.utils.batch_norm",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.pixel_decoder",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.utils.ms_deform_attn",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.pixel_decoder",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.utils.position_encoding",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.pixel_decoder",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models.utils.transformer",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.heads.pixel_decoder",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.models.utils.batch_norm",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.run",
+        "weight": 8
+      },
+      {
+        "dst": "dinov3.eval.helpers",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.config",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.eval",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.train",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.setup",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.run.init",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.run",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 13
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.eval",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.loss",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.metrics",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.schedulers",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.transforms",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.data.transforms",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.transforms",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.metrics",
+        "kind": "import",
+        "src": "dinov3.eval.segmentation.transforms",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.setup",
+        "weight": 3
+      },
+      {
+        "dst": "dinov3.configs",
+        "kind": "import",
+        "src": "dinov3.eval.setup",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.models",
+        "kind": "import",
+        "src": "dinov3.eval.setup",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.text.build_dinotxt",
+        "weight": 8
+      },
+      {
+        "dst": "dinov3.checkpointer",
+        "kind": "import",
+        "src": "dinov3.eval.text.build_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.text.build_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.text.build_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.ac_comp_parallelize",
+        "kind": "import",
+        "src": "dinov3.eval.text.build_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.dinotxt_model",
+        "kind": "import",
+        "src": "dinov3.eval.text.build_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.tokenizer",
+        "kind": "import",
+        "src": "dinov3.eval.text.build_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.text.dinotxt_model",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.eval.text.text_tower",
+        "kind": "import",
+        "src": "dinov3.eval.text.dinotxt_model",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.vision_tower",
+        "kind": "import",
+        "src": "dinov3.eval.text.dinotxt_model",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.text.text_tower",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.eval.text.text_transformer",
+        "kind": "import",
+        "src": "dinov3.eval.text.text_tower",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.layers",
+        "kind": "import",
+        "src": "dinov3.eval.text.text_tower",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.text.text_transformer",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.layers",
+        "kind": "import",
+        "src": "dinov3.eval.text.text_transformer",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.text.tokenizer",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.thirdparty.CLIP.clip.simple_tokenizer",
+        "kind": "import",
+        "src": "dinov3.eval.text.tokenizer",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 16
+      },
+      {
+        "dst": "dinov3.checkpointer",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.configs",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.build_dinotxt",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.clip_loss",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.dinotxt_model",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.gram_loss",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.train.cosine_lr_scheduler",
+        "kind": "import",
+        "src": "dinov3.eval.text.train_dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.text.vision_tower",
+        "weight": 5
+      },
+      {
+        "dst": "dinov3.layers",
+        "kind": "import",
+        "src": "dinov3.eval.text.vision_tower",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.models",
+        "kind": "import",
+        "src": "dinov3.eval.text.vision_tower",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.models.vision_transformer",
+        "kind": "import",
+        "src": "dinov3.eval.text.vision_tower",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.eval.text.vision_tower",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.eval.utils",
+        "weight": 6
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.eval.utils",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.eval.utils",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.accumulators",
+        "kind": "import",
+        "src": "dinov3.eval.utils",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.eval.utils",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.fsdp.ac_compile_parallelize",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.models.convnext",
+        "kind": "import",
+        "src": "dinov3.fsdp.ac_compile_parallelize",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.models.vision_transformer",
+        "kind": "import",
+        "src": "dinov3.fsdp.ac_compile_parallelize",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.fsdp.ac_compile_parallelize",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils.utils",
+        "kind": "import",
+        "src": "dinov3.fsdp.ac_compile_parallelize",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.hub.backbones",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.checkpointer.checkpointer",
+        "kind": "import",
+        "src": "dinov3.hub.backbones",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.hub.depthers",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.eval.depth.models",
+        "kind": "import",
+        "src": "dinov3.hub.depthers",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.hub.detectors",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.eval.detection.config",
+        "kind": "import",
+        "src": "dinov3.hub.detectors",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.detection.models.detr",
+        "kind": "import",
+        "src": "dinov3.hub.detectors",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.detection.models.position_encoding",
+        "kind": "import",
+        "src": "dinov3.hub.detectors",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.hub.dinotxt",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.eval.text.dinotxt_model",
+        "kind": "import",
+        "src": "dinov3.hub.dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.text_transformer",
+        "kind": "import",
+        "src": "dinov3.hub.dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.text.tokenizer",
+        "kind": "import",
+        "src": "dinov3.hub.dinotxt",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.hub.segmentors",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.eval.segmentation.models",
+        "kind": "import",
+        "src": "dinov3.hub.segmentors",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.layers.attention",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.layers.attention",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.layers.block",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.layers.block",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.layers.ffn_layers",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.layers.ffn_layers",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.layers.fp8_linear",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.layers.attention",
+        "kind": "import",
+        "src": "dinov3.layers.fp8_linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.layers.fp8_linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.layers.sparse_linear",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.layers.sparse_linear",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.logging",
+        "weight": 3
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.logging",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging.helpers",
+        "kind": "import",
+        "src": "dinov3.logging",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.logging.helpers",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.loss.dino_clstoken_loss",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.loss.dino_clstoken_loss",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.loss.ibot_patch_loss",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.loss.ibot_patch_loss",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.loss.koleo_loss",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.models",
+        "weight": 4
+      },
+      {
+        "dst": "dinov3.checkpointer",
+        "kind": "import",
+        "src": "dinov3.models",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.fsdp.ac_compile_parallelize",
+        "kind": "import",
+        "src": "dinov3.models",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.layers.fp8_linear",
+        "kind": "import",
+        "src": "dinov3.models",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.models.vision_transformer",
+        "weight": 8
+      },
+      {
+        "dst": "dinov3.layers",
+        "kind": "import",
+        "src": "dinov3.models.vision_transformer",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.models.vision_transformer",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.run.init",
+        "weight": 2
+      },
+      {
+        "dst": "dinov3.configs",
+        "kind": "import",
+        "src": "dinov3.run.init",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.run.submit",
+        "weight": 7
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.run.submit",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils.cluster",
+        "kind": "import",
+        "src": "dinov3.run.submit",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils.custom_callable",
+        "kind": "import",
+        "src": "dinov3.run.submit",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 17
+      },
+      {
+        "dst": "dinov3.checkpointer",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.configs",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.augmentation",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data.datasets.hdf5_augmentation",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.fsdp.ac_compile_parallelize",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.layers.dino_head",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.loss",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.models",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.train.cosine_lr_scheduler",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.train.param_groups",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils.profiling",
+        "kind": "import",
+        "src": "dinov3.train.ssl_meta_arch",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 32
+      },
+      {
+        "dst": "dinov3.checkpointer",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.configs",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.data",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.distributed",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.logging",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.train.cosine_lr_scheduler",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.train.multidist_meta_arch",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.train.ssl_meta_arch",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils.mfu",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      },
+      {
+        "dst": "dinov3.utils.profiling",
+        "kind": "import",
+        "src": "dinov3.train.train",
+        "weight": 1
+      }
+    ],
+    "nodes": [
+      {
+        "id": "dinov3",
+        "label": "dinov3",
+        "loc": 6
+      },
+      {
+        "id": "dinov3.checkpointer",
+        "label": "checkpointer",
+        "loc": 18
+      },
+      {
+        "id": "dinov3.checkpointer.checkpointer",
+        "label": "checkpointer",
+        "loc": 622
+      },
+      {
+        "id": "dinov3.configs",
+        "label": "configs",
+        "loc": 16
+      },
+      {
+        "id": "dinov3.configs.config",
+        "label": "config",
+        "loc": 222
+      },
+      {
+        "id": "dinov3.configs.train",
+        "label": "train",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.configs.train.multidist_tests",
+        "label": "multidist_tests",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.data",
+        "label": "data",
+        "loc": 11
+      },
+      {
+        "id": "dinov3.data.adapters",
+        "label": "adapters",
+        "loc": 68
+      },
+      {
+        "id": "dinov3.data.collate",
+        "label": "collate",
+        "loc": 126
+      },
+      {
+        "id": "dinov3.data.datasets",
+        "label": "datasets",
+        "loc": 1
+      },
+      {
+        "id": "dinov3.data.datasets.augmentation",
+        "label": "augmentation",
+        "loc": 81
+      },
+      {
+        "id": "dinov3.data.datasets.channel_utils",
+        "label": "channel_utils",
+        "loc": 26
+      },
+      {
+        "id": "dinov3.data.datasets.hdf5_augmentation",
+        "label": "hdf5_augmentation",
+        "loc": 77
+      },
+      {
+        "id": "dinov3.data.datasets.hdf5_dataset",
+        "label": "hdf5_dataset",
+        "loc": 273
+      },
+      {
+        "id": "dinov3.data.datasets.maid_dataset",
+        "label": "maid_dataset",
+        "loc": 50
+      },
+      {
+        "id": "dinov3.data.datasets.mixed_satlas_dataset",
+        "label": "mixed_satlas_dataset",
+        "loc": 180
+      },
+      {
+        "id": "dinov3.data.datasets.satlas_datasets",
+        "label": "satlas_datasets",
+        "loc": 438
+      },
+      {
+        "id": "dinov3.data.loaders",
+        "label": "loaders",
+        "loc": 260
+      },
+      {
+        "id": "dinov3.data.masking",
+        "label": "masking",
+        "loc": 94
+      },
+      {
+        "id": "dinov3.data.meta_loaders",
+        "label": "meta_loaders",
+        "loc": 78
+      },
+      {
+        "id": "dinov3.data.samplers",
+        "label": "samplers",
+        "loc": 229
+      },
+      {
+        "id": "dinov3.data.transforms",
+        "label": "transforms",
+        "loc": 165
+      },
+      {
+        "id": "dinov3.distributed",
+        "label": "distributed",
+        "loc": 24
+      },
+      {
+        "id": "dinov3.distributed.torch_distributed_primitives",
+        "label": "torch_distributed_primitives",
+        "loc": 100
+      },
+      {
+        "id": "dinov3.distributed.torch_distributed_wrapper",
+        "label": "torch_distributed_wrapper",
+        "loc": 351
+      },
+      {
+        "id": "dinov3.env",
+        "label": "env",
+        "loc": 33
+      },
+      {
+        "id": "dinov3.eval",
+        "label": "eval",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.accumulators",
+        "label": "accumulators",
+        "loc": 77
+      },
+      {
+        "id": "dinov3.eval.data",
+        "label": "data",
+        "loc": 256
+      },
+      {
+        "id": "dinov3.eval.depth",
+        "label": "depth",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.depth.checkpoint_utils",
+        "label": "checkpoint_utils",
+        "loc": 53
+      },
+      {
+        "id": "dinov3.eval.depth.config",
+        "label": "config",
+        "loc": 160
+      },
+      {
+        "id": "dinov3.eval.depth.configs",
+        "label": "configs",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.depth.data",
+        "label": "data",
+        "loc": 115
+      },
+      {
+        "id": "dinov3.eval.depth.datasets",
+        "label": "datasets",
+        "loc": 4
+      },
+      {
+        "id": "dinov3.eval.depth.datasets.datasets_utils",
+        "label": "datasets_utils",
+        "loc": 42
+      },
+      {
+        "id": "dinov3.eval.depth.eval",
+        "label": "eval",
+        "loc": 217
+      },
+      {
+        "id": "dinov3.eval.depth.loss",
+        "label": "loss",
+        "loc": 164
+      },
+      {
+        "id": "dinov3.eval.depth.metrics",
+        "label": "metrics",
+        "loc": 91
+      },
+      {
+        "id": "dinov3.eval.depth.models",
+        "label": "models",
+        "loc": 271
+      },
+      {
+        "id": "dinov3.eval.depth.models.dpt_head",
+        "label": "dpt_head",
+        "loc": 543
+      },
+      {
+        "id": "dinov3.eval.depth.models.embed",
+        "label": "embed",
+        "loc": 52
+      },
+      {
+        "id": "dinov3.eval.depth.models.encoder",
+        "label": "encoder",
+        "loc": 117
+      },
+      {
+        "id": "dinov3.eval.depth.models.linear_head",
+        "label": "linear_head",
+        "loc": 98
+      },
+      {
+        "id": "dinov3.eval.depth.run",
+        "label": "run",
+        "loc": 142
+      },
+      {
+        "id": "dinov3.eval.depth.schedulers",
+        "label": "schedulers",
+        "loc": 261
+      },
+      {
+        "id": "dinov3.eval.depth.train",
+        "label": "train",
+        "loc": 292
+      },
+      {
+        "id": "dinov3.eval.depth.transforms",
+        "label": "transforms",
+        "loc": 382
+      },
+      {
+        "id": "dinov3.eval.depth.utils",
+        "label": "utils",
+        "loc": 149
+      },
+      {
+        "id": "dinov3.eval.depth.visualization_utils",
+        "label": "visualization_utils",
+        "loc": 160
+      },
+      {
+        "id": "dinov3.eval.detection",
+        "label": "detection",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.detection.config",
+        "label": "config",
+        "loc": 65
+      },
+      {
+        "id": "dinov3.eval.detection.models",
+        "label": "models",
+        "loc": 5
+      },
+      {
+        "id": "dinov3.eval.detection.models.backbone",
+        "label": "backbone",
+        "loc": 117
+      },
+      {
+        "id": "dinov3.eval.detection.models.detr",
+        "label": "detr",
+        "loc": 462
+      },
+      {
+        "id": "dinov3.eval.detection.models.global_ape_decoder",
+        "label": "global_ape_decoder",
+        "loc": 321
+      },
+      {
+        "id": "dinov3.eval.detection.models.global_rpe_decomp_decoder",
+        "label": "global_rpe_decomp_decoder",
+        "loc": 443
+      },
+      {
+        "id": "dinov3.eval.detection.models.position_encoding",
+        "label": "position_encoding",
+        "loc": 130
+      },
+      {
+        "id": "dinov3.eval.detection.models.transformer",
+        "label": "transformer",
+        "loc": 432
+      },
+      {
+        "id": "dinov3.eval.detection.models.transformer_encoder",
+        "label": "transformer_encoder",
+        "loc": 114
+      },
+      {
+        "id": "dinov3.eval.detection.models.utils",
+        "label": "utils",
+        "loc": 21
+      },
+      {
+        "id": "dinov3.eval.detection.models.windows",
+        "label": "windows",
+        "loc": 82
+      },
+      {
+        "id": "dinov3.eval.detection.util",
+        "label": "util",
+        "loc": 5
+      },
+      {
+        "id": "dinov3.eval.detection.util.box_ops",
+        "label": "box_ops",
+        "loc": 91
+      },
+      {
+        "id": "dinov3.eval.detection.util.misc",
+        "label": "misc",
+        "loc": 281
+      },
+      {
+        "id": "dinov3.eval.helpers",
+        "label": "helpers",
+        "loc": 64
+      },
+      {
+        "id": "dinov3.eval.knn",
+        "label": "knn",
+        "loc": 384
+      },
+      {
+        "id": "dinov3.eval.linear",
+        "label": "linear",
+        "loc": 688
+      },
+      {
+        "id": "dinov3.eval.log_regression",
+        "label": "log_regression",
+        "loc": 422
+      },
+      {
+        "id": "dinov3.eval.metrics",
+        "label": "metrics",
+        "loc": 14
+      },
+      {
+        "id": "dinov3.eval.metrics.classification",
+        "label": "classification",
+        "loc": 325
+      },
+      {
+        "id": "dinov3.eval.metrics.imagenet_c",
+        "label": "imagenet_c",
+        "loc": 225
+      },
+      {
+        "id": "dinov3.eval.results",
+        "label": "results",
+        "loc": 248
+      },
+      {
+        "id": "dinov3.eval.segmentation",
+        "label": "segmentation",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.segmentation.config",
+        "label": "config",
+        "loc": 126
+      },
+      {
+        "id": "dinov3.eval.segmentation.configs",
+        "label": "configs",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.segmentation.eval",
+        "label": "eval",
+        "loc": 147
+      },
+      {
+        "id": "dinov3.eval.segmentation.inference",
+        "label": "inference",
+        "loc": 149
+      },
+      {
+        "id": "dinov3.eval.segmentation.loss",
+        "label": "loss",
+        "loc": 296
+      },
+      {
+        "id": "dinov3.eval.segmentation.metrics",
+        "label": "metrics",
+        "loc": 153
+      },
+      {
+        "id": "dinov3.eval.segmentation.models",
+        "label": "models",
+        "loc": 139
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.backbone",
+        "label": "backbone",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.backbone.dinov3_adapter",
+        "label": "dinov3_adapter",
+        "loc": 484
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.heads",
+        "label": "heads",
+        "loc": 5
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.heads.linear_head",
+        "label": "linear_head",
+        "loc": 98
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.heads.mask2former_head",
+        "label": "mask2former_head",
+        "loc": 96
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.heads.mask2former_transformer_decoder",
+        "label": "mask2former_transformer_decoder",
+        "loc": 471
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.heads.pixel_decoder",
+        "label": "pixel_decoder",
+        "loc": 413
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils",
+        "label": "utils",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.batch_norm",
+        "label": "batch_norm",
+        "loc": 355
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ms_deform_attn",
+        "label": "ms_deform_attn",
+        "loc": 214
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops",
+        "label": "ops",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.functions",
+        "label": "functions",
+        "loc": 14
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.functions.ms_deform_attn_func",
+        "label": "ms_deform_attn_func",
+        "loc": 78
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.modules",
+        "label": "modules",
+        "loc": 14
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.modules.ms_deform_attn",
+        "label": "ms_deform_attn",
+        "loc": 145
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.setup",
+        "label": "setup",
+        "loc": 83
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.src",
+        "label": "src",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.src.cpu",
+        "label": "cpu",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.src.cuda",
+        "label": "cuda",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.ops.test",
+        "label": "test",
+        "loc": 121
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.position_encoding",
+        "label": "position_encoding",
+        "loc": 66
+      },
+      {
+        "id": "dinov3.eval.segmentation.models.utils.transformer",
+        "label": "transformer",
+        "loc": 359
+      },
+      {
+        "id": "dinov3.eval.segmentation.run",
+        "label": "run",
+        "loc": 76
+      },
+      {
+        "id": "dinov3.eval.segmentation.schedulers",
+        "label": "schedulers",
+        "loc": 191
+      },
+      {
+        "id": "dinov3.eval.segmentation.train",
+        "label": "train",
+        "loc": 332
+      },
+      {
+        "id": "dinov3.eval.segmentation.transforms",
+        "label": "transforms",
+        "loc": 474
+      },
+      {
+        "id": "dinov3.eval.setup",
+        "label": "setup",
+        "loc": 85
+      },
+      {
+        "id": "dinov3.eval.text",
+        "label": "text",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.text.ac_comp_parallelize",
+        "label": "ac_comp_parallelize",
+        "loc": 177
+      },
+      {
+        "id": "dinov3.eval.text.build_dinotxt",
+        "label": "build_dinotxt",
+        "loc": 237
+      },
+      {
+        "id": "dinov3.eval.text.clip_loss",
+        "label": "clip_loss",
+        "loc": 205
+      },
+      {
+        "id": "dinov3.eval.text.configs",
+        "label": "configs",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.eval.text.dinotxt_model",
+        "label": "dinotxt_model",
+        "loc": 138
+      },
+      {
+        "id": "dinov3.eval.text.gram_loss",
+        "label": "gram_loss",
+        "loc": 26
+      },
+      {
+        "id": "dinov3.eval.text.text_tower",
+        "label": "text_tower",
+        "loc": 170
+      },
+      {
+        "id": "dinov3.eval.text.text_transformer",
+        "label": "text_transformer",
+        "loc": 70
+      },
+      {
+        "id": "dinov3.eval.text.tokenizer",
+        "label": "tokenizer",
+        "loc": 67
+      },
+      {
+        "id": "dinov3.eval.text.train_dinotxt",
+        "label": "train_dinotxt",
+        "loc": 339
+      },
+      {
+        "id": "dinov3.eval.text.vision_tower",
+        "label": "vision_tower",
+        "loc": 207
+      },
+      {
+        "id": "dinov3.eval.utils",
+        "label": "utils",
+        "loc": 286
+      },
+      {
+        "id": "dinov3.fsdp",
+        "label": "fsdp",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.fsdp.ac_compile_parallelize",
+        "label": "ac_compile_parallelize",
+        "loc": 357
+      },
+      {
+        "id": "dinov3.hub",
+        "label": "hub",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.hub.backbones",
+        "label": "backbones",
+        "loc": 616
+      },
+      {
+        "id": "dinov3.hub.classifiers",
+        "label": "classifiers",
+        "loc": 114
+      },
+      {
+        "id": "dinov3.hub.depthers",
+        "label": "depthers",
+        "loc": 197
+      },
+      {
+        "id": "dinov3.hub.detectors",
+        "label": "detectors",
+        "loc": 132
+      },
+      {
+        "id": "dinov3.hub.dinotxt",
+        "label": "dinotxt",
+        "loc": 82
+      },
+      {
+        "id": "dinov3.hub.segmentors",
+        "label": "segmentors",
+        "loc": 83
+      },
+      {
+        "id": "dinov3.hub.utils",
+        "label": "utils",
+        "loc": 6
+      },
+      {
+        "id": "dinov3.layers",
+        "label": "layers",
+        "loc": 13
+      },
+      {
+        "id": "dinov3.layers.attention",
+        "label": "attention",
+        "loc": 164
+      },
+      {
+        "id": "dinov3.layers.block",
+        "label": "block",
+        "loc": 275
+      },
+      {
+        "id": "dinov3.layers.dino_head",
+        "label": "dino_head",
+        "loc": 67
+      },
+      {
+        "id": "dinov3.layers.ffn_layers",
+        "label": "ffn_layers",
+        "loc": 77
+      },
+      {
+        "id": "dinov3.layers.fp8_linear",
+        "label": "fp8_linear",
+        "loc": 141
+      },
+      {
+        "id": "dinov3.layers.layer_scale",
+        "label": "layer_scale",
+        "loc": 29
+      },
+      {
+        "id": "dinov3.layers.patch_embed",
+        "label": "patch_embed",
+        "loc": 89
+      },
+      {
+        "id": "dinov3.layers.rms_norm",
+        "label": "rms_norm",
+        "loc": 24
+      },
+      {
+        "id": "dinov3.layers.rope_position_encoding",
+        "label": "rope_position_encoding",
+        "loc": 121
+      },
+      {
+        "id": "dinov3.layers.sparse_linear",
+        "label": "sparse_linear",
+        "loc": 90
+      },
+      {
+        "id": "dinov3.logging",
+        "label": "logging",
+        "loc": 180
+      },
+      {
+        "id": "dinov3.logging.helpers",
+        "label": "helpers",
+        "loc": 221
+      },
+      {
+        "id": "dinov3.loss",
+        "label": "loss",
+        "loc": 9
+      },
+      {
+        "id": "dinov3.loss.dino_clstoken_loss",
+        "label": "dino_clstoken_loss",
+        "loc": 124
+      },
+      {
+        "id": "dinov3.loss.gram_loss",
+        "label": "gram_loss",
+        "loc": 84
+      },
+      {
+        "id": "dinov3.loss.ibot_patch_loss",
+        "label": "ibot_patch_loss",
+        "loc": 142
+      },
+      {
+        "id": "dinov3.loss.koleo_loss",
+        "label": "koleo_loss",
+        "loc": 113
+      },
+      {
+        "id": "dinov3.models",
+        "label": "models",
+        "loc": 134
+      },
+      {
+        "id": "dinov3.models.convnext",
+        "label": "convnext",
+        "loc": 350
+      },
+      {
+        "id": "dinov3.models.vision_transformer",
+        "label": "vision_transformer",
+        "loc": 416
+      },
+      {
+        "id": "dinov3.run",
+        "label": "run",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.run.init",
+        "label": "init",
+        "loc": 33
+      },
+      {
+        "id": "dinov3.run.submit",
+        "label": "submit",
+        "loc": 208
+      },
+      {
+        "id": "dinov3.thirdparty",
+        "label": "thirdparty",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.thirdparty.CLIP",
+        "label": "CLIP",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.thirdparty.CLIP.clip",
+        "label": "clip",
+        "loc": 0
+      },
+      {
+        "id": "dinov3.thirdparty.CLIP.clip.simple_tokenizer",
+        "label": "simple_tokenizer",
+        "loc": 143
+      },
+      {
+        "id": "dinov3.train",
+        "label": "train",
+        "loc": 8
+      },
+      {
+        "id": "dinov3.train.cosine_lr_scheduler",
+        "label": "cosine_lr_scheduler",
+        "loc": 127
+      },
+      {
+        "id": "dinov3.train.multidist_meta_arch",
+        "label": "multidist_meta_arch",
+        "loc": 165
+      },
+      {
+        "id": "dinov3.train.param_groups",
+        "label": "param_groups",
+        "loc": 180
+      },
+      {
+        "id": "dinov3.train.ssl_meta_arch",
+        "label": "ssl_meta_arch",
+        "loc": 886
+      },
+      {
+        "id": "dinov3.train.train",
+        "label": "train",
+        "loc": 946
+      },
+      {
+        "id": "dinov3.utils",
+        "label": "utils",
+        "loc": 16
+      },
+      {
+        "id": "dinov3.utils.cluster",
+        "label": "cluster",
+        "loc": 103
+      },
+      {
+        "id": "dinov3.utils.custom_callable",
+        "label": "custom_callable",
+        "loc": 47
+      },
+      {
+        "id": "dinov3.utils.dtype",
+        "label": "dtype",
+        "loc": 35
+      },
+      {
+        "id": "dinov3.utils.mfu",
+        "label": "mfu",
+        "loc": 138
+      },
+      {
+        "id": "dinov3.utils.profiling",
+        "label": "profiling",
+        "loc": 223
+      },
+      {
+        "id": "dinov3.utils.utils",
+        "label": "utils",
+        "loc": 130
+      }
+    ]
+  },
+  "package_root": "/home/adovlatyan/dinov3-performance-optimizations/dinov3/dinov3",
+  "schema_version": 1
+}
