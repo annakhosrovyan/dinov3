@@ -1,0 +1,902 @@
+{
+  "branch": "feat/codemap-atlas",
+  "generated_at": "2026-07-02T20:09:11",
+  "git_sha": "7333941-dirty",
+  "memory_index": [
+    {
+      "desc": "How to activate the dinov3 conda env on GPU nodes; torch \u2265 2.6 required; working env is test-conda-slurm",
+      "name": "feedback_env_setup"
+    },
+    {
+      "desc": "Convention for maintaining learnings/ directory; Claude should update it proactively during sessions",
+      "name": "feedback_learnings_convention"
+    },
+    {
+      "desc": "Log files and large outputs should go to /mnt/weka/adovlatyan/, not /data/adovlatyan/",
+      "name": "feedback_log_paths"
+    },
+    {
+      "desc": "\"bs=128 FSDP2 OOM'd in a real long training run; our worst-case profiling didn't catch it; bs=96 is the safe operating point\"",
+      "name": "project_bs128_fsdp2_oom"
+    },
+    {
+      "desc": "\"bs>128 memory-soak-passed @1500G/192CPU; on controlled torch-2.10 set MFU is flat ~20-21% but wall RISES modestly w/ batch (+12% bs160, +15% bs192); ceiling = per-iter residual, not batch\"",
+      "name": "project_bs_gt128_hostram_bound"
+    },
+    {
+      "desc": "Slurm cgroup memory.current is page-cache-inflated and pegs at --mem; not a real memory measurement",
+      "name": "project_cgroup_pagecache"
+    },
+    {
+      "desc": "\"Codemap Atlas \u2014 reusable visual codebase-comprehension tool; shared engine at ~/.claude/codemap + 4 global skills; dinov3 branch feat/codemap-atlas is config-only (pushed)\"",
+      "name": "project_codemap_atlas"
+    },
+    {
+      "desc": "\"30% MFU is the user's lab-wide internal target for training runs; NOT a Meta DINOv3 paper claim\"",
+      "name": "project_lab_mfu_target"
+    },
+    {
+      "desc": "Best confirmed config, closed DDP vs FSDP2 question, one active soak job, next levers",
+      "name": "project_mfu_autonomous"
+    },
+    {
+      "desc": "\"Phase 7.1 nsys (job 75082) \u2014 the flat-MFU residual is communication/sync, not compute; head/autotune track is dead\"",
+      "name": "project_phase7_comms_residual"
+    },
+    {
+      "desc": "\"Phase 7 ROI verdict: iBOT masked-patch count K is ALREADY constant (7,503 @ bs=128, verified) \u2014 Option B padding rejected as unnecessary; heads only ~2.8% of FLOPs; real next step = zero-code max-autotune-no-cudagraphs retest\"",
+      "name": "project_phase7_static_k"
+    },
+    {
+      "desc": "Production PR",
+      "name": "project_prod_pr_ddp_cudagraphs"
+    },
+    {
+      "desc": "SOLVED+VALIDATED (job 60959 full 4000/4000) \u2014 rank-6 iter~1310 soak crash = corrupt NAIP PNG + save_error_path writes to akhosrovyan read-only dir",
+      "name": "project_rank6_crash"
+    },
+    {
+      "desc": "Why Phase 6.B runs long \"soaks\" (4000 iters) instead of short screening runs",
+      "name": "project_soak_rationale"
+    },
+    {
+      "desc": "Weka run/log layout reorganized 2026-06-26 \u2014 runs/<phase>/ + INDEX.md at every level; read INDEX not ls",
+      "name": "project_weka_run_layout"
+    },
+    {
+      "desc": "Per-phase peak GPU memory measurements for DDP/FSDP2 at full training (eval + checkpoint), with tooling to reproduce. Results as of 2026-04-03.",
+      "name": "project_worst_case_memory"
+    },
+    {
+      "desc": "Location of performance engineering references covering profiling, comms, I/O, occupancy, kernel optimization, and practical ML training",
+      "name": "reference_perf_book"
+    },
+    {
+      "desc": "User profile: Aram is an ML researcher at YSU running DINOv3 satellite training on BCM11 cluster",
+      "name": "user_aram"
+    }
+  ],
+  "phase_docs": [
+    {
+      "headings": [
+        "# Phase 7 \u2014 The flat-MFU residual investigation",
+        "## How this doc is organized",
+        "## Phase 7 ladder & status",
+        "## Baselines (reference \u2014 keep these distinct)",
+        "# PART I \u2014 LIVE: the residual is COMMUNICATION",
+        "## 7.1 \u2014 nsys residual attribution (job 75082)",
+        "### Headline",
+        "### Per-iteration wall breakdown (rank 0, wall-clock NVTX ranges \u2014 the trustworthy view)",
+        "### The two communication sinks",
+        "### Compute (for contrast \u2014 what Phase 7 originally targeted)",
+        "## 7.2 \u2014 `CUDA_DEVICE_MAX_CONNECTIONS` sweep (DONE \u2014 H1 not supported)",
+        "## 7.3 \u2014 Gate `allreduce_metrics` (IMPLEMENTED + MEASURED \u2014 small lever, redirect to 7.4)",
+        "## 7.7 \u2014 bs128/160/192 differential: why batch \u2191 gives diminishing returns (DONE)",
+        "## 7.8 \u2014 Straggler attribution + metric-gate E2E quantification (sub-phase)",
+        "### 7.8a \u2014 metric-gating is *not* an E2E lever (DONE, no job)",
+        "### 7.8d \u2014 NVTX-tag the loss-side Sinkhorn collectives (DONE)",
+        "### 7.8c \u2014 per-rank `data_time` + NUMA/affinity dump (DONE)",
+        "### The queued job + open items",
+        "## Codex peer reviews",
+        "## Capture pipeline + analysis harness (supports 7.1, 7.5, 7.7)",
+        "# PART II \u2014 ARCHIVE: rejected compute-residual hypothesis (7.0)",
+        "## 7.0.0 Verdict",
+        "## 7.0.1 Finding A \u2014 the \"per-iteration recompile cliff\" does not exist",
+        "## 7.0.2 Head FLOP fraction: ~2.8%",
+        "## 7.0.3 Finding B (decisive) \u2014 K is ALREADY constant",
+        "## 7.0.4 Direct gain from head CUDA graphs: noise-level",
+        "## 7.0.5 The autotune sub-track (orthogonal to cudagraphs) \u2014 moot for the residual",
+        "## 7.0.6 Correctness notes (kept for the record, moot without padding)"
+      ],
+      "path": "docs/phase7_perf_plan.md"
+    }
+  ],
+  "recent_commits": [
+    {
+      "date": "2026-07-01T19:16:02+04:00",
+      "sha": "7333941",
+      "subject": "docs(codemap): mark design + plan superseded by shared-engine layout"
+    },
+    {
+      "date": "2026-07-01T18:58:10+04:00",
+      "sha": "bd83c7e",
+      "subject": "refactor(codemap): delegate to shared ~/.claude engine; repo keeps config + artifacts only"
+    },
+    {
+      "date": "2026-07-01T13:50:45+04:00",
+      "sha": "1906a47",
+      "subject": "docs(codemap): regenerated self-contained atlas + baseline snapshot"
+    },
+    {
+      "date": "2026-06-29T19:51:41+04:00",
+      "sha": "3b2e7e3",
+      "subject": "feat(codemap): self-contained inline-SVG atlas renderer"
+    },
+    {
+      "date": "2026-06-29T19:01:33+04:00",
+      "sha": "14dc550",
+      "subject": "fix(codemap): stage pruned snapshots in atlas commit, diff clean-commit caveat, mermaid strict"
+    },
+    {
+      "date": "2026-06-29T18:46:02+04:00",
+      "sha": "0bc6a5b",
+      "subject": "fix(codemap): resolve snapshot paths so relative --new doesn't self-diff"
+    },
+    {
+      "date": "2026-06-29T18:42:05+04:00",
+      "sha": "b11fc07",
+      "subject": "feat(codemap): codemap-atlas orchestrator skill"
+    },
+    {
+      "date": "2026-06-29T18:33:29+04:00",
+      "sha": "9372fd7",
+      "subject": "feat(codemap): codemap-diff skill"
+    },
+    {
+      "date": "2026-06-29T18:26:50+04:00",
+      "sha": "d94da15",
+      "subject": "feat(codemap): codemap-state narrative skill"
+    },
+    {
+      "date": "2026-06-29T18:15:56+04:00",
+      "sha": "edb8298",
+      "subject": "fix(codemap): expand underscore-prefixed functions in lens BFS (qname_table sentinel-only skip)"
+    }
+  ],
+  "recent_jobs": [
+    {
+      "log": "/mnt/weka/adovlatyan/logs/INDEX.md"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/profiling/nsys/p7-nsys-80545.err"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/profiling/nsys/p7-nsys-80545.out"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/p7-nsys-80546.err"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/p7-nsys-80546.out"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/p7-nsys-80547.err"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/p7-nsys-80547.out"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/p7-nsys-80711.err"
+    },
+    {
+      "log": "/mnt/weka/adovlatyan/logs/p7-nsys-80711.out"
+    }
+  ],
+  "schema_version": 1,
+  "vs_compare_branch": {
+    "ahead": 81,
+    "behind": 0,
+    "branch": "master",
+    "changed_files": [
+      {
+        "added": 0,
+        "deleted": 0,
+        "path": ".codex"
+      },
+      {
+        "added": 4,
+        "deleted": 0,
+        "path": ".gitignore"
+      },
+      {
+        "added": 79,
+        "deleted": 0,
+        "path": "01_architecture_and_training.md"
+      },
+      {
+        "added": 111,
+        "deleted": 0,
+        "path": "02_performance_and_systems.md"
+      },
+      {
+        "added": 94,
+        "deleted": 0,
+        "path": "03_open_questions_and_experiments.md"
+      },
+      {
+        "added": 827,
+        "deleted": 0,
+        "path": "04_architecture_and_mfu_teaching_guide.md"
+      },
+      {
+        "added": 1,
+        "deleted": 0,
+        "path": "AGENTS.md"
+      },
+      {
+        "added": 344,
+        "deleted": 0,
+        "path": "CLAUDE.md"
+      },
+      {
+        "added": 89,
+        "deleted": 28,
+        "path": "dinov3/checkpointer/checkpointer.py"
+      },
+      {
+        "added": 3,
+        "deleted": 2,
+        "path": "dinov3/data/collate.py"
+      },
+      {
+        "added": 11,
+        "deleted": 2,
+        "path": "dinov3/train/train.py"
+      },
+      {
+        "added": 26,
+        "deleted": 0,
+        "path": "docs/_index.md"
+      },
+      {
+        "added": 12,
+        "deleted": 0,
+        "path": "docs/archive/_index.md"
+      },
+      {
+        "added": 187,
+        "deleted": 0,
+        "path": "docs/archive/fsdp2_revalidation_tracker.md"
+      },
+      {
+        "added": 251,
+        "deleted": 0,
+        "path": "docs/archive/mfu-results-2026-03-30.md"
+      },
+      {
+        "added": 459,
+        "deleted": 0,
+        "path": "docs/archive/perf_bottleneck_ledger.md"
+      },
+      {
+        "added": 773,
+        "deleted": 0,
+        "path": "docs/archive/perf_experiment_log.md"
+      },
+      {
+        "added": 1482,
+        "deleted": 0,
+        "path": "docs/archive/phase5_perf_plan.md"
+      },
+      {
+        "added": 135,
+        "deleted": 0,
+        "path": "docs/branch-history.md"
+      },
+      {
+        "added": 1,
+        "deleted": 0,
+        "path": "docs/codemap/.gitignore"
+      },
+      {
+        "added": 19,
+        "deleted": 0,
+        "path": "docs/codemap/README.md"
+      },
+      {
+        "added": 78,
+        "deleted": 0,
+        "path": "docs/codemap/atlas.html"
+      },
+      {
+        "added": 35,
+        "deleted": 0,
+        "path": "docs/codemap/codemap.config.yaml"
+      },
+      {
+        "added": 5,
+        "deleted": 0,
+        "path": "docs/codemap/snapshots/9372fd7-dirty/change.fragment.html"
+      },
+      {
+        "added": 8,
+        "deleted": 0,
+        "path": "docs/codemap/snapshots/9372fd7-dirty/change.json"
+      },
+      {
+        "added": 936,
+        "deleted": 0,
+        "path": "docs/codemap/snapshots/9372fd7-dirty/state.facts.json"
+      },
+      {
+        "added": 1,
+        "deleted": 0,
+        "path": "docs/codemap/snapshots/9372fd7-dirty/state.fragment.html"
+      },
+      {
+        "added": 937,
+        "deleted": 0,
+        "path": "docs/codemap/snapshots/9372fd7-dirty/state.json"
+      },
+      {
+        "added": 701,
+        "deleted": 0,
+        "path": "docs/codemap/snapshots/9372fd7-dirty/structure.fragment.html"
+      },
+      {
+        "added": 3831,
+        "deleted": 0,
+        "path": "docs/codemap/snapshots/9372fd7-dirty/structure.json"
+      },
+      {
+        "added": 1,
+        "deleted": 0,
+        "path": "docs/codemap/snapshots/latest"
+      },
+      {
+        "added": 325,
+        "deleted": 0,
+        "path": "docs/ddp_checkpoint_cleanup_results_2026-06-05.md"
+      },
+      {
+        "added": 67,
+        "deleted": 0,
+        "path": "docs/gpt-5-pro-content/README.md"
+      },
+      {
+        "added": 198,
+        "deleted": 0,
+        "path": "docs/gpt-5-pro-content/ddp-prompt/compressed_phase6_perf_plan.md"
+      },
+      {
+        "added": 232,
+        "deleted": 0,
+        "path": "docs/gpt-5-pro-content/ddp-prompt/ideation_prompt.md"
+      },
+      {
+        "added": 1173,
+        "deleted": 0,
+        "path": "docs/gpt-5-pro-content/ddp-prompt/minimum_useful_bundle_source_excerpts.md"
+      },
+      {
+        "added": 188,
+        "deleted": 0,
+        "path": "docs/gpt-5-pro-content/fsdp2-prompt/context_pack.md"
+      },
+      {
+        "added": 492,
+        "deleted": 0,
+        "path": "docs/gpt-5-pro-content/fsdp2-prompt/minimal_evidence_bundle.md"
+      },
+      {
+        "added": 934,
+        "deleted": 0,
+        "path": "docs/gpt-5-pro-content/shared/lateral_source_excerpts.md"
+      },
+      {
+        "added": 175,
+        "deleted": 0,
+        "path": "docs/gpt-5-pro-content/shared/lateral_systems_context_pack.md"
+      },
+      {
+        "added": 36,
+        "deleted": 0,
+        "path": "docs/html/_index.md"
+      },
+      {
+        "added": 679,
+        "deleted": 0,
+        "path": "docs/html/claude/concepts.html"
+      },
+      {
+        "added": 29,
+        "deleted": 0,
+        "path": "docs/html/claude/index.html"
+      },
+      {
+        "added": 835,
+        "deleted": 0,
+        "path": "docs/html/claude/mfu_reference.html"
+      },
+      {
+        "added": 708,
+        "deleted": 0,
+        "path": "docs/html/claude/phase6_ledger.html"
+      },
+      {
+        "added": 638,
+        "deleted": 0,
+        "path": "docs/html/claude/status.html"
+      },
+      {
+        "added": 101,
+        "deleted": 0,
+        "path": "docs/html/claude/upstream_pr_findings.html"
+      },
+      {
+        "added": 31,
+        "deleted": 0,
+        "path": "docs/html/claude/upstream_pr_findings_v2.html"
+      },
+      {
+        "added": 134,
+        "deleted": 0,
+        "path": "docs/html/codex/phase5_archive.html"
+      },
+      {
+        "added": 139,
+        "deleted": 0,
+        "path": "docs/html/codex/phase5_current.html"
+      },
+      {
+        "added": 228,
+        "deleted": 0,
+        "path": "docs/html/codex/phase5_experiments.html"
+      },
+      {
+        "added": 120,
+        "deleted": 0,
+        "path": "docs/html/codex/phase5_mental_model.html"
+      },
+      {
+        "added": 386,
+        "deleted": 0,
+        "path": "docs/html/codex/style.css"
+      },
+      {
+        "added": 153,
+        "deleted": 0,
+        "path": "docs/html/codex/upstream_pr_findings.html"
+      },
+      {
+        "added": 799,
+        "deleted": 0,
+        "path": "docs/html/explainers/dinov3-training-pipeline-ibot-compile-explainer-2026-05-22.html"
+      },
+      {
+        "added": 1051,
+        "deleted": 0,
+        "path": "docs/html/explainers/torch-compile-dinov3-phase5-2026-05-21.html"
+      },
+      {
+        "added": 1208,
+        "deleted": 0,
+        "path": "docs/phase6_perf_plan.md"
+      },
+      {
+        "added": 36,
+        "deleted": 0,
+        "path": "docs/research/Armen_questions_05_21_26.md"
+      },
+      {
+        "added": 10,
+        "deleted": 0,
+        "path": "docs/research/_index.md"
+      },
+      {
+        "added": 267,
+        "deleted": 0,
+        "path": "docs/research/torch-compile-dinov3-phase5-2026-05-21.md"
+      },
+      {
+        "added": 236,
+        "deleted": 0,
+        "path": "docs/research/training_setup_review_2026-04-03.md"
+      },
+      {
+        "added": 251,
+        "deleted": 0,
+        "path": "docs/research/upstream-pr-findings-2026-05-20.md"
+      },
+      {
+        "added": 1242,
+        "deleted": 0,
+        "path": "docs/superpowers/plans/2026-06-29-codemap-atlas-plan.md"
+      },
+      {
+        "added": 273,
+        "deleted": 0,
+        "path": "docs/superpowers/specs/2026-06-29-codemap-atlas-design.md"
+      },
+      {
+        "added": 488,
+        "deleted": 0,
+        "path": "docs/yerevann-dinov3-perf-optimizations-project-dossier.md"
+      },
+      {
+        "added": 70,
+        "deleted": 0,
+        "path": "latest_run.sh"
+      },
+      {
+        "added": 24,
+        "deleted": 0,
+        "path": "learnings/README.md"
+      },
+      {
+        "added": 22,
+        "deleted": 0,
+        "path": "learnings/_index.md"
+      },
+      {
+        "added": 144,
+        "deleted": 0,
+        "path": "learnings/compile_modes.md"
+      },
+      {
+        "added": 220,
+        "deleted": 0,
+        "path": "learnings/cuda_graphs.md"
+      },
+      {
+        "added": 271,
+        "deleted": 0,
+        "path": "learnings/data_pipeline.md"
+      },
+      {
+        "added": 495,
+        "deleted": 0,
+        "path": "learnings/distributed_training.md"
+      },
+      {
+        "added": 98,
+        "deleted": 0,
+        "path": "learnings/gpu_performance.md"
+      },
+      {
+        "added": 215,
+        "deleted": 0,
+        "path": "learnings/kernel_optimization.md"
+      },
+      {
+        "added": 276,
+        "deleted": 0,
+        "path": "learnings/profiling_workflow.md"
+      },
+      {
+        "added": 332,
+        "deleted": 0,
+        "path": "learnings/terminology.md"
+      },
+      {
+        "added": 8,
+        "deleted": 0,
+        "path": "pyrightconfig.json"
+      },
+      {
+        "added": 24,
+        "deleted": 14,
+        "path": "run.sh"
+      },
+      {
+        "added": 22,
+        "deleted": 0,
+        "path": "scripts/README.md"
+      },
+      {
+        "added": 76,
+        "deleted": 0,
+        "path": "scripts/debug/rank6_capture.sh"
+      },
+      {
+        "added": 79,
+        "deleted": 0,
+        "path": "scripts/debug/rank6_root_cause.md"
+      },
+      {
+        "added": 118,
+        "deleted": 0,
+        "path": "scripts/debug/repro_rank6.py"
+      },
+      {
+        "added": 26,
+        "deleted": 0,
+        "path": "scripts/debug/repro_rank6.sh"
+      },
+      {
+        "added": 106,
+        "deleted": 0,
+        "path": "scripts/debug/test_save_error_path_fix.py"
+      },
+      {
+        "added": 108,
+        "deleted": 0,
+        "path": "scripts/docs/extract_gpt5_pro_ddp_minimum_bundle.sh"
+      },
+      {
+        "added": 38,
+        "deleted": 0,
+        "path": "scripts/docs/extract_gpt5_pro_lateral_excerpts.sh"
+      },
+      {
+        "added": 107,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs128_ac_full.sh"
+      },
+      {
+        "added": 105,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs128_ac_selective.sh"
+      },
+      {
+        "added": 105,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs128_reshF_sel.sh"
+      },
+      {
+        "added": 110,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs128_reshT_sel_resoak.sh"
+      },
+      {
+        "added": 82,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs128_singlegpu_sel.sh"
+      },
+      {
+        "added": 107,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_ac_full.sh"
+      },
+      {
+        "added": 105,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_ac_selective.sh"
+      },
+      {
+        "added": 79,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_baseline.sh"
+      },
+      {
+        "added": 147,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_ncclsweep_stageA.sh"
+      },
+      {
+        "added": 91,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_noreshard_nvls.sh"
+      },
+      {
+        "added": 107,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_reshF_full.sh"
+      },
+      {
+        "added": 105,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_reshF_noAC.sh"
+      },
+      {
+        "added": 105,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_reshF_sel.sh"
+      },
+      {
+        "added": 95,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_reshF_sel_resoak.sh"
+      },
+      {
+        "added": 105,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_reshT_noAC.sh"
+      },
+      {
+        "added": 96,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_reshT_sel_resoak.sh"
+      },
+      {
+        "added": 93,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_bs96_singlegpu_sel.sh"
+      },
+      {
+        "added": 137,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_ncclsweep_stageB.sh"
+      },
+      {
+        "added": 131,
+        "deleted": 0,
+        "path": "scripts/fsdp2/fsdp2_ncclsweep_stageC.sh"
+      },
+      {
+        "added": 116,
+        "deleted": 0,
+        "path": "scripts/profiling/fsdp2_bs128_memprofile.sh"
+      },
+      {
+        "added": 118,
+        "deleted": 0,
+        "path": "scripts/profiling/memfrag_fsdp2.sh"
+      },
+      {
+        "added": 106,
+        "deleted": 0,
+        "path": "scripts/profiling/memprofile_ddp.sh"
+      },
+      {
+        "added": 129,
+        "deleted": 0,
+        "path": "scripts/profiling/memprofile_fsdp2.sh"
+      },
+      {
+        "added": 641,
+        "deleted": 0,
+        "path": "scripts/profiling/nsys_dinov3_summary.py"
+      },
+      {
+        "added": 154,
+        "deleted": 0,
+        "path": "scripts/profiling/nsys_profile.sh"
+      },
+      {
+        "added": 77,
+        "deleted": 0,
+        "path": "scripts/profiling/profiling_run.sh"
+      },
+      {
+        "added": 82,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs128_cg_ac_full.sh"
+      },
+      {
+        "added": 83,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs128_cg_ac_sel.sh"
+      },
+      {
+        "added": 107,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs128_cudagraphs.sh"
+      },
+      {
+        "added": 106,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs192_cg_ac_full.sh"
+      },
+      {
+        "added": 94,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs192_cudagraphs.sh"
+      },
+      {
+        "added": 111,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs96_calibration.sh"
+      },
+      {
+        "added": 88,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs96_cg_ac_full.sh"
+      },
+      {
+        "added": 91,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs96_cg_ac_sel.sh"
+      },
+      {
+        "added": 106,
+        "deleted": 0,
+        "path": "scripts/screening/ddp_bs96_cudagraphs.sh"
+      },
+      {
+        "added": 147,
+        "deleted": 0,
+        "path": "scripts/screening/screening_compile_modes.sh"
+      },
+      {
+        "added": 72,
+        "deleted": 0,
+        "path": "scripts/screening/screening_ddp.sh"
+      },
+      {
+        "added": 74,
+        "deleted": 0,
+        "path": "scripts/screening/screening_ddp_expandseg.sh"
+      },
+      {
+        "added": 74,
+        "deleted": 0,
+        "path": "scripts/screening/screening_fsdp2_expandseg.sh"
+      },
+      {
+        "added": 73,
+        "deleted": 0,
+        "path": "scripts/screening/screening_fsdp2_norelease.sh"
+      },
+      {
+        "added": 75,
+        "deleted": 0,
+        "path": "scripts/screening/screening_fsdp2_norelease_es.sh"
+      },
+      {
+        "added": 82,
+        "deleted": 0,
+        "path": "scripts/screening/screening_run.sh"
+      },
+      {
+        "added": 58,
+        "deleted": 0,
+        "path": "scripts/smoke/mfu_8gpu_real_data.sh"
+      },
+      {
+        "added": 47,
+        "deleted": 0,
+        "path": "scripts/smoke/mfu_validation_run.sh"
+      },
+      {
+        "added": 167,
+        "deleted": 0,
+        "path": "scripts/soak/ddp_bs128_cg_ac_full_16w4pf_soak.sh"
+      },
+      {
+        "added": 168,
+        "deleted": 0,
+        "path": "scripts/soak/ddp_bs128_cg_ac_full_16w8pf_soak.sh"
+      },
+      {
+        "added": 173,
+        "deleted": 0,
+        "path": "scripts/soak/ddp_bs128_cg_ac_full_soak.sh"
+      },
+      {
+        "added": 156,
+        "deleted": 0,
+        "path": "scripts/soak/ddp_bs128_cg_soak.sh"
+      },
+      {
+        "added": 155,
+        "deleted": 0,
+        "path": "scripts/soak/ddp_bs192_cg_soak.sh"
+      },
+      {
+        "added": 273,
+        "deleted": 0,
+        "path": "scripts/soak/ddp_memval_soak.sh"
+      },
+      {
+        "added": 109,
+        "deleted": 0,
+        "path": "scripts/soak/fsdp2_long_soak_bs128.sh"
+      },
+      {
+        "added": 115,
+        "deleted": 0,
+        "path": "scripts/soak/soak_test_ddp.sh"
+      },
+      {
+        "added": 279,
+        "deleted": 0,
+        "path": "tests/test_ddp_checkpoint.py"
+      }
+    ]
+  },
+  "narrative": "## Where we are\nThis is the **DINOv3 satellite perf-optimization** repo. The active branch is `feat/codemap-atlas`,\na tooling side-track off the phase-7 line (`exp/ddp-fullgraph-head-static-shapes`). The perf work\nitself is **Phase 7**: attributing and shrinking the DDP communication residual on 8\u00d7H100.\n\n## What just shipped\n- **Codemap Atlas** was generalized out of this repo into a **shared engine** at `~/.claude/codemap`\n  + four global skills; the repo now carries only `docs/codemap/codemap.config.yaml` + generated\n  snapshots/atlas (commits `bd83c7e`, `7333941`).\n- A **Fable adversarial review** of that engine was run and its findings fixed (in the home repo):\n  Fix A (snapshot-sha split-brain, `(file,qualname)` node identity, strict entrypoint fallback),\n  Fix B (**map-fidelity box** \u2014 the resolution %/skipped counts shown below), plus a Codex\n  review-fixup (whole-repo-exclude guard, ambiguous-match refusal, display-id uniqueness). 46/46 tests.\n\n## What we're trying NOW and why\nWrapping up this codemap branch to return to **Phase 7**. The open perf question there:\n`allreduce_metrics` sits at ~32.6% of wall (the metric-gate collective), but removing it is\n**~0 end-to-end** \u2014 the bill relocates to a barrier rather than disappearing. The live lever is\n**fullgraph** to shrink the residual; batch-size work (bs128 baseline ~2,116 img/s \u2192 bs160/192)\nshows a per-image compute U-shape (sweet spot ~bs160) with residual growth, and a **host-side\nstraggler** (rank-6/7 arrival, not GPU compute). Instrumented bs192 capture (job **80711**) was queued.\n\n## This branch vs master\nAhead **81** commits, 139 files changed, 0 behind. Most of that is the phase-6/7 perf history the\nbranch was cut from; the codemap commits sit on top.\n\n## Live vs closed\n- **Live:** Phase 7 comms-residual attribution (fullgraph lever, nsys captures, job 80711).\n- **Closed:** codemap engine (stable, reviewed); Phase 6 DDP+cudagraphs champion; rank-6 crash fix.\n\n## Map fidelity (this run)\n173 files scanned, 0 skipped. Per-lens call-site resolution: train-loop 79%, loss-forward 80%,\ndistributed-wrap 100%, data-pipeline 86% \u2014 the dropped remainder is name-collided calls\n(`forward`, `__init__`) the best-effort resolver intentionally does not draw. See the fidelity box."
+}
