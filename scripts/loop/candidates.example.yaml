@@ -1,0 +1,62 @@
+# T2 screening-loop candidate menu — bounded open-endedness.
+# The proposer (human or agent) picks from named knobs, or uses the ONE
+# wildcard slot with a written mechanism justification. The driver turns each
+# candidate into a run_candidate.sh submission; the installed verifier scores.
+#
+# Operating point (NOT searchable — champions re-confirmed at bs=192):
+operating_point:
+  batch_size: 128
+  iters: 700
+  skip_iters: 200
+  baseline_run: /mnt/weka/adovlatyan/runs/phase7-compile-nsys/maxconn/output_maxconn1_ddp_bs128_24w8pf_77672
+  baseline_score_wall_imgs_mean: 2115.6   # verified by score.py 2026-07-03
+
+# Named knobs (menu). Values here are the plausible ranges, not a full grid —
+# the proposer picks points and says why.
+knobs:
+  num_workers:            # PRIME LEVER (job 80711: 8x24=192 workers on 192 CPUs oversubscribed)
+    channel: EXTRA_OPTS
+    key: train.num_workers
+    range: [8, 24]
+    note: headroom hypothesis says LESS than 24; leave CPUs for main processes
+  prefetch_factor:
+    channel: EXTRA_OPTS
+    key: train.prefetch_factor
+    range: [2, 8]
+  cuda_device_max_connections:
+    channel: EXTRA_ENV
+    key: CUDA_DEVICE_MAX_CONNECTIONS
+    range: [1, 32]
+    note: "§7.2 says keep 1; only revisit bundled with other stream changes"
+  omp_threads:
+    channel: EXTRA_ENV
+    key: OMP_NUM_THREADS
+    range: [1, 8]
+  slurm_cpus:             # goes on the sbatch command line, not in the script
+    channel: SBATCH_ARGS
+    key: --cpus-per-task
+    range: [96, 192]
+  rank_numa_binding:      # PRIME LEVER, second axis — IMPLEMENTED on this branch
+    channel: EXTRA_ENV
+    key: DINOV3_RANK_CPU_SLICE
+    range: ["0", "1"]
+    note: |
+      Implemented at dinov3/train/train.py (gated, off by default): =1 gives
+      each local rank a private physical-core slice on its GPU's NUMA node,
+      applied before DataLoader workers fork. §7.9 slice arms are already
+      running per docs/phase7_perf_plan.md — check those results before
+      re-proposing. Pair with num_workers (the slice shrinks each rank's
+      worker CPU budget).
+
+# Wildcard slot (max ONE live at a time; requires mechanism justification).
+# NOTE: proposals must name real knobs — pin_memory, for example, is HARDCODED
+# at dinov3/data/loaders.py:246 and is not overridable from config.
+wildcard:
+  example:
+    hypothesis: >
+      Allocator fragmentation contributes to the wall tail at bs=128;
+      expandable_segments smooths it (known DDP+large-batch knob — was used in
+      the DDP+ES screening, never A/B'd at this operating point).
+    channel: EXTRA_ENV
+    override: "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
+    justification_required: true
