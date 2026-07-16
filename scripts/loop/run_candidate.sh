@@ -87,6 +87,15 @@ if [ -n "${EXTRA_ENV}" ]; then
       *) echo "FATAL: EXTRA_ENV token '${kv}' is not K=V (values must not contain spaces)"; exit 64 ;;
     esac
     key="${kv%%=*}"; val="${kv#*=}"
+    # Reject anything that is not a valid shell identifier BEFORE export. The
+    # script runs under `set -uo pipefail` (no `-e`), so a bare `export BAD-NAME=1`
+    # would fail silently and training would run at the BASELINE while the log
+    # claims the candidate env was applied (Codex 2026-07-16, finding 7). Glob the
+    # complement: any non-[A-Za-z0-9_] char, or a leading digit/empty key.
+    case "${key}" in
+      *[!A-Za-z0-9_]* | [!A-Za-z_]* | "")
+        echo "FATAL: EXTRA_ENV key '${key}' is not a valid shell identifier"; exit 64 ;;
+    esac
     case "${key}" in
       PATH|PYTHONPATH|PYTHONHOME|PYTHONSTARTUP|PYTHONNOUSERSITE|LD_*|SLURM_*|DINOV3_OUTPUT_ROOT|HOME|CONDA_PREFIX)
         echo "FATAL: EXTRA_ENV may not set '${key}' — it can redirect the runner, imports, or output path (measurement integrity)"; exit 65 ;;
@@ -94,7 +103,7 @@ if [ -n "${EXTRA_ENV}" ]; then
     if [ "${key}" = "DINOV3_PERRANK_DIAG" ] && [ "${val}" != "1" ]; then
       echo "FATAL: DINOV3_PERRANK_DIAG must stay 1 — disabling it blinds the per-rank straggler gate (score_core finding 1)"; exit 65
     fi
-    export "${kv?}"
+    export "${kv?}" || { echo "FATAL: could not export EXTRA_ENV '${kv}'"; exit 65; }
   done
 fi
 

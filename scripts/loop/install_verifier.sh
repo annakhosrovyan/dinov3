@@ -37,10 +37,23 @@ done
 # No bytecode in the installed tree (score.py also sets sys.dont_write_bytecode).
 find "${STAGE}" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
-# Atomic replace: drop the old tree, rename staging into place (same-fs mv = rename).
-rm -rf "${DST_DIR}"
+# Atomic-ish replace (Codex 2026-07-16, finding 6). Move any existing tree ASIDE
+# first (an atomic rename), verify the target path is clear, THEN rename staging
+# into it. A bare `rm -rf "${DST_DIR}"; mv "${STAGE}" "${DST_DIR}"` has a window
+# where, if a concurrent same-user install recreated the dir, `mv` would nest the
+# stage INSIDE it and the digest below would attest the wrong tree. The driver's
+# per-iteration digest check fails closed if the verifier is briefly absent.
+OLD=""
+if [ -e "${DST_DIR}" ]; then
+  OLD="$(mktemp -d "${PARENT}/.loop-verifier-old.XXXXXX")"
+  mv "${DST_DIR}" "${OLD}/tree"
+fi
+if [ -e "${DST_DIR}" ]; then
+  echo "FATAL: ${DST_DIR} reappeared during install (concurrent install?) — aborting to avoid nesting"; exit 70
+fi
 mv "${STAGE}" "${DST_DIR}"
 trap - EXIT
+[ -n "${OLD}" ] && rm -rf "${OLD}"
 find "${DST_DIR}" -type f -exec chmod 555 {} +
 
 # One combined digest over ALL installed files except the digest file itself
@@ -54,11 +67,14 @@ echo "${COMBINED}  (combined over all files in ${DST_DIR} except verifier.sha256
 echo "${COMBINED}"
 echo ""
 echo "installed (read-only): ${DST_DIR}/{score.py, score_core.py, adapters/dinov3.py}"
-echo "run: ${DST_DIR}/score.py <run_dir> --baseline <dir> --expect-iters N ..."
+# Always invoke via `python3 -I -B` (isolated + no-bytecode): -I ignores
+# PYTHONPATH/user-site/sitecustomize so a planted import cannot hijack the scorer
+# before it protects itself; -B writes no bytecode. (Codex 2026-07-16, finding 5.)
+echo "run: python3 -I -B ${DST_DIR}/score.py <run_dir> --baseline <dir> --expect-iters N --world-size 8 --slurm-log <log> ..."
 echo ""
 echo "TRUST CHAIN (Codex note: a hash file NEXT TO the target only detects"
 echo "accidents, not replacement — anyone who can swap the files can swap the"
 echo "hash). Record the COMBINED digest above in the loop's state.md at loop"
 echo "start; the driver re-derives it from the live files and compares to THAT:"
-echo "  cd ${DST_DIR} && find . -type f ! -name 'verifier.sha256' | sort | xargs sha256sum | sha256sum"
+echo "  cd ${DST_DIR} && find . -type f ! -name 'verifier.sha256' | sort | xargs sha256sum | sha256sum | awk '{print \$1}'"
 echo "chmod 555 guards against accidental edits only, not the owning user."

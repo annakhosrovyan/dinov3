@@ -7,8 +7,9 @@ example and `ADAPTERS.md` for the authoring contract). To stand up the verifier
 for a new PyTorch training project you copy this file verbatim and write one
 small adapter — never edit the logic here.
 
-Design rules (docs/html/explainers/autoresearch-loops-mfu-2026-07-03.html + three
-Codex review passes: two GPT-5.5 high 2026-07-03, one GPT-5.6-sol xhigh 2026-07-10):
+Design rules (docs/html/explainers/autoresearch-loops-mfu-2026-07-03.html + four
+Codex review passes: two GPT-5.5 high 2026-07-03, one GPT-5.6-sol xhigh 2026-07-10,
+one GPT-5.6-sol high 2026-07-16 on the committed toolkit — see README validation log):
 
   * PRIMARY SCORE = steady-state WALL img/s (mean-based, i.e. integrated
     throughput — stalls count). The adapter's diagnostic metric (MFU for dinov3)
@@ -327,33 +328,44 @@ def score_run(run_dir, args, adapter):
         notes.extend(adapter.extra_notes(str(run_dir)))
 
     # --- steady-state series -------------------------------------------------
-    it = col(ss, C.iter_time)
-    gbs_vals = col(ss, C.batch_size)
-    gbs = gbs_vals[0] if gbs_vals else None
-    if not it or not gbs:
-        raise ValueError(f"steady-state {C.iter_time}/{C.batch_size} missing in {run_dir}")
+    # A row is USABLE for scoring only if it carries BOTH a positive-finite
+    # iter_time (the denominator) AND a positive-finite batch_size (the numerator)
+    # on the SAME row (Codex 2026-07-16, finding 4). col() alone would (a) accept a
+    # zero/negative iter_time — a division blow-up or a negative "score" — and (b)
+    # let batch_size appear on a single row while iter_time is present on many, so
+    # one inflated batch_size value could set the numerator for the whole run.
+    # Pairing per-row closes both.
+    def _pos(x):
+        return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) and x > 0
 
-    # --- gate: timing coverage (finding 2) -----------------------------------
-    # col() silently drops rows with null/NaN/missing iter_time. Without this gate
-    # a run whose steady-state window is null on every row but one would score off
-    # that single fast row (wall_tail ratio 1.0, completion pass). Require most
-    # steady-state rows to carry a usable iter_time, a floor on the point count,
-    # and a CONSTANT global batch size (gbs is the score numerator; one inflated
-    # first row must not set it).
+    paired = [(r[C.iter_time], r[C.batch_size]) for r in ss if _pos(r.get(C.iter_time)) and _pos(r.get(C.batch_size))]
+    it = [t for t, _ in paired]
+    gbs_series = [b for _, b in paired]
+    gbs = gbs_series[0] if gbs_series else None
+    if not it or not gbs:
+        raise ValueError(f"no steady-state row has positive {C.iter_time} AND {C.batch_size} in {run_dir}")
+
+    # --- gate: timing coverage (findings 2 + 4) ------------------------------
+    # Without this gate a run whose steady-state window is usable on only one row
+    # would score off that single fast row (wall_tail ratio 1.0, completion pass).
+    # Require most steady-state rows to be USABLE (positive iter_time AND batch
+    # size paired on the same row), a floor on the count, and a CONSTANT batch
+    # size across those usable rows (gbs is the score numerator).
     n_ss = len(ss)
-    n_usable = len(it)
+    n_usable = len(paired)
     coverage = n_usable / n_ss if n_ss else 0.0
-    gbs_constant = len(set(gbs_vals)) == 1
+    gbs_constant = len(set(gbs_series)) == 1
     timing_ok = n_usable >= args.min_ss_points and coverage >= args.min_timing_coverage and gbs_constant
     gates["timing_coverage"] = {
         "status": "pass" if timing_ok else "fail",
         "value": (
-            f"{n_usable}/{n_ss} steady-state rows have finite {C.iter_time} ({coverage:.0%}); "
-            + (f"{C.batch_size} constant" if gbs_constant else f"{C.batch_size} VARIES {sorted(set(gbs_vals))}")
+            f"{n_usable}/{n_ss} steady-state rows have positive {C.iter_time} AND {C.batch_size} ({coverage:.0%}); "
+            + (f"{C.batch_size} constant" if gbs_constant else f"{C.batch_size} VARIES {sorted(set(gbs_series))}")
         ),
         "threshold": (
-            f">= {args.min_timing_coverage:.0%} of steady-state rows usable, >= {args.min_ss_points} points, "
-            f"constant {C.batch_size} (else the score can rest on a few cherry rows)"
+            f">= {args.min_timing_coverage:.0%} of steady-state rows usable (paired positive "
+            f"{C.iter_time}+{C.batch_size}), >= {args.min_ss_points} points, constant {C.batch_size} "
+            "(else the score can rest on a few cherry rows)"
         ),
     }
 
@@ -488,6 +500,13 @@ def finalize_gates(result):
     result["mandatory_unevaluated"] = sorted(
         k for k, g in gates.items() if k in MANDATORY_GATES and g["status"] == "not_evaluated"
     )
+    # AUTHORITATIVE certification boolean (Codex 2026-07-16, finding 3). gates_passed
+    # above means only "no explicit FAIL" — it is still true when a mandatory gate is
+    # not_evaluated, so a driver that keyed off it would reopen the finding-1 fail-open
+    # hole. mandatory_gates_passed requires every mandatory gate to be an explicit pass
+    # (no fail AND no not_evaluated). This is the boolean a driver should gate on; the
+    # verdict string carries the same distinction ("invalid"/"incomplete").
+    result["mandatory_gates_passed"] = not result["mandatory_failed"] and not result["mandatory_unevaluated"]
 
 
 def compare(cand, base, base_dir, args, adapter):
@@ -590,11 +609,14 @@ def compare(cand, base, base_dir, args, adapter):
     # §7.2 divergence detector: GPU-window diagnostic "improved" while wall
     # regressed past the noise floor. Assumes the diagnostic is higher-is-better
     # (true for MFU/img-s; a lower-is-better latency proxy would need a signed
-    # direction on Columns — see ADAPTERS.md). Gated on the noise floor (finding
-    # 10) so sub-noise wobble in either series does not manufacture a divergence.
+    # direction on Columns — see ADAPTERS.md). BOTH series are noise-floor gated
+    # (Codex findings 2026-07-10 #10 + 2026-07-16 #8): the wall must regress past
+    # the floor AND the diagnostic must IMPROVE past the floor, so sub-noise wobble
+    # in either series (e.g. MFU 20.0000 -> 20.0001) cannot manufacture a divergence.
     label = C.diag_metric_label
     cm, bm = cand["diagnostics"][C.diag_metric_out], base["diagnostics"][C.diag_metric_out]
-    if cm and bm and cm["mean"] > bm["mean"] and delta_pct < -args.noise_floor_pct:
+    diag_gain_pct = 100.0 * (cm["mean"] - bm["mean"]) / abs(bm["mean"]) if (cm and bm and bm["mean"]) else 0.0
+    if cm and bm and diag_gain_pct > args.noise_floor_pct and delta_pct < -args.noise_floor_pct:
         cand["notes"].append(
             f"DIVERGENCE (§7.2 pattern): {label} improved while wall img/s regressed "
             f"{abs(delta_pct):.1f}% (past the {args.noise_floor_pct}% floor) — cost moved outside the "
@@ -603,22 +625,43 @@ def compare(cand, base, base_dir, args, adapter):
 
 
 def load_baseline(path, args, adapter):
-    """Returns (baseline_result, baseline_run_dir_or_None)."""
+    """Returns (baseline_result, baseline_run_dir_or_None).
+
+    The baseline is ALWAYS re-derived from raw artifacts when a run directory is
+    available — a cached score JSON is never trusted for the delta if the run it
+    names still exists on disk (Codex GPT-5.6-sol review, 2026-07-16, finding 1).
+    A prior version returned the JSON's stored score while ALSO returning its
+    run_dir, so compare() would mark it re-derived (self_reported=false) and use a
+    number that was never recomputed: editing wall_imgs_mean_raw in a saved JSON
+    (real dir retained) manufactured a "trusted" improvement. Now a JSON that
+    points at a live dir is treated exactly like passing that dir directly; only a
+    JSON whose run_dir is gone stays self-reported (and compare() warns).
+    """
+
+    # Rescore any baseline run dir WITHOUT the candidate's --slurm-log: that log
+    # is the CANDIDATE's, so feeding it to the baseline would compute the
+    # baseline's straggler gate from the wrong run. The baseline's straggler was
+    # certified at promotion time; here it stays not_evaluated (and the note logic
+    # in compare() only flags a real baseline FAIL, so this adds no noise).
+    def rescore(run_dir):
+        base_args = copy.copy(args)
+        base_args.slurm_log = None
+        r = score_run(run_dir, base_args, adapter)
+        finalize_gates(r)
+        return r
+
     p = Path(path)
     if p.is_file() and p.suffix == ".json" and p.name != adapter.metrics_file:
         result = json.loads(p.read_text())
         rd = Path(result.get("run_dir", ""))
-        return result, (rd if rd.is_dir() else None)
-    # Rescore the baseline WITHOUT the candidate's --slurm-log: that log is the
-    # CANDIDATE's, so feeding it to the baseline would compute the baseline's
-    # straggler gate from the wrong run. The baseline's straggler was certified at
-    # promotion time; here it stays not_evaluated (and the note logic above only
-    # flags a real baseline FAIL, so this does not add noise).
-    base_args = copy.copy(args)
-    base_args.slurm_log = None
-    result = score_run(p, base_args, adapter)
-    finalize_gates(result)
-    return result, p
+        if rd.is_dir():
+            # Live run dir: re-derive the score from raw artifacts, ignore the
+            # JSON's stored numbers, and enable the objective_integrity diff.
+            return rescore(rd), rd
+        # Dir is gone: fall back to the self-reported JSON (compare() warns and
+        # marks self_reported=true; no integrity diff possible).
+        return result, None
+    return rescore(p), p
 
 
 def human_summary(r, adapter):
