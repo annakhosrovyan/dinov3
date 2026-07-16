@@ -8,7 +8,9 @@ verifier to another PyTorch project is in `ADAPTERS.md`.
 
 A toolkit for **T2 config/systems screening**: pick a training knob, run a short
 (700-iter) job at the fixed operating point, and get a trustworthy verdict on
-whether it beats the current champion — better / worse / no-evidence / invalid.
+whether it beats the current champion — improvement / regression / no-evidence /
+incomplete (mandatory gate unevaluated — supply the missing input) / invalid
+(mandatory gate failed).
 It is the standing infrastructure a `/loop` will drive later; today you can drive
 it by hand.
 
@@ -44,12 +46,17 @@ Everything else (recipe, bs=128, 700 iters, env, Slurm resources) is pinned.
 ```bash
 ~/scripts/jobcheck <jobid>          # wait for completion, find the outdir + log
 
-~/scripts/loop-verifier/score.py <outdir> \
+# Always invoke via `python3 -I -B` (isolated + no-bytecode) so no PYTHONPATH /
+# user-site / sitecustomize import can hijack the scorer before it protects itself.
+python3 -I -B ~/scripts/loop-verifier/score.py <outdir> \
     --baseline /mnt/weka/adovlatyan/runs/phase7-compile-nsys/maxconn/output_maxconn1_ddp_bs128_24w8pf_77672 \
-    --expect-iters 700 \
+    --expect-iters 700 --world-size 8 \
     --slurm-log /mnt/weka/adovlatyan/logs/<candidate-log>.out \
     --lineage <loop_dir>/lineage.jsonl --tag nw16 --hypothesis "..."
 ```
+
+Omitting `--slurm-log` leaves the mandatory `per_rank_straggler` gate
+`not_evaluated`, so the verdict is `incomplete` (not a certified pass).
 
 Read the verdict line. `candidate-improvement` is **not** a promotion — schedule a
 matched-node A/B replicate before believing it (see README rules).
@@ -65,4 +72,7 @@ matched-node A/B replicate before believing it (see README rules).
 
 ## Exit codes
 
-`0` scored (read verdict), `2` cannot score (gate/parse failure — read the note).
+`0` = the run was scored — **including when a gate FAILED** (verdict `invalid`) or a
+mandatory gate was unevaluated (verdict `incomplete`). Always read the verdict line,
+not just the exit code. `2` = could NOT score at all (missing/empty metrics file,
+no steady-state points, unparseable JSON) — read the stderr note.

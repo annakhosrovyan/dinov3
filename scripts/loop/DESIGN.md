@@ -118,7 +118,7 @@ points are autocorrelated rolling averages.
 
 ## 3. The verifier (`score.py`) in detail
 
-Schema v2. Reads a run dir's raw `training_metrics.json` (never trusts the job's
+Schema v3. Reads a run dir's raw `training_metrics.json` (never trusts the job's
 self-report). Structure:
 
 **Primary score:** `wall_imgs_mean = global_batch_size / mean(iter_time)` over

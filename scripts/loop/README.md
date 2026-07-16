@@ -61,6 +61,26 @@ reports 4 violations (the type-aware diff also surfaces `train.sharded_eval_chec
 false→true`). New gate `timing_coverage` was proven to fire on a synthetic
 cherry-row run (1/35 usable → FAIL) and on a non-constant batch size.
 
+**Re-validated after the post-commit review (Codex GPT-5.6-sol high, 2026-07-16):**
+that pass raised 10 fresh findings against the committed toolkit; all engine/shell
+ones are fixed and the primary numbers are still byte-identical (77672 → 2115.6;
+77671-vs-77672 → −7.67% with the §7.2 divergence note; 67639 integrity → invalid;
+80711 worst rank 6 p95 → 0.4413s). New guarantees, each proven with a synthetic
+case: (1) a baseline given as a score JSON whose `run_dir` still exists is now
+**re-derived** from raw artifacts, never trusted from the JSON (a tampered
+`wall_imgs_mean_raw` is ignored); (3) `mandatory_gates_passed` is the authoritative
+certification boolean and is False whenever a mandatory gate is `not_evaluated`
+(`gates_passed` alone is not sufficient); (4) `timing_coverage` now pairs a positive
+`iter_time` with a positive `global_batch_size` on the SAME row, so a single
+batch-size row can't set the numerator and a zero/negative `iter_time` can't blow up
+the score; (8) the §7.2 divergence note requires the diagnostic to improve past the
+noise floor too. Doc/shell drift fixed: `python3 -I -B` everywhere, atomic install
+swap hardened against dir-nesting, digest recipe includes `awk '{print $1}'`,
+schema-v3 labels, `incomplete` verdict documented. One coupling flagged but NOT a
+code change: the mandatory straggler gate and the NUMA candidate depend on the
+`[RANKDATA]` emitter (`dinov3/logging/helpers.py`) and `_apply_rank_cpu_slice`
+(`dinov3/train/train.py`), which are working-tree-only — see "Runtime dependencies".
+
 ## The loop, when it runs
 
 ```
@@ -92,7 +112,10 @@ Rules the driver must enforce (from the explainer, Codex-corrected):
   installed `.py` files and compare to the digest recorded in the loop's
   `state.md` at loop start (NOT the `verifier.sha256` file next to the verifier —
   adjacent hash = circular; it detects accidents, not replacement):
-  `cd ~/scripts/loop-verifier && find . -type f ! -name 'verifier.sha256' | sort | xargs sha256sum | sha256sum`
+  `cd ~/scripts/loop-verifier && find . -type f ! -name 'verifier.sha256' | sort | xargs sha256sum | sha256sum | awk '{print $1}'`
+  (the trailing `awk '{print $1}'` matches the bare-hash form the installer records
+  and stores in `state.md`, so an exact string compare succeeds — without it the
+  command prints `<hash>  -` and the compare fails)
   (hashes ALL files, not just `*.py`, so a planted `__pycache__/*.pyc` is caught —
   `score.py` sets `sys.dont_write_bytecode` so a legit run never creates any).
   Invoke the scorer as `python3 -I -B ~/scripts/loop-verifier/score.py …`
@@ -125,6 +148,26 @@ loader starvation; 8×24=192 workers oversubscribe 192 CPUs):
    on this branch (dinov3/train/train.py, gated, off by default) and §7.9 slice
    arms are running per `docs/phase7_perf_plan.md`. The loop's job is the
    *joint* grid (slice × worker budget), seeded with the 7.9 single-arm results.
+
+## Runtime dependencies (the toolkit does not stand alone)
+
+The verifier scores artifacts the *training run* must emit. Two of them come from
+instrumentation in the training code, NOT from this directory (Codex 2026-07-16,
+finding 2 — a clean checkout that lacks these makes the toolkit silently degrade):
+
+- **Per-rank straggler gate** (mandatory) needs `[RANKDATA] rank=… iter=… data_time=…`
+  lines in the job log, emitted by `dinov3/logging/helpers.py` when
+  `DINOV3_PERRANK_DIAG=1`. Without that emitter the log has no rank rows, so the gate
+  is `not_evaluated` and **every comparison verdict is `incomplete`** — the loop cannot
+  promote anything.
+- **The NUMA/CPU-slice candidate** (`DINOV3_RANK_CPU_SLICE=1`) needs
+  `_apply_rank_cpu_slice()` in `dinov3/train/train.py`; without it that candidate is a
+  **silent no-op** (runs, changes nothing, looks like "no-evidence").
+
+Both hooks are gated off by default (zero cost when unset). The loop must run against a
+training revision where they are present. On this branch they currently live in the
+working tree; they must be committed with (or before) the toolkit for a clean checkout
+to work. A clean-checkout smoke test should assert all expected ranks parse.
 
 ## Known blind spots (v2 — evolve, don't gold-plate)
 
