@@ -10,7 +10,6 @@ import logging
 import math
 import os
 import sys
-import time
 from functools import partial
 from pathlib import Path
 
@@ -424,6 +423,152 @@ def build_multi_resolution_data_loader_from_cfg(
     return data_loader
 
 
+def _parse_cpulist(text):
+    """Parse a sysfs cpulist string like '0-47,56-103' into a set of ints."""
+    cpus = set()
+    for part in text.strip().split(","):
+        if not part:
+            continue
+        if "-" in part:
+            lo, hi = part.split("-")
+            cpus.update(range(int(lo), int(hi) + 1))
+        else:
+            cpus.add(int(part))
+    return cpus
+
+
+def _apply_rank_cpu_slice():
+    """Phase 7.9: pin each local rank to a private NUMA-local slice of physical cores.
+
+    Gated by DINOV3_RANK_CPU_SLICE=1 (off by default). Job 80711 showed episodic rank-level
+    loader starvation when 8 ranks x 24 workers share one unpartitioned CPU mask: the
+    scheduler periodically deschedules one rank's workers and its data_time jumps from
+    ~0.3 ms to 0.2-0.75 s ([RANKDATA]), stalling every collective. A private slice removes
+    cross-rank contention for the same cores.
+
+    Slices are built from whole physical cores (both HT siblings via sysfs core_id) so no
+    rank ends up holding only the hyperthread shadows of another rank's cores. Blocking is
+    by PACKAGE (socket), not NUMA node, with equal-size chunks: job 87757 showed that on
+    gpu08 Sub-NUMA Clustering exposes 4 NUMA domains with UNEQUAL allowed cores (28/20 per
+    socket half), and per-node chunking gave ranks 6/7 ten-core slices that starved by
+    construction (sustained 1.7-2.8 s data_time_max). Equal supply beats strict SNC
+    locality: within a socket, cores are ordered by (numa_node, core_id), so at most one
+    rank per socket straddles an SNC boundary (on gpu08's 28+20 split, rank 2 takes 4+8
+    across domains while rank 3 lands fully on domain 1 — matching GPU3, which is the lone
+    GPU on that domain; GPUs 0-2 sit on domain 0). Applied to the main process before
+    DataLoader workers fork, so workers and OMP threads inherit it. Best-effort: any
+    failure leaves affinity untouched.
+    """
+    if os.environ.get("DINOV3_RANK_CPU_SLICE", "0") != "1":
+        return
+    try:
+        local_rank = int(os.environ["LOCAL_RANK"])
+        local_world = int(os.environ["LOCAL_WORLD_SIZE"])
+    except (KeyError, ValueError):
+        sys.stderr.write("[RANKSLICE] LOCAL_RANK/LOCAL_WORLD_SIZE not set — slice skipped\n")
+        return
+    try:
+        allowed = os.sched_getaffinity(0)
+        # DINOV3_SLICE_EXCLUDE_CPUS: cpulist of cores to keep OUT of every slice (they become a
+        # housekeeping pool for IRQ/softirq, nsys, the launcher, and FS-client threads). Job
+        # 88301 showed the storage NIC's IRQ + NET_RX softirq zone (gpu08: cores 24-29,32 +
+        # HT siblings) landing inside one rank's exclusive slice -> that rank starved 5-12 s
+        # per burst. Any core group intersecting the exclusion is dropped whole (both siblings).
+        excl_env = os.environ.get("DINOV3_SLICE_EXCLUDE_CPUS", "").strip()
+        excluded = _parse_cpulist(excl_env) if excl_env else set()
+        # cpu -> NUMA node (for intra-socket core ordering)
+        cpu_node = {}
+        node_dir = "/sys/devices/system/node"
+        for entry in sorted(os.listdir(node_dir)):
+            if not (entry.startswith("node") and entry[4:].isdigit()):
+                continue
+            with open(os.path.join(node_dir, entry, "cpulist")) as f:
+                for cpu in _parse_cpulist(f.read()) & allowed:
+                    cpu_node[cpu] = int(entry[4:])
+        # (package, core_id) -> sibling cpus, so slices hold whole physical cores
+        cores = {}
+        for cpu in allowed:
+            topo = f"/sys/devices/system/cpu/cpu{cpu}/topology"
+            with open(f"{topo}/physical_package_id") as f:
+                pkg = int(f.read())
+            with open(f"{topo}/core_id") as f:
+                core = int(f.read())
+            cores.setdefault((pkg, core), set()).add(cpu)
+        packages = sorted({pkg for pkg, _ in cores})
+        # Block assignment by socket: with 2 sockets and 8 local ranks, 0-3 -> pkg0, 4-7 -> pkg1.
+        pkg_idx = min(local_rank * len(packages) // local_world, len(packages) - 1)
+        pkg = packages[pkg_idx]
+        ranks_on_pkg = [
+            r for r in range(local_world) if min(r * len(packages) // local_world, len(packages) - 1) == pkg_idx
+        ]
+        pos = ranks_on_pkg.index(local_rank)
+        # Order the socket's cores by (NUMA domain, core_id): contiguous equal chunks then
+        # keep each rank inside one domain where the arithmetic allows it.
+        pkg_cores = sorted(
+            (k for k in cores if k[0] == pkg and not (cores[k] & excluded)),
+            key=lambda k: (min(cpu_node.get(c, 0) for c in cores[k]), k[1]),
+        )
+        n, k = len(pkg_cores), len(ranks_on_pkg)
+        if n < k:
+            sys.stderr.write(
+                f"[RANKSLICE] rank={local_rank}: fewer cores than ranks on package {pkg} — slice skipped\n"
+            )
+            return
+        # Even chunking with remainder spread over the first (n % k) ranks.
+        base, rem = divmod(n, k)
+        start = pos * base + min(pos, rem)
+        end = start + base + (1 if pos < rem else 0)
+        my_cores = pkg_cores[start:end]
+        slice_cpus = set().union(*(cores[c] for c in my_cores))
+        os.sched_setaffinity(0, slice_cpus)
+        domains = sorted({cpu_node.get(c, -1) for c in slice_cpus})
+        sys.stderr.write(
+            f"[RANKSLICE] rank={local_rank} package={pkg} numa_domains={domains} "
+            f"cores={len(my_cores)} cpus={len(slice_cpus)} excluded={excl_env or 'none'} "
+            f"list={','.join(map(str, sorted(slice_cpus)))}\n"
+        )
+        sys.stderr.flush()
+    except Exception as e:  # never let the pinning experiment kill training
+        sys.stderr.write(f"[RANKSLICE] failed, affinity untouched: {e}\n")
+
+
+def _log_rank_topology():
+    """Phase 7.8c: one-time per-rank CPU/NUMA topology dump (gated by DINOV3_PERRANK_DIAG).
+
+    Pure host-side introspection — no CUDA kernels, no collectives. Lets us correlate the
+    late-arriver rank (lowest exposed-NCCL in the nsys harness) with its CPU affinity / NUMA
+    placement, to decide whether the straggler is loader/NUMA-bound (fixable by pinning) or
+    H2D/PCIe-bound (a different fix). Best-effort: never lets diagnostics break training.
+    """
+    if os.environ.get("DINOV3_PERRANK_DIAG", "0") != "1":
+        return
+    try:
+        rank = distributed.get_rank() if distributed.is_enabled() else 0
+        local_rank = os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", "?"))
+        try:
+            aff = sorted(os.sched_getaffinity(0))
+        except AttributeError:
+            aff = []
+        cpus_allowed = None
+        try:
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("Cpus_allowed_list:"):
+                        cpus_allowed = line.split(":", 1)[1].strip()
+                        break
+        except OSError:
+            pass
+        aff_str = f"{aff[0]}-{aff[-1]}" if aff else "?"
+        sys.stderr.write(
+            f"[RANKTOPO] rank={rank} local_rank={local_rank} "
+            f"cuda_dev={torch.cuda.current_device()} "
+            f"n_cpus={len(aff)} cpu_range={aff_str} cpus_allowed_list={cpus_allowed}\n"
+        )
+        sys.stderr.flush()
+    except Exception as e:  # never let a diagnostic kill training
+        logger.warning("[RANKTOPO] dump failed: %s", e)
+
+
 def do_train(cfg, model, resume=False):
     _mem_profile = memory_profile_enabled()
     # Period for fragmentation tracking (every N iters). Default 25; override via env.
@@ -432,6 +577,7 @@ def do_train(cfg, model, resume=False):
     ckpt_dir = Path(cfg.train.output_dir, "ckpt").expanduser()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
+    _log_rank_topology()  # Phase 7.8c: per-rank NUMA/affinity (no-op unless DINOV3_PERRANK_DIAG=1)
     model.train()
     # Optimizer
     optimizer = build_optimizer(cfg, model.get_params_groups())
@@ -489,7 +635,7 @@ def do_train(cfg, model, resume=False):
         gram_enabled=cfg.gram.use_loss,
         head_overhead_pct=0.05,
     )
-    logger.info(f"MFU tracking: {macs_per_image/1e9:.1f} GMACs/image, {num_gpus} GPUs")
+    logger.info(f"MFU tracking: {macs_per_image / 1e9:.1f} GMACs/image, {num_gpus} GPUs")
 
     # Build data loader
     data_loader = build_multi_resolution_data_loader_from_cfg(
@@ -508,9 +654,7 @@ def do_train(cfg, model, resume=False):
         try:
             import wandb as wandb_module
         except ImportError as exc:
-            raise RuntimeError(
-                "wandb logging is enabled but the wandb package is not installed."
-            ) from exc
+            raise RuntimeError("wandb logging is enabled but the wandb package is not installed.") from exc
         init_kwargs = {
             "project": cfg.wandb.project,
             "name": cfg.wandb.run_name or None,
@@ -565,6 +709,11 @@ def do_train(cfg, model, resume=False):
         num_gram_updates = math.ceil((start_iter + 1 - cfg.gram.it_first_update) / cfg.gram.update_frequency)
         logger.info(f"Gram was updated {num_gram_updates} times before iteration {start_iter}")
     consecutive_nan_count = 0
+    # Phase 7.3: optionally run the cross-rank metric all-reduce / NaN-check (and the per-iter
+    # loss logging that .item()-syncs) only every Nth iter. Under DDP+cudagraphs the f32 metric
+    # collective is a large exposed barrier (~32% of wall, job 75082); gating it trades
+    # NaN-detection latency for throughput. metrics_sync_period=1 keeps the original behavior.
+    metrics_sync_period = max(1, int(cfg.train.get("metrics_sync_period", 1)))
     step_start_event = torch.cuda.Event(enable_timing=True)
     step_end_event = torch.cuda.Event(enable_timing=True)
     if profiler is not None:
@@ -582,6 +731,15 @@ def do_train(cfg, model, resume=False):
         data["global_batch_size"] = global_batch_size
         if iteration > max_iter:
             return
+
+        # Whether to do the cross-rank metric sync + loss logging this iter. Always sync on the
+        # final iter (loop runs iteration = start_iter .. max_iter-1) so the last logged numbers
+        # are correct. With period>1, NaN detection only runs on sync iters: a blow-up is *seen*
+        # up to (period) iters late, and since abort needs >2 consecutive NaN samples it can run
+        # ~3 periods before aborting; transient NaNs between sync iters are missed entirely.
+        do_metric_sync = (
+            metrics_sync_period == 1 or (iteration + 1) % metrics_sync_period == 0 or (iteration + 1) == max_iter
+        )
 
         # Garbage collection (trigger manually so it happens on all ranks at the same time)
         if (iteration + 1) % 150 == 0:
@@ -613,16 +771,24 @@ def do_train(cfg, model, resume=False):
                 _items = list(data.items()) if isinstance(data, dict) else []
                 for _k, _v in _items:  # CPU metadata first (no CUDA ops)
                     if torch.is_tensor(_v):
-                        logger.error("[STEPDIAG]  %s shape=%s dtype=%s dev=%s", _k, tuple(_v.shape), _v.dtype, _v.device)
+                        logger.error(
+                            "[STEPDIAG]  %s shape=%s dtype=%s dev=%s", _k, tuple(_v.shape), _v.dtype, _v.device
+                        )
                     else:
                         logger.error("[STEPDIAG]  %s = %r", _k, _v)
                 for _k, _v in _items:  # CUDA stats second (guarded — may be wedged)
                     if torch.is_tensor(_v):
                         try:
                             _f = _v.detach().float()
-                            logger.error("[STEPDIAG]  %s nan=%s inf=%s min=%.4g max=%.4g sum=%.4g",
-                                         _k, bool(torch.isnan(_f).any()), bool(torch.isinf(_f).any()),
-                                         _f.min().item(), _f.max().item(), _f.sum().item())
+                            logger.error(
+                                "[STEPDIAG]  %s nan=%s inf=%s min=%.4g max=%.4g sum=%.4g",
+                                _k,
+                                bool(torch.isnan(_f).any()),
+                                bool(torch.isinf(_f).any()),
+                                _f.min().item(),
+                                _f.max().item(),
+                                _f.sum().item(),
+                            )
                         except BaseException as _e:
                             logger.error("[STEPDIAG]  %s stats unavailable: %s", _k, _e)
                 raise
@@ -649,42 +815,49 @@ def do_train(cfg, model, resume=False):
                         else grad_norm.detach()
                     )
 
-        # Reduce total_loss to check for NaNs, reduce metrics for logging
-        with nvtx("allreduce_metrics"):
-            total_loss_all_ranks = total_loss.new_empty(distributed.get_subgroup_size())
-            torch.distributed.all_gather_into_tensor(
-                total_loss_all_ranks,
-                total_loss.detach(),
-                group=distributed.get_process_subgroup(),
-            )
-            total_loss = total_loss_all_ranks.mean()
-            metrics_values = torch.stack(
-                [torch.as_tensor(v, dtype=torch.float32, device=total_loss.device).detach() for v in metrics_dict.values()]
-            )
-            torch.distributed.all_reduce(
-                metrics_values,
-                op=torch.distributed.ReduceOp.AVG,
-                group=distributed.get_process_subgroup(),
-            )
-        metrics_dict = dict(zip(metrics_dict.keys(), metrics_values))
-        if total_loss_all_ranks.isnan().any():
-            consecutive_nan_count += 1
-            which_ranks = total_loss_all_ranks.isnan().nonzero().flatten().tolist()
-            logger.warning("NaN loss detected on ranks: %s", which_ranks)
-            logger.warning("Consecutive NaNs: %d", consecutive_nan_count)
-            metrics_dict_str = "\n".join([f"{k}: {v}" for k, v in metrics_dict.items()])
-            logger.warning("All-reduced metrics:\n%s", metrics_dict_str)
-            if consecutive_nan_count > 2 and not cfg.multidistillation.enabled:
-                msg = "Too many consecutive nans detected in loss, aborting..."
-                logger.error(msg)
-                if profiler is not None:
-                    try:
-                        profiler.stop()
-                    except Exception:
-                        pass
-                raise RuntimeError(msg)
-        else:
-            consecutive_nan_count = 0
+        # Reduce total_loss to check for NaNs, reduce metrics for logging. Gated by
+        # metrics_sync_period: on non-sync iters we skip the f32 collectives entirely and keep
+        # the local per-rank total_loss / metrics_dict (used only for logging, not for the
+        # backward that already ran), so no exposed metric all-reduce is issued this iter.
+        if do_metric_sync:
+            with nvtx("allreduce_metrics"):
+                total_loss_all_ranks = total_loss.new_empty(distributed.get_subgroup_size())
+                torch.distributed.all_gather_into_tensor(
+                    total_loss_all_ranks,
+                    total_loss.detach(),
+                    group=distributed.get_process_subgroup(),
+                )
+                total_loss = total_loss_all_ranks.mean()
+                metrics_values = torch.stack(
+                    [
+                        torch.as_tensor(v, dtype=torch.float32, device=total_loss.device).detach()
+                        for v in metrics_dict.values()
+                    ]
+                )
+                torch.distributed.all_reduce(
+                    metrics_values,
+                    op=torch.distributed.ReduceOp.AVG,
+                    group=distributed.get_process_subgroup(),
+                )
+            metrics_dict = dict(zip(metrics_dict.keys(), metrics_values))
+            if total_loss_all_ranks.isnan().any():
+                consecutive_nan_count += 1
+                which_ranks = total_loss_all_ranks.isnan().nonzero().flatten().tolist()
+                logger.warning("NaN loss detected on ranks: %s", which_ranks)
+                logger.warning("Consecutive NaNs: %d", consecutive_nan_count)
+                metrics_dict_str = "\n".join([f"{k}: {v}" for k, v in metrics_dict.items()])
+                logger.warning("All-reduced metrics:\n%s", metrics_dict_str)
+                if consecutive_nan_count > 2 and not cfg.multidistillation.enabled:
+                    msg = "Too many consecutive nans detected in loss, aborting..."
+                    logger.error(msg)
+                    if profiler is not None:
+                        try:
+                            profiler.stop()
+                        except Exception:
+                            pass
+                    raise RuntimeError(msg)
+            else:
+                consecutive_nan_count = 0
         # Step optimizer
         with nvtx("optimizer_step"):
             optimizer.step()
@@ -727,7 +900,10 @@ def do_train(cfg, model, resume=False):
         metric_logger.update(wd=wd)
         metric_logger.update(mom=mom)
         metric_logger.update(last_layer_lr=last_layer_lr)
-        metric_logger.update(total_loss=total_loss, **metrics_dict)
+        # Loss/metrics logging .item()-syncs each tensor; only do it on sync iters so a
+        # metrics_sync_period>1 run is free of per-iter loss-side device syncs too.
+        if do_metric_sync:
+            metric_logger.update(total_loss=total_loss, **metrics_dict)
         metric_logger.update(
             mfu=mfu * 100,
             images_per_sec=images_per_sec,
@@ -740,15 +916,16 @@ def do_train(cfg, model, resume=False):
                 "wd": float(wd),
                 "mom": float(mom),
                 "last_layer_lr": float(last_layer_lr),
-                "total_loss": float(total_loss.item()),
             }
-            for key, value in metrics_dict.items():
-                if isinstance(value, DTensor):
-                    wandb_metrics[key] = float(value.full_tensor().item())
-                elif torch.is_tensor(value):
-                    wandb_metrics[key] = float(value.item())
-                else:
-                    wandb_metrics[key] = float(value)
+            if do_metric_sync:
+                wandb_metrics["total_loss"] = float(total_loss.item())
+                for key, value in metrics_dict.items():
+                    if isinstance(value, DTensor):
+                        wandb_metrics[key] = float(value.full_tensor().item())
+                    elif torch.is_tensor(value):
+                        wandb_metrics[key] = float(value.item())
+                    else:
+                        wandb_metrics[key] = float(value)
             wandb_metrics["mfu_pct"] = float(mfu * 100)
             wandb_metrics["images_per_sec"] = float(images_per_sec)
             wandb_metrics["step_time_ms"] = float(step_time_ms)
@@ -811,6 +988,9 @@ def do_train(cfg, model, resume=False):
 
 @record
 def main(argv=None):
+    # Phase 7.9: must run before CUDA init, DataLoader workers, and OMP pools so they all
+    # inherit the slice. No-op unless DINOV3_RANK_CPU_SLICE=1.
+    _apply_rank_cpu_slice()
     if argv is None:
         args = get_args_parser().parse_args()
     else:

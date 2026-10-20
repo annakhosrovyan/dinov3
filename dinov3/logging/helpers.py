@@ -6,6 +6,8 @@
 import datetime
 import json
 import logging
+import os
+import sys
 import time
 from collections import defaultdict, deque
 
@@ -14,6 +16,13 @@ import torch
 import dinov3.distributed as distributed
 
 logger = logging.getLogger("dinov3")
+
+# Phase 7.8c: per-rank data_time emission (host wait-on-loader = loader-starvation signal).
+# Off by default (zero cost). Set DINOV3_PERRANK_DIAG=1 to have EVERY rank print its own
+# data_time/iter_time each log step to stderr, tagged by rank, so the late-arriver rank from
+# the nsys harness can be correlated with loader starvation. CPU scalars only — no CUDA ops,
+# no collectives, no shared-file writes (see Phase 7.8 Codex review P4).
+_PERRANK_DIAG = os.environ.get("DINOV3_PERRANK_DIAG", "0") == "1"
 
 
 class MetricLogger(object):
@@ -70,6 +79,7 @@ class MetricLogger(object):
         end = time.time()
         iter_time = SmoothedValue(fmt="{avg:.6f}")
         data_time = SmoothedValue(fmt="{avg:.6f}")
+        _diag_rank = distributed.get_rank() if _PERRANK_DIAG and distributed.is_enabled() else 0
 
         if n_iterations is None:
             n_iterations = len(iterable)
@@ -99,6 +109,17 @@ class MetricLogger(object):
             iter_time.update(time.time() - end)
             if i % print_freq == 0 or i == n_iterations - 1:
                 self.dump_in_output_file(iteration=i, iter_time=iter_time.avg, data_time=data_time.avg)
+                if _PERRANK_DIAG:
+                    # Direct stderr write (bypasses any rank-0-only logging filter) so EVERY
+                    # rank's data_time is visible in the aggregated job log, tagged by rank.
+                    # data_time_max = window max (raw episode detector — the 20-sample avg
+                    # dilutes a single multi-hundred-ms starvation burst below thresholds).
+                    sys.stderr.write(
+                        f"[RANKDATA] rank={_diag_rank} iter={i} "
+                        f"data_time={data_time.avg:.6f} data_time_max={data_time.max:.6f} "
+                        f"iter_time={iter_time.avg:.6f}\n"
+                    )
+                    sys.stderr.flush()
                 eta_seconds = iter_time.global_avg * (n_iterations - i)
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
                 if torch.cuda.is_available():

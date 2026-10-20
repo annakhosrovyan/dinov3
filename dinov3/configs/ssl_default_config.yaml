@@ -80,6 +80,7 @@ train:
   compile: true
   compile_mode: null  # null = torch default; "max-autotune-no-cudagraphs" enables Triton autotuning without CUDA graph capture
   cudagraphs: false
+  metrics_sync_period: 1  # >1 = run the cross-rank metric all-reduce / NaN-check (+ per-iter loss logging) only every Nth iter. 1 = every iter (default). Higher trades NaN-detection latency for fewer exposed f32 collectives (Phase 7.3 comms experiment).
   distributed_strategy: fsdp2  # "fsdp2" or "ddp"
   fsdp_reshard_after_forward: true  # true=ZeRO-3 per-block (default); false=no-release/DDP-like comm
   sharded_eval_checkpoint: false

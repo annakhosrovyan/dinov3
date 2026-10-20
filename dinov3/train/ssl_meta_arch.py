@@ -489,16 +489,23 @@ class SSLMetaArch(nn.Module):
         # DINO head on CLS tokens
         cls_after_head = self.teacher.dino_head(cls)  # [n_crops * B, K]
 
-        # Center with sinkhorn-knopp
-        cls_centered = self.dino_loss.sinkhorn_knopp_teacher(
-            cls_after_head, teacher_temp=teacher_temp
-        )  # [n_crops * B, K]
+        # Center with sinkhorn-knopp. Phase 7.8d: NVTX-tag the two Sinkhorn call sites so a
+        # capture can attribute the loss-side f32 collectives (each Sinkhorn does >=3 blocking
+        # all_reduces, K proportional to batch). Tagged at the OUTER call (outside the
+        # torch.compile'd SinkhornKnoppTeacher.forward) so compilation is not perturbed; the
+        # range bounds Sinkhorn compute + its collectives, which the harness intersects with
+        # the NCCL kernel union to isolate the collective share.
+        with self._nvtx("dino_sinkhorn"):
+            cls_centered = self.dino_loss.sinkhorn_knopp_teacher(
+                cls_after_head, teacher_temp=teacher_temp
+            )  # [n_crops * B, K]
         cls_centered = cls_centered.unflatten(0, (n_crops, B))  # [n_crops, B, K]
-        masked_patch_centered = self.ibot_patch_loss.sinkhorn_knopp_teacher(
-            masked_patch_after_head,
-            teacher_temp=teacher_temp,
-            n_masked_patches_tensor=n_masked_patches_tensor,
-        )  # [n_masked_patches, K]
+        with self._nvtx("ibot_sinkhorn"):
+            masked_patch_centered = self.ibot_patch_loss.sinkhorn_knopp_teacher(
+                masked_patch_after_head,
+                teacher_temp=teacher_temp,
+                n_masked_patches_tensor=n_masked_patches_tensor,
+            )  # [n_masked_patches, K]
 
         return {
             "cls_pre_head": cls.unflatten(0, [n_crops, B]),  # [n_crops, B, D]
