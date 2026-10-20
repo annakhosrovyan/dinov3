@@ -269,3 +269,56 @@ GPU-event step (~430 ms). That residual is CPU-side per-iter overhead (collate/c
 launch, EMA, GC, cudagraph replay) — the next lever after the loader is non-binding.
 MetricLogger `images_per_sec` (= 1024 / GPU-step-ms) hides it and overstates delivered
 throughput ~2×; always cross-check against the wall `time:` column.
+
+### Per-rank CPU slices: chunk by physical core, never by logical CPU (Phase 7.9)
+
+Job 80711 showed episodic single-rank loader starvation when 8 ranks × 24 workers share one
+unpartitioned 192-CPU mask (identical `Cpus_allowed_list` on every rank). The fix under test
+(`DINOV3_RANK_CPU_SLICE=1`, `_apply_rank_cpu_slice()` in `train.py`) pins each rank + its
+forked workers to a private NUMA-local slice. Two pitfalls baked into the implementation:
+
+- **Slurm's CPU mask interleaves HT siblings** (`0-47,56-103,112-159,168-215`): a contiguous
+  chunk of the sorted list would hand some ranks *only the hyperthread shadows* of cores owned
+  by other ranks, recreating the contention. Group by sysfs `(physical_package_id, core_id)`
+  and assign whole cores.
+- **The rolling-average `data_time` hides bursts**: `[RANKDATA]` printed the 20-sample avg,
+  which dilutes a single 0.75 s starvation episode to ~37 ms. The line now also prints the
+  window max (`data_time_max`) as the raw episode detector.
+
+Slices confine OMP/NCCL/CUDA helper threads too (intended: isolation), so a slice-induced
+regression would surface as per-image compute slowdown — always compare that column against
+the unsliced control.
+
+Follow-up (2026-07-06): the provisioning guard itself had a trap — **`nproc` honors
+`OMP_NUM_THREADS`**. With `OMP_NUM_THREADS=8` exported, `nproc` returned 8 on a correct
+192-CPU allocation and the guard killed jobs 84635/84636 at t+1s. In job scripts that
+export OMP vars, count CPUs with `len(os.sched_getaffinity(0))` (or parse
+`Cpus_allowed_list`), never `nproc`.
+
+Follow-up 2 (2026-07-06, jobs 88301/88307/88309): equal slices exposed the real straggler
+source — **the storage NIC's IRQ + NET_RX softirq zone lives inside the job cpuset**
+(gpu08: `mlx5_comp0` pinned to CPU 28; softirq history on cores 24-29/32 + HT siblings).
+Whichever rank's slice owns that zone starves for seconds at a time; with unpartitioned
+masks the pain migrates → the "rotating loser" of Phase 7.8. Fix layers: (a) slice-time
+`DINOV3_SLICE_EXCLUDE_CPUS` housekeeping pool, kept SYMMETRIC across sockets so slices
+stay equal (unequal supply = built-in straggler); (b) the permanent fix is root-level IRQ
+steering onto the cores Slurm already excludes from jobs (48-55/104-111). Diagnostic
+recipe: `taskset -pc` on FS-client pids, `/proc/irq/*/smp_affinity_list` for narrow pins,
+`/proc/softirqs` NET_RX per-cpu, all from a 2-CPU probe job on the target node.
+
+---
+
+## Data ordering is not a perf knob (2026-07-10)
+
+PyTorch 2.10's `DataLoader(in_order=False)` lets any worker's ready batch jump the FIFO queue,
+removing head-of-line blocking behind a slow worker. It was proposed (GPT-5.6-sol Phase 8 review)
+as the biggest rootless loader lever (~3–12% bundle). **Rejected for this project on principle:**
+
+- Sample order and data mix are part of the transformer training recipe (why pre-/mid-/post-training
+  curricula exist); changing consumption order changes the experiment, not just its speed.
+- Reproducibility: run-to-run comparisons and convergence-parity claims assume identical sample streams.
+- It silently breaks checkpoint-resume: `sampler_advance = iterations × batch` assumes in-order
+  consumption; out-of-order runs repeat/skip samples after restart.
+
+Order-preserving loader levers stay allowed: worker count, prefetch factor, `cv2.setNumThreads(1)`
+in workers, lazy per-worker HDF5 reopen, pinning. Decision log: `docs/phase8_optimization_candidates.md`.

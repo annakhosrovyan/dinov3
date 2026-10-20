@@ -182,12 +182,17 @@ torch._dynamo.explain(model)
 
 Each graph break = re-enter Python interpreter = overhead. FSDP boundaries cause breaks (expected, correct). Other breaks are optimization opportunities.
 
-**Compile modes:**
-| Mode | Best For |
+**Compile modes in this repo:** do not use generic PyTorch mode advice blindly.
+For DINOv3 Phase 7, the DDP champion path uses `train.cudagraphs=true` and
+`train.compile_mode=null`; backbone blocks take the explicit
+`options={"triton.cudagraphs": True}` branch before `compile_mode` is consulted.
+See `learnings/compile_modes.md` before changing compile mode.
+
+| Setting | Best For |
 |------|---------|
-| `default` | General; tight memory |
-| `reduce-overhead` | Small batches, dynamic shapes |
-| `max-autotune` | Long training runs, stable shapes — **use this** |
+| `train.compile_mode=null` | Current stable default; heads use plain `module.compile()`, backbone uses the cudagraph branch when `train.cudagraphs=true`. |
+| `train.compile_mode=max-autotune-no-cudagraphs` with `train.cudagraphs=false` | Phase 7 isolation test for autotune gain, not a production candidate by itself. |
+| Branch-1 `options={"max_autotune": True, "triton.cudagraphs": True}` edit | Gated experiment for combining autotune with the champion backbone path. |
 
 Cache compiled artifacts between runs:
 ```bash
@@ -274,3 +279,14 @@ HTA reveals load imbalance (one rank finishes forward much later), idle time per
 | Do FLOP estimates match formula? | PyTorch Profiler `with_flops=True` | Cross-validates 226 GMACs/image |
 | Are FFN GEMMs memory-bound? | Nsight Compute Roofline | Yes → increase batch size; No → algo change |
 | Is one rank slower than others? | HTA / Nsight Systems | Dataset I/O imbalance? Masking? |
+
+## Gate/verifier design: episodic phenomena need tail statistics (2026-07-03)
+
+While validating the loop verifier (`scripts/loop/score.py`) against job 80711's
+[RANKDATA] log: a median-based per-rank data_time gate PASSED the run with the
+known rank-starvation pathology — every rank's median was < 2ms while ranks
+0/1/2/6/7 had p95 up to 0.44s and 15–35% of points over 50ms. Loader starvation
+is episodic, so any central-tendency gate is blind to it. Same family as the
+phase7 kept-only doctrine: choose the statistic to match the phenomenon's
+temporal shape, and validate every gate against a run where the pathology is
+KNOWN present (a gate that has never fired is untested).

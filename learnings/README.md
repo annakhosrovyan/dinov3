@@ -10,13 +10,13 @@ High-signal optimization notes distilled from local measurements and `~/knowledg
 4. Assume the data pipeline is already reasonably tuned unless profiling shows GPU idle gaps. `num_workers=20`, `pin_memory=True`, `non_blocking=True`, `persistent_workers=True`, and `prefetch_factor=8` already cover the obvious wins.
 5. If multi-GPU runs show periodic throughput dips, suspect Python GC stragglers before chasing kernels. Disable automatic GC and collect manually on a fixed interval.
 6. Do not over-index on batch-size alignment. For Tensor Core efficiency, sequence length and hidden dimension matter much more.
-7. Prefer FSDP2 as the long-run distributed platform. Validate any candidate batch size with real-duration training coverage, not short profiling windows.
+7. Keep separate operating points in mind: `run.sh` is the conservative FSDP2 bs=96 path, while `run_ddp.sh` is the faster DDP+cudagraphs bs=128 path. Validate any candidate batch size with real-duration training coverage, not short profiling windows.
 
 ## Topic Notes
 
 - `gpu_performance.md`: realistic H100 ceilings, tensor-shape alignment, GC stragglers, FFN-vs-attention cost, memory headroom, thermal drift.
-- `cuda_graphs.md`: what CUDA graphs means in this repo, what a backbone block is, why upstream left the flag off by default, and why the current multi-crop architecture breaks CUDAGraph trees.
-- `compile_modes.md`: torch.compile mode options, default vs max-autotune-no-cudagraphs results, the multi-rank Triton OOM hazard, and the single-rank cache warmup fix.
+- `cuda_graphs.md`: current meaning of `train.cudagraphs`, the Phase 6 fixes that made DDP+cudagraphs viable, and caveats around non-backbone/full-step capture.
+- `compile_modes.md`: current torch.compile dispatch rules, branch-order traps, the multi-rank Triton OOM hazard, and the Phase 7 autotune ladder.
 - `terminology.md`: ongoing glossary of repo-specific terms and recurring performance jargon with code-grounded examples.
 - `distributed_training.md`: communication overlap, NCCL pitfalls, FSDP2/DDP mode trade-offs, and allocator caveats.
 - `profiling_workflow.md`: MFU vs HFU, `FlopCounterMode`, profiler order of operations, Nsight and `perf` workflows.

@@ -53,7 +53,10 @@ void myKernel(...) { ... }
 ```
 Trade-off: reduces per-thread register budget → less unrolling/ILP → slightly lower throughput per warp.
 
-**PyTorch angle**: `torch.compile(mode="max-autotune")` selects optimal tile sizes → better occupancy automatically.
+**PyTorch angle**: `torch.compile` autotune modes can search better matmul tile
+sizes, but this repo's DDP champion backbone path is controlled by
+`wrap_compile_block()` options, not by the `compile_mode` string. See
+`learnings/compile_modes.md` before using `mode="max-autotune"` here.
 
 ---
 

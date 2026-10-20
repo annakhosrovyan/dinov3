@@ -1,144 +1,179 @@
-# torch.compile Mode Screening — DINOv3
+# torch.compile Mode Screening - DINOv3
 
-What compile modes mean in this repo, what was tested, and the key multi-rank autotuning hazard.
+Current status of compile modes in this repo, with Phase 4/6 stale conclusions
+cleaned up so this file can be safely used as agent context.
 
----
-
-## Background: torch.compile modes relevant here
-
-| Mode | What it does | Compile time | Expected steady-state gain |
-|------|-------------|-------------|--------------------------|
-| `default` (null) | Fast Triton codegen, no autotuning | ~35s (iter-0) | baseline |
-| `max-autotune-no-cudagraphs` | Triton kernel autotuning (tile sizes, warp config) without CUDA graph capture | ~18+ min first run, cache reuse on subsequent | 5–20% faster matmuls in compiled blocks |
-| `max-autotune` | Same + CUDA graphs | N/A for this repo | Confirmed broken (multi-crop architecture) |
-| `reduce-overhead` | CUDA graphs only | N/A for this repo | Confirmed broken |
-
-`max-autotune-no-cudagraphs` is the only available autotuning path that doesn't require CUDA graphs.
-It finds the best Triton tile configuration for each matmul shape in the backbone blocks.
+Last corrected: 2026-06-11.
 
 ---
 
-## Config key
+## Current operating rule
 
-`train.compile_mode` in `ssl_default_config.yaml` (default: `null` = PyTorch default mode).
+1. The production DDP path in `run_ddp.sh` uses `train.compile=true`,
+   `train.cudagraphs=true`, and leaves `train.compile_mode=null`.
+2. With `cudagraphs=true`, ViT backbone blocks take the explicit
+   `wrap_compile_block()` branch:
 
-CLI override: `train.compile_mode=max-autotune-no-cudagraphs`
+   ```python
+   module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})
+   ```
 
-Code path: `dinov3/fsdp/ac_compile_parallelize.py:_get_compile_mode()` → `wrap_compile_block()`.
-`null` and `"default"` both map to `module.compile()` with no mode arg (zero behavior change).
+3. `train.compile_mode` is not consulted for backbone blocks when
+   `cudagraphs=true`, because that branch wins first.
+4. Heads (`dino_head`, `ibot_head`) are compiled separately with
+   `use_cuda_graphs=False`. In the current production path, because
+   `compile_mode=null`, they use plain `module.compile()`.
+5. DDP wrapping is applied after compile. DDP does not replace or bypass the
+   compile dispatcher.
 
----
+See:
 
-## Default mode results (2026-04-07, job 16719)
-
-Config: DDP bs=128, 8×H100, 200 iters.
-
-Steady-state MFU (iters 20–199): **~23.1%**, range 22.9–23.5%.
-~4040 img/s. Consistent with DDP bs=128 results from earlier screening runs.
-
----
-
-## max-autotune-no-cudagraphs: multi-rank OOM hazard (2026-04-07, job 16720)
-
-**What happened**: Job started at 13:31, crashed at 13:49 — 18 minutes into iter-0 compile.
-Zero training log lines produced. SIGABRT on rank 2.
-
-**Root cause**: `max-autotune-no-cudagraphs` benchmarks every Triton kernel variant by running
-it on the GPU with test tensors. When 8 ranks all autotune concurrently (each on its own GPU),
-each rank's GPU carries the model weights PLUS temporary benchmark allocations. The combined
-per-GPU peak exceeds 80 GB, triggering OOM → SIGABRT.
-
-This is NOT a steady-state memory issue — training at DDP bs=128 uses only ~34 GB. It is an
-autotuning-time memory spike: Triton's benchmarking allocates additional buffers for each of
-the ~8 kernel variants it tries per matmul shape.
-
-**Stderr evidence**: 214K of `triton_mm_XX` benchmarking output, all from the iter-0 compile
-phase. The last logged Triton candidates before crash were still exploring BLOCK configs for
-an early backbone block. All 12 blocks × multiple ops = many concurrent benchmarks.
+- `run_ddp.sh:111-138`
+- `dinov3/configs/config.py:71-90`
+- `dinov3/fsdp/ac_compile_parallelize.py:65-77`
+- `dinov3/fsdp/ac_compile_parallelize.py:217-242`
+- `dinov3/fsdp/ac_compile_parallelize.py:316-357`
+- `docs/phase7_compile_dispatch_agent_handoff.md`
 
 ---
 
-## Fix: single-rank Triton cache warmup before multi-rank launch
+## Mode terminology in this repo
 
-Triton caches autotuning results in `~/.cache/torch/inductor/`, keyed on:
-- Op shape (same for nproc=1 and nproc=8 when per-GPU bs is identical)
-- Hardware type (H100)
-- PyTorch + Triton version
+| Setting | What it means here | Current use |
+|---|---|---|
+| `train.compile=true` | Enables this repo's wrapper-level compile loop over student plus inference-only model dictionaries. | On by default and on in `run_ddp.sh`. |
+| `train.compile_mode=null` | `_get_compile_mode()` returns `None`; eligible modules use default `module.compile()`. | Current production value for heads; ignored by backbone branch when `cudagraphs=true`. |
+| `train.cudagraphs=true` | Sends backbone blocks through the fullgraph/static-shape/Inductor CUDA graph branch. | Current production DDP champion path. |
+| `train.compile_mode=max-autotune-no-cudagraphs` with `cudagraphs=false` | Config-only isolation test for Triton matmul autotuning without graph replay. | Retestable as a Phase 7 go/no-go experiment. |
+| `train.compile_mode=max-autotune-no-cudagraphs` with `cudagraphs=true` | Does not affect backbone blocks; reaches non-backbone heads only. | Not a valid backbone autotune test. |
+| Branch-1 code edit to `options={"max_autotune": True, "triton.cudagraphs": True}` | Combines autotuned matmul choices with the current graph-replay backbone path. | Gated Phase 7 experiment, not a default. |
 
-**Warmup procedure** (implemented in `scripts/screening/screening_compile_modes.sh`):
+Important distinction:
 
-1. **Phase 1**: `CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=1 ... train.OFFICIAL_EPOCH_LENGTH=2`
-   — triggers compilation and autotuning on a single GPU. Only one rank benchmarks at a time,
-   staying well under the 80 GB ceiling. Cache is written to NFS home dir.
-
-2. **Phase 2**: Full `torchrun --nproc_per_node=8` run. Inductor finds existing cache entries,
-   skips benchmarking, uses the pre-tuned kernel configs immediately. No OOM, normal compile
-   warmup time (~35s like default mode).
-
-**Why cache is valid across nproc=1 and nproc=8**: The compiled backbone blocks operate on
-per-GPU tensors (shape driven by local batch size + token count). With the same `batch_size_per_gpu`,
-the tensor shapes are identical regardless of world size. DDP's gradient all-reduce happens
-outside the compiled regions (in the DDP wrapper), so it doesn't affect the cache keys.
+- CUDA graph replay reduces CPU launch overhead.
+- `max_autotune` searches faster matmul kernel configurations.
+- They are different optimization axes. The champion path already has graph
+  replay for backbone blocks, but has not yet tested backbone max-autotune in
+  the same branch.
 
 ---
 
-## Root cause: iBOT dynamic masked token shapes (2026-04-08, jobs 16720 + 17824)
+## Current recommended Phase 7 ladder
 
-Two runs, same SIGABRT. The crash is architectural, not a configuration issue.
+1. Run nsys residual attribution first. Measure head/loss wall share instead of
+   inferring it only from MACs.
+2. If autotune is worth testing, run the config-only isolation:
+   `train.cudagraphs=false train.compile_mode=max-autotune-no-cudagraphs`.
+   Use matched per-GPU batch size and a single-rank warmup so Triton/Inductor
+   cache entries are populated before the 8-rank run.
+3. If the isolation test shows a real step-time gain, edit branch 1 in
+   `wrap_compile_block()` to:
 
-**The last autotuned op before crash:**
-```
-AUTOTUNE mm(2048x7503, 7503x768)   ← non-power-of-2, dynamic size
-SingleProcess AUTOTUNE benchmarking takes 6.8508 seconds for 20 choices
-[SIGABRT on rank 0]
-```
+   ```python
+   module.compile(
+       fullgraph=True,
+       dynamic=False,
+       options={"max_autotune": True, "triton.cudagraphs": True},
+   )
+   ```
 
-**What `2048x7503` is**: iBOT loss operates on masked patch tokens gathered across the global
-batch. With 8 GPUs × bs=128 = 1024 images × 2 global crops = 2048 crops. The `7503` is the
-total number of masked patches across those 2048 crops — determined dynamically each iteration
-by the stochastic masking process (mask_ratio_min_max=[0.1, 0.5]).
-
-**Why this breaks max-autotune**: `max-autotune-no-cudagraphs` benchmarks every Triton kernel
-variant for a specific shape (7503), selects the best tile config, and compiles that config.
-The next iteration produces a different masked token count (e.g., 7489 or 7621). The compiled
-kernel either:
-1. Crashes on the shape mismatch (no guard — `dynamic=False` was assumed during tuning)
-2. Triggers a CUDA assertion from the Triton kernel's tile config on the non-aligned dimension
-
-The default compile mode handles this correctly by treating shapes symbolically (`dynamic=True`
-implicitly), generating guards and recompilation as needed. `max-autotune` cannot be combined
-with dynamic shapes through the simple `mode=` string API.
-
-**Why the single-rank warmup fix also failed (job 17824)**:
-Phase 1 (nproc=1, global_batch=128) caches backbone matmuls (fixed shapes — correctly cached),
-but the iBOT global-batch op has size proportional to global batch size: nproc=1 gives ~939
-masked tokens per 256 global crops; nproc=8 gives ~7503 per 2048 crops. **Different shape →
-cache miss → fresh benchmarking in Phase 2 → same crash.**
-
-**Conclusion: max-autotune-no-cudagraphs is fundamentally incompatible with iBOT's dynamic
-masked token count.** This is not fixable by configuration — the mode requires static shapes,
-but iBOT produces variable shapes at a global-batch granularity that changes with world size
-AND with the stochastic masking per iteration.
+4. Treat head CUDA-graph/fullgraph work as conditional and likely low ROI unless
+   nsys shows dispatch overhead in that path.
 
 ---
 
-## Current status (confirmed 2026-04-08)
+## Confirmed historical evidence
 
-| Mode | Result | MFU at bs=128 |
-|------|--------|--------------|
-| `default` (null) | ✓ Complete | **~23.1%** steady-state |
-| `max-autotune-no-cudagraphs` | ✗ Incompatible — dynamic iBOT shapes | N/A |
+### Default mode result (2026-04-07, job 16719)
 
-**max-autotune-no-cudagraphs is deprioritized.** The default compile mode is the correct
-and only viable torch.compile path for this model. Do not attempt further max-autotune runs.
+Config: DDP bs=128, 8xH100, 200 iters.
+
+- Steady-state MFU, iters 20-199: about 23.1%, range 22.9-23.5%.
+- Throughput: about 4040 img/s.
+- This was a pre-Phase-6 screening result, not the final Phase 6.A champion
+  measurement.
+
+### Multi-rank autotune OOM hazard (2026-04-07, job 16720)
+
+Observed:
+
+- Job started at 13:31 and crashed at 13:49, about 18 minutes into iter-0
+  compile.
+- Zero training log lines were produced.
+- SIGABRT occurred on rank 2.
+- Stderr contained large `triton_mm_XX` benchmarking output from iter-0 compile.
+
+Still-valid interpretation:
+
+- `max-autotune-no-cudagraphs` benchmarks candidate Triton kernels by running
+  test tensors on GPU.
+- When 8 ranks autotune concurrently, every GPU carries model weights plus
+  temporary benchmark allocations.
+- This can exceed the 80 GB H100 limit even though steady-state DDP bs=128 uses
+  much less VRAM.
+
+Operational implication:
+
+- If retesting autotune, use single-rank warmup at the same per-GPU batch size
+  before the 8-rank run.
+
+### Triton/Inductor cache warmup assumption
+
+Autotune cache validity depends on:
+
+- operation shape,
+- hardware type,
+- PyTorch and Triton version,
+- relevant compiler options.
+
+For backbone blocks, nproc=1 and nproc=8 should share shapes when
+`train.batch_size_per_gpu` is identical. DDP gradient all-reduce happens outside
+the compiled backbone regions and should not change backbone matmul cache keys.
 
 ---
 
-## Operating rule for compile modes in this repo
+## Retracted Phase 4/6 interpretation
 
-1. Use `train.compile_mode=null` (default). It is stable, correct, and is the mode used in
-   the current Phase 6 baseline (DDP bs=96, job 48312, 7.94% MFU). Note: the previously cited
-   "DDP bs=256+ES (production config)" is retracted — bs=256 OOMs on 80 GB H100 in real training.
-2. Never set `max-autotune` (with graphs) — CUDA graphs are broken here (see cuda_graphs.md).
-3. Never set `max-autotune-no-cudagraphs` — iBOT dynamic shapes cause SIGABRT at iter-0.
-4. If PyTorch adds a `dynamic=True` + `max-autotune` combination in a future version, retest.
+Do not use the old Phase 4/6 shape-instability explanation as current context.
+It was an unverified hypothesis and is wrong for the default fixed per-GPU
+batch-size path.
+
+Retracted interpretation:
+
+- Autotune failures should not be attributed to per-iteration changes in iBOT K
+  for the current fixed-bs path.
+- A matched-bs single-rank warmup should not be rejected on the basis of world
+  size alone; the relevant cache shape is local-batch driven for backbone blocks.
+- `max-autotune-no-cudagraphs` is not ruled out by the old shape-instability
+  explanation. It remains a retestable isolation experiment with known autotune
+  memory-spike risk.
+- Earlier verdicts against CUDA-graph autotune modes predate the Phase 6
+  cudagraph fixes and should be treated as stale until retested.
+
+Current evidence:
+
+- `dinov3/data/collate.py:42-56` deterministically chooses how many samples are
+  masked and each masked sample's target patch count.
+- `dinov3/data/masking.py:87-93` calls `complete_mask_randomly()`, which
+  force-tops-up every mask to exactly the requested count.
+- Therefore, at fixed per-GPU batch size, the number of selected masked patches
+  is constant. Mask positions vary; count does not.
+- Phase 7 verification reported K = 7503 for 5/5 trials at bs=128.
+
+Caveats:
+
+- Changing per-GPU batch size changes K and can require new compile/cache
+  entries.
+- Multidistillation and some Gram token-selection modes can change shape
+  behavior. They are not part of the current DDP champion config.
+
+---
+
+## Short version
+
+The safe default is still `train.compile_mode=null` with `train.cudagraphs=true`
+for the DDP champion path. The old shape-instability explanation for rejecting
+`max-autotune-no-cudagraphs` is retracted. If autotune is pursued in Phase 7,
+first test it with `cudagraphs=false` as an isolation run; combining autotune
+with the champion backbone path requires a code edit in `wrap_compile_block()`,
+not just a config override.

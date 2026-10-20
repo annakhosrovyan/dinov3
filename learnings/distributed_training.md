@@ -14,9 +14,10 @@ The goal is `time_iter ≈ max(time_compute, time_comm)`, not `time_compute + ti
 | Manual all-reduce (no overlap) | 10 ms | 12 ms | 22 ms | 0% |
 | DDP (overlap) | 10 ms | 12 ms | ~12 ms | ~50%+ |
 
-The repo supports both DDP and FSDP2. The current production script uses DDP+expandable-segments;
-the FSDP2 path uses composable FSDP2 (`fully_shard` from `torch.distributed._composable.fsdp`),
-not the legacy `FSDP` class with `ShardingStrategy`.
+The repo supports both DDP and FSDP2. `run.sh` remains the FSDP2 production path; the live DDP
+performance investigation is the cudagraphs path at bs=128/160/192 (Phase 7), not the retired
+DDP+expandable-segments bs=256 screen. The FSDP2 path uses composable FSDP2 (`fully_shard` from
+`torch.distributed._composable.fsdp`), not the legacy `FSDP` class with `ShardingStrategy`.
 
 For FSDP2 with `FULL_SHARD` / ZeRO-3 (`reshard_after_forward=True` per block), AllGather can overlap
 with forward compute between blocks. Verify with Nsight Systems timeline: compute kernels and NCCL
@@ -161,10 +162,9 @@ gap. The communication overhead is not the dominant bottleneck at this scale. On
 step at 450 GB/s = ~1.1 ms, which is <0.5% of a 220 ms step. The overhead shows up as graph-break
 launch cost and allocation churn, not raw bandwidth.
 
-**Conclusion (2026-04-25)**: At matched bs=256, DDP and FSDP2 are essentially tied (0.4 pp gap
-from ZeRO-3 overhead). The DDP vs FSDP2 question is closed — both are fine per Tim Darcet
-directly. `run.sh` uses DDP+ES because it is production-validated, not because DDP is
-architecturally superior. See the "Authoritative Conclusion" section at the end of this file.
+**Historical conclusion (2026-04-25; superseded)**: At matched bs=256, DDP and FSDP2 were
+essentially tied (0.4 pp gap from ZeRO-3 overhead). That short-screen comparison is retained as
+allocator evidence only; it is not production guidance. Phase 7 evaluates DDP at bs=128/160/192.
 
 ---
 
@@ -246,12 +246,12 @@ The practical lesson is not "ES is bad." It is:
 - DDP and FSDP2 interact with the allocator differently
 - a memory tweak that helps one path can hurt the other
 
-### Config guidance for experiments and real training
+### Config guidance for experiments
 
 Use ES selectively based on strategy and objective:
 
 ```python
-# DDP experiments or real DDP training at the high-batch operating point:
+# DDP experiment only; do not treat the historical bs=256 screen as a production recipe:
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # Default FSDP2 training path in this repo:
@@ -260,19 +260,18 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 In Slurm scripts:
 ```bash
-# DDP screening or real DDP runs at bs=256:
+# DDP screening only. Phase 7's active batch range is bs=128/160/192:
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Default FSDP2 config / real training:
 # do not set PYTORCH_CUDA_ALLOC_CONF just because it helped DDP
 ```
 
-For real training, treat this as a current best operating hypothesis rather than a final guarantee.
-The next confidence step is a longer bs=256 DDP+ES soak run that logs
-`torch.cuda.max_memory_reserved()`, `torch.cuda.memory_reserved()`, and step time over thousands of
-iterations, especially across checkpoint and eval boundaries.
+For real training, use the current production recipe in `run.sh`. Treat the bs=256 observations
+below as historical short-soak evidence, not a configuration to revive; Phase 7's active DDP
+batch range is bs=128/160/192.
 
-### DDP bs=256+ES soak test confirms production safety (2026-04-07, job 16718)
+### Historical DDP bs=256+ES soak (2026-04-07, job 16718; superseded)
 
 500-iter soak test with 5 eval cycles and 2 checkpoint cycles. [MEMPROFILE] at every phase:
 
@@ -287,7 +286,8 @@ iterations, especially across checkpoint and eval boundaries.
 **max_reserved_mb is perfectly flat across all 17 MEMPROFILE events. Zero memory creep.**
 
 Steady-state MFU (iters 50–490): **23.92% average**, range 23.4–24.1%. No bimodal behavior.
-Confirmed: DDP bs=256+ES is **production-safe** for long runs.
+This showed no memory growth over that 500-iteration test, but later evidence retired bs=256 as a
+real-training operating point; it is not production-safe guidance.
 
 ### Worst-case memory profile (2026-04-07, memprofile scripts)
 
@@ -303,7 +303,7 @@ Checkpoint adds ~1.9 GB for FSDP2 (DCP write + optimizer extraction); zero addit
 
 | Config | MFU | img/s | Mem | Notes |
 |--------|-----|-------|-----|-------|
-| DDP bs=256 + ES | **23.9%** | **4180** | 67.3 GB | Production-confirmed (500-iter soak) |
+| DDP bs=256 + ES | **23.9%** | **4180** | 67.3 GB | Historical 500-iter screen; not production guidance |
 | **FSDP2 bs=256** | **23.5%** | **4106** | **66 GB** | **0.4 pp behind DDP+ES at matched bs** |
 | DDP bs=128 + ES | ~23.1% | ~4050 | 33.9 GB | Conservative fallback |
 | DDP bs=128 | 23.1% | 4042 | 34 GB | Without ES |
@@ -312,9 +312,9 @@ Checkpoint adds ~1.9 GB for FSDP2 (DCP write + optimizer extraction); zero addit
 
 > **Key revision (2026-04-25)**: FSDP2 bs=256 is only 0.4 pp behind DDP+ES at the same batch size.
 > The "2× MFU" narrative compared FSDP2 bs=64 (original) vs DDP+ES bs=256 — the difference is
-> almost entirely from batch-size scaling. DDP and FSDP2 are both fine at this scale (confirmed
-> by Tim Darcet). `run.sh` uses DDP+ES as the production-validated config. The DDP vs FSDP2
-> question is closed — see the "Authoritative Conclusion" section at the end of this file.
+> almost entirely from batch-size scaling. This remains a historical matched-batch observation;
+> it does not validate DDP+ES bs=256 for production. See Phase 7 for the active bs=128/160/192
+> DDP investigation.
 
 Note: earlier short-run screening reported 24.5% for DDP bs=256+ES; the soak test average of
 23.92% is the more reliable number — it averages across thermal ramp and minor step-time variance.
