@@ -34,7 +34,17 @@ svg.cmgraph .node.hl{opacity:1}
 .legend .lg{display:inline-flex;align-items:center;gap:.3rem}
 .legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
 .empty{color:var(--mut);font-style:italic}
-</style></head><body><h1>Codemap Atlas</h1><section class="youarehere"><h2>You are here</h2><p class="facts">branch <code>feat/codemap-atlas</code> · ahead 81 / behind 0</p><div class="narrative"><h4>Where we are</h4>
+.cmbar{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;margin:.4rem 0 1rem;font-size:13px}
+.modetoggle{display:inline-flex;align-items:center;gap:.4rem;cursor:pointer;user-select:none}
+.cmbtn{border:1px solid #c9ccd1;background:#fff;border-radius:6px;padding:.2rem .7rem;cursor:pointer;font-size:12px}
+.cmbtn:hover{background:#f1f3f7}
+.cmhint{color:var(--mut)}
+.pin-hint{display:none}
+body.pinmode .hover-hint{display:none}
+body.pinmode .pin-hint{display:inline}
+body.pinmode svg.cmgraph .node{cursor:pointer}
+svg.cmgraph .node.pin-seed rect{stroke-width:2.8}
+</style></head><body><h1>Codemap Atlas</h1><div class="cmbar"><label class="modetoggle"><input type="checkbox" id="cm-pinmode"> Pin mode</label><button type="button" id="cm-clear" class="cmbtn" hidden>Clear pins</button><span class="cmhint hover-hint">Default: hover a node to preview its neighbors.</span><span class="cmhint pin-hint">Click a node to trace its downstream calls · click again to unpin · pin as many as you like.</span></div><section class="youarehere"><h2>You are here</h2><p class="facts">branch <code>feat/codemap-atlas</code> · ahead 81 / behind 0</p><div class="narrative"><h4>Where we are</h4>
 <p>This is the <strong>DINOv3 satellite perf-optimization</strong> repo. The active branch is <code>feat/codemap-atlas</code>,<br>a tooling side-track off the phase-7 line (<code>exp/ddp-fullgraph-head-static-shapes</code>). The perf work<br>itself is <strong>Phase 7</strong>: attributing and shrinking the DDP communication residual on 8×H100.</p>
 <h4>What just shipped</h4>
 <ul><li><strong>Codemap Atlas</strong> was generalized out of this repo into a <strong>shared engine</strong> at <code>~/.claude/codemap</code></li></ul>
@@ -71,21 +81,77 @@ svg.cmgraph .node.hl{opacity:1}
 <li>-nodes: []</li>
 <li>new commits: [&#x27;7333941&#x27;, &#x27;bd83c7e&#x27;, &#x27;1906a47&#x27;, &#x27;3b2e7e3&#x27;, &#x27;14dc550&#x27;, &#x27;0bc6a5b&#x27;, &#x27;b11fc07&#x27;]</li>
 </ul></section><script>
-for(const svg of document.querySelectorAll('svg.cmgraph')){
-  const edges=[...svg.querySelectorAll('.edge')];
-  svg.querySelectorAll('.node').forEach(node=>{
-    const id=node.getAttribute('data-node');
-    node.addEventListener('mouseenter',()=>{
-      svg.classList.add('dim');
-      const keep=new Set([id]);
-      edges.forEach(e=>{const s=e.getAttribute('data-src'),d=e.getAttribute('data-dst');
-        if(s===id||d===id){e.classList.add('hl');keep.add(s);keep.add(d);}});
-      svg.querySelectorAll('.node').forEach(n=>{if(keep.has(n.getAttribute('data-node')))n.classList.add('hl');});
-    });
-    node.addEventListener('mouseleave',()=>{
+(function(){
+  const body=document.body;
+  const modeBox=document.getElementById('cm-pinmode');
+  const clearBtn=document.getElementById('cm-clear');
+  const graphs=[];
+
+  const inPinMode=()=>body.classList.contains('pinmode');
+  function anyPins(){return graphs.some(g=>g.pins.size>0);}
+  function syncClear(){if(clearBtn)clearBtn.hidden=!anyPins();}
+
+  for(const svg of document.querySelectorAll('svg.cmgraph')){
+    const edges=[...svg.querySelectorAll('.edge')];
+    const nodes=[...svg.querySelectorAll('.node')];
+    const fwd={};                                   // forward adjacency: src -> [dst]
+    edges.forEach(e=>{const s=e.getAttribute('data-src'),d=e.getAttribute('data-dst');
+      (fwd[s]=fwd[s]||[]).push(d);});
+    const pins=new Set();
+    const G={svg,pins};
+    graphs.push(G);
+
+    function clearHl(){
       svg.classList.remove('dim');
       svg.querySelectorAll('.hl').forEach(el=>el.classList.remove('hl'));
+      svg.querySelectorAll('.pin-seed').forEach(el=>el.classList.remove('pin-seed'));
+    }
+    // transitive downstream reachable set from a set of seed ids (Option B)
+    function reach(seeds){
+      const seen=new Set(),stack=[...seeds];
+      while(stack.length){const id=stack.pop();
+        if(seen.has(id))continue;seen.add(id);
+        (fwd[id]||[]).forEach(n=>stack.push(n));}
+      return seen;
+    }
+    function paintPins(){
+      clearHl();
+      if(!pins.size)return;
+      const keep=reach(pins);
+      svg.classList.add('dim');
+      nodes.forEach(n=>{if(keep.has(n.getAttribute('data-node')))n.classList.add('hl');});
+      edges.forEach(e=>{if(keep.has(e.getAttribute('data-src'))&&keep.has(e.getAttribute('data-dst')))e.classList.add('hl');});
+      pins.forEach(id=>{const seed=nodes.find(n=>n.getAttribute('data-node')===id);if(seed)seed.classList.add('pin-seed');});
+    }
+    G.clearHl=clearHl;G.paintPins=paintPins;
+
+    nodes.forEach(node=>{
+      const id=node.getAttribute('data-node');
+      node.addEventListener('mouseenter',()=>{
+        if(inPinMode())return;                      // hover disabled while pinning
+        svg.classList.add('dim');
+        const keep=new Set([id]);
+        edges.forEach(e=>{const s=e.getAttribute('data-src'),d=e.getAttribute('data-dst');
+          if(s===id||d===id){e.classList.add('hl');keep.add(s);keep.add(d);}});
+        nodes.forEach(n=>{if(keep.has(n.getAttribute('data-node')))n.classList.add('hl');});
+      });
+      node.addEventListener('mouseleave',()=>{
+        if(inPinMode())return;
+        clearHl();
+      });
+      node.addEventListener('click',()=>{
+        if(!inPinMode())return;
+        if(pins.has(id))pins.delete(id);else pins.add(id);
+        paintPins();syncClear();
+      });
     });
+  }
+
+  function clearAll(){graphs.forEach(g=>{g.pins.clear();g.clearHl();});syncClear();}
+  if(clearBtn)clearBtn.addEventListener('click',clearAll);
+  if(modeBox)modeBox.addEventListener('change',()=>{
+    body.classList.toggle('pinmode',modeBox.checked);
+    clearAll();                                     // switching modes starts from a clean slate
   });
-}
+})();
 </script></body></html>

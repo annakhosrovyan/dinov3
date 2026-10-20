@@ -549,7 +549,8 @@ Purpose: Confirm worst-case per-phase peak memory for production config.
 
 Worst-case: 67.2 GB — 12.8 GB headroom on 80 GB H100. Zero fragmentation pressure.
 Eval: max_alloc during eval only 1,326 MB (allocator reuses reserved pages — not a spike).
-Decision: DDP bs=256+ES is confirmed safe at per-phase granularity.
+Historical result: DDP bs=256+ES had stable per-phase memory in this short profile. Later
+long-training evidence retired bs=256, so this is not production-safety evidence.
 ```
 
 ### Run 23: Worst-case memory profile — FSDP2 bs=128 (no ES)
@@ -598,8 +599,11 @@ MFU (steady state, iters 50–490, n=46): avg=23.92%, range=23.4–24.1%
 Images/sec: ~4170–4210 sustained.
 No bimodal behavior. No step-time spikes at eval or checkpoint boundaries.
 
-Decision: DDP bs=256+ES is CONFIRMED PRODUCTION-SAFE. Promoted to run.sh default.
+Historical decision (superseded): the 500-iteration soak was treated as production-safe and
+promoted to `run.sh`. Later long-training evidence retired bs=256; retain these measurements as
+screening history only, not as production guidance.
 Also enabled train.sharded_eval_checkpoint=true and train.compile_mode config key in run.sh.
+That default promotion was subsequently reverted when bs=256 was retired.
 ```
 
 ### Run 25: Compile mode screening — default vs max-autotune-no-cudagraphs
@@ -746,7 +750,7 @@ Decision: ES slightly negative with no-release (consistent with DDP+ES pattern w
 
 | Config | MFU % | step_ms | max_mem GB | stable iters | Notes |
 |--------|-------|---------|-----------|-------------|-------|
-| DDP+ES bs=256 (production, 500 iters) | 23.9 | ~501 | 67.2 | 450+ | Soak-tested; memory tight |
+| DDP+ES bs=256 (historical 500-iter soak) | 23.9 | ~501 | 67.2 | 450+ | Superseded; not production guidance |
 | ZeRO-3 FSDP2 bs=256 (100-iter screen) | 23.5 | ~508 | ~65.6 | ~50 | Run 5; NOT soak-tested; same memory as DDP |
 | ZeRO-3 FSDP2 bs=128 (1300-iter soak) | ~17–18% | ~325 | 36.3 | 1300+ | 43 GB headroom; production-viable |
 | No-release FSDP2 bs=256 | 23.2 | 502 | 64.2 | 2 (noisy) | Run 26; 100 steps; bs=256 not production-viable for FSDP2 |
@@ -767,7 +771,6 @@ ZeRO-3 at matched batch size. At bs=256 no-release (64.2 GB) ≈ ZeRO-3 (65.6 GB
 benefit. MFU 23.2% vs ZeRO-3 23.5% — no throughput benefit. Prolonged compile warmup (~90 iters
 vs ~30-40 for ZeRO-3) is an additional downside. **No-release is closed.**
 
-**Strategy going forward**: DDP+ES bs=256 remains the benchmarked production config. For full
-training run safety and multi-node readiness, FSDP2 ZeRO-3 bs=128 (36.3 GB, 43 GB headroom) is
-the correct reference point — not FSDP2 at bs=256. An untested bs=192 probe (~50 GB estimated)
-would determine whether FSDP2 can approach DDP+ES MFU while preserving meaningful memory margin.
+**Historical strategy (superseded)**: this formerly treated DDP+ES bs=256 as the production
+benchmark. Do not use it as a training configuration. The live Phase 7 DDP investigation uses
+bs=128/160/192; retain the bs=256 data only for its allocator and throughput-screening history.

@@ -66,6 +66,34 @@ Config CLI overrides use OmegaConf dot-notation: `section.key=value` pairs passe
 
 **Storage**: Use `/mnt/weka/adovlatyan/` for logs and outputs (not `/data/adovlatyan/` which is NFS and deprecated). Log path: `/mnt/weka/adovlatyan/logs/`.
 
+## Run & Log Artifact Map (find old job traces fast)
+
+Completed run outputs on Weka are organized under `/mnt/weka/adovlatyan/runs/<phase>/` (reorganized
+2026-06-26). **To locate any historical run/trace, read the `INDEX.md` files instead of `ls`-ing the
+tree** — they map job ID → directory → result and save tokens.
+
+**Lookup recipe** (e.g. "that phase6 job trace", "the bs128 champion run", "job 75082"):
+1. Start at [`/mnt/weka/adovlatyan/INDEX.md`](file:///mnt/weka/adovlatyan/INDEX.md) — top-level storage map.
+2. Known job ID → grep the master table in `/mnt/weka/adovlatyan/runs/INDEX.md` (`grep <jobid> /mnt/weka/adovlatyan/runs/INDEX.md`) → gives bucket + dir.
+3. Know the phase but not the ID → open that bucket's `INDEX.md` (per-run config + result table).
+4. Want the SLURM stdout/stderr → search the logs tree: `find /mnt/weka/adovlatyan/logs -name '*<jobid>*'`, or `~/scripts/jobcheck <jobid>`. Logs are organized `logs/<run-type>/<strategy>/` (see `logs/INDEX.md` for the family→type→phase map).
+5. Want the `.nsys-rep` trace (Phase 7) → `/mnt/weka/adovlatyan/nsys_profiles/phase7/<jobid>/`.
+
+**Two-level structure** `runs/<phase>/<type-or-strategy>/output_<tag>_<jobid>/`:
+- `baseline/` *(flat)* — job 6770 + early nsys
+- `screening/{ddp,fsdp2}/` — early bs screening, numbers misleading
+- `phase5-fsdp2/{baseline,reshard,singlegpu,nccl-sweep,memfrag}/` — FSDP2 experiments
+- `phase6-ddp-cudagraphs/{champion-6A,soak,memval}/` — DDP+cudagraphs champion 53708 (in `champion-6A/`), 4000-iter soak 60959 (`soak/`), torch-2.10 bs-validation 67639 (`memval/`)
+- `phase7-compile-nsys/{compile-mode,nsys,maxconn}/` — comms residual 75082 (`nsys/`), maxconn 77671/77672 (`maxconn/`)
+- `smoke-ckpt/{smoke,ckpt}/`
+
+Each run dir = `config.yaml` + `training_metrics.json` + `logs/` (+ `profiler_traces/`, `ckpt/`, `nan_logs/`).
+
+**Convention for NEW runs**: job scripts still write flat (`output_<tag>_<jobid>` and
+`logs/<family>-<jobid>.out`) — they were intentionally not changed. After a run finishes, sweep its
+output dir into the right `runs/<phase>/` and append a row to that bucket's `INDEX.md`. Do NOT touch
+`.conda/` (symlink target of `~/.conda/envs`), `conda/`, `venvs/`, or `synthetic_intelinair.h5`.
+
 ## Code Quality
 
 ```bash
@@ -93,6 +121,17 @@ Use LSP when tracing call chains or verifying signatures; use `fff` when you don
 If you are running in Claude Code and the `openai-codex` plugin is installed, use the Codex plugin periodically to review code you write in this repository.
 Prefer `/codex:review` for a read-only review of your current changes, and use `/codex:adversarial-review` when you want an explicit challenge pass on assumptions, risks, or design choices.
 Run these reviews before shipping larger or riskier edits, and use the feedback to tighten the patch before finishing.
+
+## Harnesses — Build, Then Evolve
+
+When a task benefits from a harness (analysis/measurement/automation scripts — trace analyzers, log decoders, capture pipelines), treat the harness as a **living artifact**, not a one-shot deliverable:
+
+- Build the minimal version that answers the current question; validate against synthetic/known ground truth before trusting real outputs.
+- Expect to **add and remove** capabilities as the broader task/project evolves — each new trace/result may demand schema fixes, new metrics, or pruning of stale analyses. Don't gold-plate v1, and don't treat it as frozen after first use.
+- Emit machine-readable outputs (JSON) alongside human reports so cross-run comparisons (`--diff` modes) never re-derive numbers by hand.
+- Collapse the workflow into one command/job where possible (e.g. capture → export → analyze inside a single sbatch) so re-runs stay cheap as the harness changes.
+- Codify as a skill/slash-command only after the harness stabilizes across a few real uses.
+- Worked example: `scripts/profiling/phase7_nsys_ddp_capture.sh` + `scripts/profiling/phase7_nsys_report.py` (Phase 7.1 residual attribution).
 
 ## Communication Preference
 

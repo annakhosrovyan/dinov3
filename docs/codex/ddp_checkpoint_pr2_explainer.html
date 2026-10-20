@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR #2 DDP Checkpoint Cleanup Explainer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #5c6672;
+      --paper: #f7f8fa;
+      --panel: #ffffff;
+      --line: #d8dde5;
+      --soft: #eef3f7;
+      --blue: #1d5f99;
+      --green: #24724d;
+      --orange: #925d14;
+      --red: #9b2f2f;
+      --code: #1f2933;
+      --code-bg: #edf1f5;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.2;
+      letter-spacing: 0;
+      margin: 0;
+    }
+
+    h1 {
+      max-width: 900px;
+      font-size: 38px;
+      font-weight: 780;
+    }
+
+    h2 {
+      margin: 44px 0 16px;
+      font-size: 25px;
+      border-top: 1px solid var(--line);
+      padding-top: 28px;
+    }
+
+    h3 {
+      margin: 22px 0 10px;
+      font-size: 18px;
+    }
+
+    p { margin: 10px 0; }
+
+    a {
+      color: var(--blue);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      background: var(--code-bg);
+      color: var(--code);
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-size: 0.93em;
+    }
+
+    pre {
+      margin: 12px 0;
+      padding: 14px;
+      overflow-x: auto;
+      background: #17202a;
+      color: #f4f7fb;
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+    }
+
+    .subtitle {
+      max-width: 900px;
+      margin-top: 14px;
+      font-size: 18px;
+      color: var(--muted);
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--soft);
+      color: #314052;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 290px;
+      gap: 26px;
+      align-items: start;
+    }
+
+    main {
+      min-width: 0;
+    }
+
+    aside {
+      position: sticky;
+      top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 16px;
+    }
+
+    aside h2 {
+      margin: 0 0 8px;
+      padding: 0;
+      border: 0;
+      font-size: 16px;
+    }
+
+    aside a {
+      display: block;
+      padding: 6px 0;
+      color: #314052;
+      font-size: 14px;
+      text-decoration: none;
+      border-bottom: 1px solid #edf0f4;
+    }
+
+    aside a:last-child { border-bottom: 0; }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      margin: 14px 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .thirds {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .callout {
+      border-left: 4px solid var(--blue);
+      background: #eef6fc;
+      padding: 12px 14px;
+      margin: 14px 0;
+      border-radius: 6px;
+    }
+
+    .warning { border-left-color: var(--orange); background: #fff6e6; }
+    .good { border-left-color: var(--green); background: #eef8f1; }
+    .risk { border-left-color: var(--red); background: #fff0f0; }
+
+    .small {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      display: table;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eef1f5;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: #3e4c59;
+      letter-spacing: 0.04em;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 16px 0;
+    }
+
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px;
+      min-height: 118px;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 6px;
+      color: #243447;
+    }
+
+    .badge {
+      display: inline-block;
+      border-radius: 5px;
+      padding: 2px 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--blue);
+    }
+
+    .badge.green { background: var(--green); }
+    .badge.orange { background: var(--orange); }
+    .badge.red { background: var(--red); }
+
+    ul {
+      margin-top: 8px;
+      padding-left: 22px;
+    }
+
+    li { margin: 6px 0; }
+
+    .compare {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+      margin: 14px 0;
+    }
+
+    .before { border-top: 4px solid var(--red); }
+    .after { border-top: 4px solid var(--green); }
+
+    footer {
+      color: var(--muted);
+      font-size: 13px;
+      padding-bottom: 30px;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; }
+      .grid, .thirds, .compare, .flow { grid-template-columns: 1fr; }
+      h1 { font-size: 30px; }
+      .wrap { padding: 22px 16px; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>PR #2: DDP Checkpoint Cleanup, Eval Unwrap, and Grad-Norm Sync Deferral</h1>
+      <p class="subtitle">A reviewer-oriented explainer for understanding what changed, why it matters in PyTorch/DDP terms, what was validated, and what still deserves attention before merge.</p>
+      <div class="meta">
+        <span class="pill">PR: annakhosrovyan/dinov3#2</span>
+        <span class="pill">Branch: fix/ddp-checkpoint-perf-cleanup</span>
+        <span class="pill">Base: master @ 7a42442</span>
+        <span class="pill">Head: 42812b5</span>
+        <span class="pill">Status checked: open, mergeable, no PR comments/reviews</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap layout">
+    <main>
+      <section id="quick-read">
+        <h2>Quick Read</h2>
+        <div class="panel">
+          <p><strong>What this PR is:</strong> a cleanup and validation branch layered on top of Anna's already-merged master fix, commit <code>7a42442</code>. Anna fixed the original DDP training crash. PR #2 makes that path cheaper, fixes the same latent pattern in eval loading, removes a mid-step scalar sync from training, and adds focused tests plus a validation record.</p>
+          <p><strong>What this PR is not:</strong> it is not the whole <code>perf-ddp-fullgraph</code> experiment branch, not a loader-settings change, and not a code fix for the iter-0 dataloader/cudagraph hang.</p>
+        </div>
+
+        <div class="thirds">
+          <div class="panel">
+            <span class="badge green">Safe-looking</span>
+            <h3>Small diff surface</h3>
+            <p>Four changed files: checkpointer, train loop, tests, and validation doc. Current PR diff is 642 additions and 14 deletions.</p>
+          </div>
+          <div class="panel">
+            <span class="badge green">Covered</span>
+            <h3>32 tests reported</h3>
+            <p>18 DDP checkpoint tests plus 14 MFU tests are recorded as passing after the Commit-3 repair.</p>
+          </div>
+          <div class="panel">
+            <span class="badge orange">Review focus</span>
+            <h3>One performance-sensitive edit</h3>
+            <p>The <code>grad_norm</code> change is the highest-value review target because it changes when a GPU tensor becomes a Python scalar.</p>
+          </div>
+          <div class="panel">
+            <span class="badge green">Live checkpoint load</span>
+            <h3>Jobs 68971/69781 passed the PR load path</h3>
+            <p>Anna&apos;s real RGB checkpoint loaded into the DDP-wrapped 5-channel student: channel adaptation, unwrap, and <code>.module.</code> key remapping all fired cleanly before a later smoke-harness iter-0 hang.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="background">
+        <h2>Background: Why DDP Broke Attribute Access</h2>
+        <p>In normal PyTorch, a model submodule might expose attributes directly:</p>
+        <pre><code>student.backbone.patch_embed.proj.weight</code></pre>
+        <p>But after <code>DistributedDataParallel</code> wraps a module, the raw module lives under <code>.module</code>. DDP does not proxy arbitrary child attributes like <code>patch_embed</code>. So this works:</p>
+        <pre><code>student.backbone.module.patch_embed.proj.weight</code></pre>
+        <p>And this can crash:</p>
+        <pre><code>student.backbone.patch_embed.proj.weight</code></pre>
+        <div class="callout">
+          <p><strong>The original bug:</strong> the checkpoint loader needed the patch-embed input channel count, but the training path had already wrapped <code>student.backbone</code> in DDP. Direct <code>.patch_embed</code> access therefore raised <code>AttributeError</code>.</p>
+        </div>
+        <p>Anna's master commit <code>7a42442</code> fixed the training path by adding an unwrap helper. PR #2 keeps that idea and improves the surrounding implementation.</p>
+      </section>
+
+      <section id="mental-model">
+        <h2>Mental Model: Checkpoint Keys vs Model Keys</h2>
+        <p>Checkpoint loading is mostly a key-matching problem. A saved tensor only lands in the model if its string key matches what <code>model.state_dict()</code> expects.</p>
+
+        <div class="compare">
+          <div class="panel before">
+            <h3>Plain module keys</h3>
+            <pre><code>backbone.patch_embed.proj.weight
+backbone.norm.weight
+dino_head.mlp.0.weight</code></pre>
+            <p class="small">A checkpoint saved before DDP wrapping usually looks like this.</p>
+          </div>
+          <div class="panel after">
+            <h3>DDP-wrapped submodule keys</h3>
+            <pre><code>backbone.module.patch_embed.proj.weight
+backbone.module.norm.weight
+dino_head.module.mlp.0.weight</code></pre>
+            <p class="small">Once each student submodule is wrapped, PyTorch inserts <code>.module.</code> into the state-dict key path.</p>
+          </div>
+        </div>
+
+        <p>The PR's key remapper bridges that mismatch. It checks whether the model expects DDP-style keys, and if so, transforms <code>backbone.x</code> into <code>backbone.module.x</code> only when that transformed key exists in the target model.</p>
+
+        <div class="flow">
+          <div class="step"><strong>1. Load checkpoint</strong>Read <code>teacher</code>, <code>model</code>, <code>student</code>, <code>state_dict</code>, or raw dict.</div>
+          <div class="step"><strong>2. Normalize roots</strong>Strip or add prefixes so keys line up with the student container shape.</div>
+          <div class="step"><strong>3. Adapt channels</strong>Use the model's patch-embed input channels to adapt checkpoint convolution weights.</div>
+          <div class="step"><strong>4. Match target</strong>Use target model keys to remap DDP names and reject a load where nothing matched.</div>
+        </div>
+      </section>
+
+      <section id="commits">
+        <h2>Commit-by-Commit</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Commit</th>
+              <th>Change</th>
+              <th>Why It Matters</th>
+              <th>Main Review Question</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>7f65c33</code></td>
+              <td>Add unit tests for DDP checkpoint helpers.</td>
+              <td>Locks down unwrap, channel detection, DDP prefix detection, and key remapping before the refactor.</td>
+              <td>Do the fake-DDP tests model the specific behavior the helpers depend on?</td>
+            </tr>
+            <tr>
+              <td><code>9c7ed60</code></td>
+              <td>Collapse DDP-load <code>state_dict()</code> calls from 4 to 1.</td>
+              <td><code>state_dict()</code> on distributed models can synchronize ranks. Doing it repeatedly at startup is avoidable overhead and a fragile pattern.</td>
+              <td>Is the one computed <code>model_keys</code> set reused everywhere the old calls were used?</td>
+            </tr>
+            <tr>
+              <td><code>8af5960</code></td>
+              <td>Unwrap DDP in <code>init_model_from_checkpoint_for_evals</code>.</td>
+              <td>Prevents the eval path from having the same direct-attribute bug as the training path if a wrapped model is ever passed.</td>
+              <td>Does this preserve the normal non-DDP eval path?</td>
+            </tr>
+            <tr>
+              <td><code>d0b416f</code></td>
+              <td>Store <code>grad_norm</code> as a tensor until post-step logging.</td>
+              <td>A mid-step <code>.item()</code> forces GPU-to-CPU synchronization after backward and before optimizer step timing completes.</td>
+              <td>Does every downstream consumer still accept tensors and eventually convert to floats at a safe point?</td>
+            </tr>
+            <tr>
+              <td><code>7ef725d</code></td>
+              <td>Add the validation/results doc.</td>
+              <td>Records original verification and intentional non-changes.</td>
+              <td>Is the doc accurate after later commits?</td>
+            </tr>
+            <tr>
+              <td><code>e6b25df</code></td>
+              <td>Add integration tests for eval-loader call site.</td>
+              <td>Closes the review gap that helper tests did not exercise the modified eval call site end-to-end.</td>
+              <td>Do these tests cover the real plain eval case and the constructed DDP regression case?</td>
+            </tr>
+            <tr>
+              <td><code>d70f79f</code></td>
+              <td>Append post-review validation and real cudagraphs smoke result.</td>
+              <td>Records that the <code>grad_norm</code> tensor deferral ran through a real DDP + compile + cudagraphs smoke.</td>
+              <td>Is the smoke scoped correctly for the actual risk?</td>
+            </tr>
+            <tr>
+              <td><code>69469a7</code></td>
+              <td>Record real-checkpoint load smoke, job <code>68971</code>.</td>
+              <td>Shows the PR-modified load path handles a stock RGB checkpoint, DDP key remapping, and 5-channel patch-embed adaptation.</td>
+              <td>Does the evidence separate checkpoint-load PASS from the later iter-0 hang?</td>
+            </tr>
+            <tr>
+              <td><code>f4467ca</code></td>
+              <td>Record write/resume PASS and corrected iter-0 diagnosis.</td>
+              <td>Adds jobs <code>69782</code>/<code>69783</code> for DCP lifecycle coverage and corrects the earlier node-contention hypothesis.</td>
+              <td>Does the corrected diagnosis avoid treating a 2-GPU smoke-harness hang as a PR blocker?</td>
+            </tr>
+            <tr>
+              <td><code>42812b5</code></td>
+              <td>Load eval checkpoints into the unwrapped target module.</td>
+              <td>Completes the defensive eval DDP fix: the same unwrapped target now drives both the input-channel read and <code>load_state_dict</code>.</td>
+              <td>Do the strengthened tests prove weights actually load, not just that the wrapped path avoids an exception?</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+
+
+      <section id="external-review">
+        <h2>External Review Verdicts</h2>
+        <p>A later high-effort Codex review split the PR into code changes and test coverage. A third adversarial pass then found one real Commit-3 defect in the defensive DDP eval branch: it avoided <code>AttributeError</code> but could silently load zero weights. Commit <code>42812b5</code> repairs that narrow path and strengthens the tests to catch it.</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Area</th>
+              <th>Verdict</th>
+              <th>Reason to care</th>
+              <th>Human-review takeaway</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>DDP detection and remap refactor</td>
+              <td><span class="badge green">SAFE</span></td>
+              <td>One precomputed <code>model_keys</code> set drives DDP detection, key remapping, and matched-key rejection. There is no fraction threshold or off-by-one style logic.</td>
+              <td>Review consistency: exact matches stay exact, missing plain keys can become <code>root.module.rest</code>, and unmatched keys pass through.</td>
+            </tr>
+            <tr>
+              <td>Eval loader <code>_unwrap_module</code></td>
+              <td><span class="badge green">REPAIRED</span></td>
+              <td>The first defensive fix unwrapped only the <code>in_chans</code> read. The repaired code computes <code>target = _unwrap_module(model)</code> once and loads the checkpoint into that same target, keeping checkpoint keys and model keys in the same prefix-free namespace.</td>
+              <td>The real eval path still passes a plain backbone, so <code>target is model</code>. The DDP-wrapped branch is a constructed regression guard, now checked by weight equality.</td>
+            </tr>
+            <tr>
+              <td>Integration tests</td>
+              <td><span class="badge orange">NEEDS ATTENTION</span></td>
+              <td>The tests now prove wrapped eval weights actually land, including an all-keys-land guard. They still do not call through the outer <code>build_model_for_eval</code> wiring and do not unit-test the deferred <code>grad_norm</code> path.</td>
+              <td>For Commit 3, the constructed DDP tests are the relevant guard because real eval builds a plain backbone. Job <code>68670</code> gives empirical grad-norm coverage, jobs <code>68971</code>/<code>69781</code> give real checkpoint-load coverage, and jobs <code>69782</code>/<code>69783</code> give DCP write/resume lifecycle coverage.</td>
+            </tr>
+            <tr>
+              <td>Deferred <code>grad_norm.item()</code></td>
+              <td><span class="badge green">SAFE</span></td>
+              <td>The tensor is converted, reduced, and overwritten before logging; scalar reads happen after <code>step_end_event.synchronize()</code>; clipping itself is unchanged.</td>
+              <td>This is the main performance-sensitive code change, and the review found no numeric/training-correctness issue.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout warning">
+          <p><strong>Commit-label caution:</strong> the review text used commit-number labels, while the local history has separate commits for tests, refactor, docs, and validation. This section is organized by behavior area to avoid mixing up local commit hashes with review numbering.</p>
+        </div>
+      </section>
+
+      <section id="state-dict">
+        <h2>Change 1: One <code>state_dict()</code> Call Instead of Four</h2>
+        <p>The current code computes model keys once in <a href="../../dinov3/checkpointer/checkpointer.py">checkpointer.py</a> around lines 483-488:</p>
+        <pre><code>model_keys = set(model.state_dict().keys())
+if _state_dict_uses_ddp_prefix(model_keys):
+    chkpt = _remap_checkpoint_keys_for_ddp(chkpt, model_keys)</code></pre>
+        <p>Then the same <code>model_keys</code> is reused for the final matched-key check around line 521:</p>
+        <pre><code>matched_keys = [k for k in filtered_state.keys() if k in model_keys]</code></pre>
+
+        <div class="grid">
+          <div class="panel before">
+            <h3>Before</h3>
+            <ul>
+              <li>Call <code>model.state_dict()</code> to detect DDP key prefixes.</li>
+              <li>Call it again inside the remapper to get target keys.</li>
+              <li>Call the DDP detector again inside the remapper.</li>
+              <li>Call it again for the matched-key safety check.</li>
+            </ul>
+          </div>
+          <div class="panel after">
+            <h3>After</h3>
+            <ul>
+              <li>Call <code>model.state_dict()</code> once.</li>
+              <li>Use that key set to detect <code>.module.</code>.</li>
+              <li>Use that same key set for remapping.</li>
+              <li>Use that same key set to prove something matched before loading.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout good">
+          <p><strong>Why this is behavior-preserving:</strong> the remapper only needs the target model's key set. Passing that set in, instead of recomputing it, should not change the mapping result.</p>
+        </div>
+
+        <div class="callout warning">
+          <p><strong>Reviewer note:</strong> the DDP detector is still string-based: <code>any(".module." in key for key in model_keys)</code>. That matches this repo's wrapping shape, but it is not a general DDP type check. For this PR, it is consistent with the existing design and tests.</p>
+        </div>
+      </section>
+
+      <section id="eval-unwrap">
+        <h2>Change 2: Defensive Eval-Path Unwrap Repair</h2>
+        <p>The eval loader is described as non-distributed, but the old code still had the risky direct access pattern:</p>
+        <pre><code>model.patch_embed.proj.weight.shape[1]</code></pre>
+        <p>The first repair unwrapped only that input-channel read. The June 10 repair is more complete: compute the target once, use it to read <code>in_chans</code>, and use the same target for <code>load_state_dict</code>:</p>
+        <pre><code>target = _unwrap_module(model)
+state_dict = adapt_patch_embed_input_channels(
+    state_dict, target.patch_embed.proj.weight.shape[1]
+)
+msg = target.load_state_dict(state_dict, strict=False)</code></pre>
+        <p>For a normal eval model, <code>target is model</code>. For a DDP-wrapped eval model, <code>target is model.module</code>, where <code>patch_embed</code> exists and where the prefix-stripped checkpoint keys actually match.</p>
+        <div class="callout warning">
+          <p><strong>Why the second repair mattered:</strong> checkpoint keys have their leading <code>module.</code> stripped before loading. If the code then calls <code>load_state_dict</code> on the still-wrapped DDP object, the model expects <code>module.*</code> keys while the checkpoint has prefix-free keys. With <code>strict=False</code>, that can silently match zero keys and leave the eval model at random init weights.</p>
+        </div>
+        <div class="callout good">
+          <p><strong>What now proves it:</strong> the wrapped eval tests assert weight equality, not just no exception. The pre-repair code was red-checked: three wrapped-path tests failed while the plain-path test passed; after <code>42812b5</code>, the suite reports 32 passing tests.</p>
+        </div>
+        <div class="callout">
+          <p><strong>Important nuance:</strong> the validation doc says real eval jobs build a plain teacher backbone. That means the DDP-wrapped eval test is a regression guard for a latent bug, not evidence that production eval normally uses DDP here. A Slurm training smoke would not add much for this repair because the changed branch is CPU-only and unreachable from real training.</p>
+        </div>
+      </section>
+
+      <section id="grad-norm">
+        <h2>Change 3: Defer <code>grad_norm.item()</code></h2>
+        <p><code>clip_grad_norm_</code> returns a tensor-like norm. Calling <code>.item()</code> turns a one-element GPU tensor into a Python number. That sounds harmless, but it forces the CPU to wait until the GPU has produced the value.</p>
+        <p>In this training loop, the old scalar read happened after backward but before <code>optimizer.step()</code>, <code>step_end_event.record()</code>, and <code>step_end_event.synchronize()</code>. That is the wrong time to force a host sync if you care about DDP overlap and CUDA graph performance.</p>
+
+        <div class="compare">
+          <div class="panel before">
+            <h3>Before</h3>
+            <pre><code>metrics_dict[f"{k}_grad_norm"] = (
+    grad_norm.full_tensor().item()
+    if isinstance(grad_norm, DTensor)
+    else grad_norm.item()
+)</code></pre>
+            <p class="small">The CPU waits mid-step for the norm scalar.</p>
+          </div>
+          <div class="panel after">
+            <h3>After</h3>
+            <pre><code>metrics_dict[f"{k}_grad_norm"] = (
+    grad_norm.full_tensor()
+    if isinstance(grad_norm, DTensor)
+    else grad_norm.detach()
+)</code></pre>
+            <p class="small">The norm remains tensor-shaped until the logging path, after the explicit step sync.</p>
+          </div>
+        </div>
+
+        <p>The key safety argument is in <a href="../../dinov3/train/train.py">train.py</a> lines 651-668. Immediately after grad clipping, metrics are converted to tensors, stacked, all-reduced, and written back into <code>metrics_dict</code>:</p>
+        <pre><code>metrics_values = torch.stack(
+    [torch.as_tensor(v, dtype=torch.float32, device=total_loss.device).detach()
+     for v in metrics_dict.values()]
+)
+torch.distributed.all_reduce(metrics_values, op=torch.distributed.ReduceOp.AVG, ...)
+metrics_dict = dict(zip(metrics_dict.keys(), metrics_values))</code></pre>
+
+        <div class="callout good">
+          <p><strong>Why this is intended to preserve behavior:</strong> downstream logging was already receiving tensors after this all-reduce block. The PR changes the pre-reduction value from a Python float to a 0-dim tensor, and <code>torch.as_tensor(...)</code> handles both.</p>
+        </div>
+
+        <div class="panel">
+          <h3>Why the review called this SAFE</h3>
+          <ul>
+            <li><strong>Downstream consumers accept tensors.</strong> <code>MetricLogger.update</code> converts tensor inputs with <code>v.item()</code> in <code>dinov3/logging/helpers.py</code> lines 25-30. The wandb block handles DTensor, tensor, and scalar values explicitly. The JSON writer emits <code>SmoothedValue.median</code>, which returns a Python scalar around lines 168-171.</li>
+            <li><strong>The original tensor does not leak forward.</strong> At <code>train.py</code> line 668, <code>metrics_dict</code> is rebuilt from the all-reduced <code>metrics_values</code> stack, so the dict no longer points at the original <code>grad_norm.detach()</code> object.</li>
+            <li><strong>The scalar read moved after the explicit sync.</strong> <code>step_end_event.record()</code> and <code>step_end_event.synchronize()</code> happen around <code>train.py</code> lines 692-696. Logging and wandb scalar conversion happen later around lines 724-754.</li>
+            <li><strong>Clipping semantics are unchanged.</strong> The call to <code>torch.nn.utils.clip_grad_norm_</code> still happens under the same condition, over the same student modules, with the same <code>max_norm=cfg.optim.clip_grad</code>.</li>
+            <li><strong>No CUDA graph alias hazard was found.</strong> Compile/cudagraph wrapping is applied inside model blocks in <code>ac_compile_parallelize.py</code> lines 65-127, and graph step marking is inside <code>ssl_meta_arch.py</code> lines 379-388. Grad clipping and metric reduction happen after <code>forward_backward</code> returns, outside that captured submodule scope.</li>
+          </ul>
+        </div>
+
+        <div class="callout warning">
+          <p><strong>DTensor nuance:</strong> <code>full_tensor()</code> may still perform a collective. The PR removes the host scalar sync from <code>.item()</code>; it does not claim to remove every distributed operation for DTensor. The main measured path is DDP, where <code>grad_norm.detach()</code> stays on GPU.</p>
+        </div>
+      </section>
+
+      <section id="tests">
+        <h2>What the Tests Actually Prove</h2>
+        <p>The PR adds <a href="../../tests/test_ddp_checkpoint.py">tests/test_ddp_checkpoint.py</a>. The fake DDP wrapper is intentionally tiny: it stores the wrapped module as <code>.module</code>. That reproduces the two behaviors relevant to these helpers: DDP-style key prefixes and missing direct child attributes.</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Test area</th>
+              <th>Coverage</th>
+              <th>What it does not prove</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Helper unit tests</td>
+              <td><code>_unwrap_module</code>, <code>_get_backbone_in_chans</code>, DDP-prefix detection, remapping behavior, no drops/dups, value identity.</td>
+              <td>They do not launch a real process group or real DDP training.</td>
+            </tr>
+            <tr>
+              <td>Eval-loader integration tests</td>
+              <td>On-disk checkpoint load, real prefix stripping, plain eval path, constructed DDP-wrapped eval path, non-default input channels, wrapped-path weight equality, and all-keys-land coverage.</td>
+              <td>They do not call through the outer <code>build_model_for_eval</code> wiring in <code>dinov3/models/__init__.py</code> lines 100-133. They prove the loader, not every caller around it.</td>
+            </tr>
+            <tr>
+              <td>Grad-norm smoke</td>
+              <td>Recorded 2-GPU DDP + compile + cudagraphs smoke, 50 iterations, finite grad norms and no capture/hang/NaN.</td>
+              <td>It is empirical coverage, not a unit test. The test file imports checkpointer-only helpers and does not directly exercise the train-loop <code>grad_norm</code> path.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>Reported verification after the final commits:</p>
+        <pre><code>python -m pytest tests/ -q
+# 32 passed
+
+ruff check dinov3/checkpointer/checkpointer.py dinov3/train/train.py tests/test_ddp_checkpoint.py
+# clean</code></pre>
+
+        <div class="callout warning">
+          <p><strong>Remaining test gap:</strong> the high-effort review marked test coverage as NEEDS ATTENTION because there is no direct <code>build_model_for_eval</code> wiring test and no unit/integration test that drives the train-loop <code>grad_norm</code> metric path. The grad-norm path is covered empirically by job <code>68670</code>, but not by pytest.</p>
+        </div>
+      </section>
+
+
+      <section id="live-smoke">
+        <h2>Live Smokes: Real Checkpoint Load and Write/Resume</h2>
+        <p>The updated validation record now has two separate live stories that should not be mixed together: the PR-touched pretrained <em>load</em> path passed with a real checkpoint, and the stock DCP write/resume lifecycle also passed in a separate from-scratch two-job smoke.</p>
+
+        <div class="panel">
+          <h3>Real pretrained load: PASS</h3>
+          <p>Source log for the first run: <code>/mnt/weka/adovlatyan/logs/ddp-smoke-ckpt-68971.out</code>, lines 469-471. Job <code>69781</code> reproduced the same successful load on a clean node before hitting the same later iter-0 smoke-harness hang.</p>
+          <pre><code>checkpointer.py:125] patch_embed.proj.weight found: shape=(768, 3, 16, 16) target_in_chans=5
+checkpointer.py:146] Adapted backbone.patch_embed.proj.weight to shape=(768, 5, 16, 16)
+checkpointer.py:530] Checkpoint load summary: matched=174 missing=15 unexpected=0</code></pre>
+        </div>
+
+        <div class="grid">
+          <div class="panel after">
+            <h3>What the load smoke proves</h3>
+            <ul>
+              <li><strong>3-to-5 channel adaptation worked.</strong> The stock RGB checkpoint weight started as <code>(768, 3, 16, 16)</code> and was adapted to <code>(768, 5, 16, 16)</code>; extra channels are seeded from the RGB mean.</li>
+              <li><strong>DDP unwrap worked on the training load path.</strong> The loader read <code>target_in_chans=5</code> from the DDP-wrapped student without the <code>patch_embed</code> <code>AttributeError</code>.</li>
+              <li><strong>The <code>.module.</code> remap ran.</strong> The expected missing head keys include <code>dino_head.module...</code> and <code>ibot_head.module...</code>, proving the remapper matched the wrapped model key shape.</li>
+              <li><strong>The load was clean for this PR&apos;s checkpoint surface.</strong> <code>matched=174 missing=15 unexpected=0</code>; the missing keys are expected fresh-head keys plus regenerated <code>rope_embed.periods</code>.</li>
+            </ul>
+          </div>
+
+          <div class="panel after">
+            <h3>Write/resume lifecycle: PASS</h3>
+            <p>Jobs <code>69782</code> and <code>69783</code> validated stock DCP write/resume under DDP + <code>compile=true</code> + <code>cudagraphs=true</code> as a fresh two-process lifecycle, sharing <code>/mnt/weka/adovlatyan/ckpt_writeresume_smoke</code>.</p>
+            <ul>
+              <li><strong>Write job <code>69782</code>:</strong> trained 30 iterations and wrote DCP checkpoints <code>ckpt/{9,19,29}</code>; loss and all grad-norm metrics stayed finite.</li>
+              <li><strong>Resume job <code>69783</code>:</strong> fresh process found <code>ckpt/29</code>, loaded it, resumed at iteration 30, ran to 60, wrote <code>ckpt/{39,49,59}</code>, and pruned old checkpoints through <code>max_to_keep=3</code>.</li>
+              <li><strong>Why this is useful but secondary:</strong> DCP write/resume is stock code this PR does not modify. The PASS confirms lifecycle completeness, while the PR&apos;s actual checkpoint changes are in the pretrained load path above.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout warning">
+          <p><strong>Corrected iter-0 diagnosis:</strong> the earlier explanation blamed gpu08 node contention. The updated results doc explicitly corrects that: job <code>69781</code> reproduced the hang on clean gpu07, while jobs <code>68670</code> and <code>69782</code>/<code>69783</code> passed with <code>pretrained_weights=""</code>. The differentiator is external <code>pretrained_weights</code> under <code>compile</code> + cudagraphs on a 2-GPU partial-node smoke harness.</p>
+        </div>
+
+        <div class="callout">
+          <p><strong>HYPOTHESIS:</strong> on a 2-of-8 GPU allocation, NCCL&apos;s guessed device mapping can deadlock the first captured collective after external pretrained loading. The warning points to <code>ProcessGroupNCCL.cpp:5138</code> and the repo does not pass <code>device_id</code> to <code>init_process_group</code> in <code>dinov3/distributed/torch_distributed_wrapper.py</code>. The important review point is that the load completed cleanly before this first-step collective.</p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th>Current answer</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Did the real checkpoint load through the PR-modified path?</td>
+              <td>Yes. Jobs <code>68971</code>/<code>69781</code> show patch-embed adaptation, DDP-shaped matched keys, and <code>unexpected=0</code>.</td>
+            </tr>
+            <tr>
+              <td>Did write/resume pass?</td>
+              <td>Yes. Jobs <code>69782</code>/<code>69783</code> completed a separate from-scratch write/resume lifecycle under DDP + compile + cudagraphs.</td>
+            </tr>
+            <tr>
+              <td>Is write/resume part of this PR&apos;s modified code?</td>
+              <td>No. It is completeness coverage for stock DCP behavior, not direct coverage of a PR-touched implementation branch.</td>
+            </tr>
+            <tr>
+              <td>Should the pretrained 2-GPU iter-0 hang block review?</td>
+              <td>No, not as a PR checkpoint bug. Record it as a smoke-harness limitation: pretrained load PASS, then first captured collective hang on partial-node 2-GPU runs.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="validation">
+        <h2>Validation Record</h2>
+        <div class="panel">
+          <p><strong>GitHub state checked:</strong> PR #2 is open, not draft, mergeable, with head <code>42812b5</code> and base <code>master</code> at <code>7a42442</code>. The remote PR body now includes the Commit-3 repair, real-checkpoint load, write/resume PASS, and corrected iter-0 diagnosis.</p>
+          <p><strong>Recorded test state:</strong> the PR body originally listed 28 tests, then 31 after eval-loader integration tests, and now 32 after the wrapped eval all-keys-land test. The Commit-3 repair was red-checked: with the fix stashed, three wrapped-path tests failed and the plain-path test passed; with the fix, 32 passed and ruff was clean.</p>
+          <p><strong>Recorded real-run state:</strong> job <code>68670</code> is documented as passing a 50-iteration 2-GPU DDP + <code>torch.compile</code> + cudagraphs smoke for the <code>grad_norm</code> change.</p>
+          <p><strong>Additional live checkpoint-load state:</strong> jobs <code>68971</code>/<code>69781</code> loaded Anna&apos;s real RGB pretrained checkpoint through the DDP checkpoint path and reached <code>matched=174 missing=15 unexpected=0</code>. They then hung at iteration 0 in the 2-GPU partial-node pretrained smoke harness; treat this as checkpoint-load PASS plus a separate harness limitation.</p>
+          <p><strong>Write/resume state:</strong> jobs <code>69782</code>/<code>69783</code> completed a from-scratch DCP write/resume lifecycle under DDP + compile + cudagraphs: write to <code>ckpt/{9,19,29}</code>, fresh resume from <code>ckpt/29</code> at iteration 30, continue to 60, and rotate to <code>ckpt/{39,49,59}</code>.</p>
+          <p><strong>External review state:</strong> the first high-effort review called DDP remapping and deferred <code>grad_norm</code> SAFE and flagged coverage gaps. A later adversarial pass found the eval unwrap was incomplete for the constructed wrapped path; commit <code>42812b5</code> repairs it by loading into the unwrapped target and strengthening tests from no-exception to weight-equality.</p>
+        </div>
+
+        <div class="callout warning">
+          <p><strong>Observed vs recorded:</strong> this explainer is based on the local branch, the updated GitHub PR body, the committed validation doc, and the recorded smoke evidence. I did not rerun the full pytest suite or launch another Slurm smoke while updating this file.</p>
+        </div>
+      </section>
+
+      <section id="review-guide">
+        <h2>How I Would Review This PR</h2>
+        <ol>
+          <li><strong>Start with the diff shape.</strong> Confirm the PR is only the four intended files and does not pull in experiment artifacts from <code>perf-ddp-fullgraph</code>.</li>
+          <li><strong>Review the checkpointer helpers.</strong> Make sure <code>_unwrap_module</code> is only used where a simple one-layer unwrap is enough, and that the key remapper cannot drop or duplicate tensors unexpectedly.</li>
+          <li><strong>Review the DDP branch in <code>init_fsdp_model_from_checkpoint</code>.</strong> Confirm <code>model_keys</code> is computed before DDP/FSDP2 branching and reused for DDP detection, remapping, and matched-key validation.</li>
+          <li><strong>Review eval unwrap as defensive hardening.</strong> The normal path should be unchanged; the wrapped path should no longer crash while reading <code>patch_embed</code> and should actually load weights into the unwrapped target.</li>
+          <li><strong>Review the grad-norm timing argument.</strong> Trace from grad clipping to metric all-reduce to optimizer step to <code>step_end_event.synchronize()</code>. The behavior-preserving claim depends on every consumer tolerating tensors until the post-step logging point.</li>
+          <li><strong>Separate code safety from test gaps.</strong> The Commit-3 issue was a real code bug in a constructed defensive path and is now repaired. Remaining gaps are narrower: no outer eval-builder wiring test and no pytest for the train-loop grad-norm path.</li>
+          <li><strong>Use jobs <code>68971</code>/<code>69781</code> for the checkpoint-load question.</strong> They prove the PR&apos;s load path against a real RGB checkpoint and a DDP-wrapped 5-channel student. Do not confuse the later 2-GPU partial-node iter-0 hang with a checkpoint-load failure.</li>
+          <li><strong>Use jobs <code>69782</code>/<code>69783</code> for lifecycle confidence.</strong> They show stock DCP write/resume works in fresh processes under DDP + compile + cudagraphs, but that path is not the code this PR modifies.</li>
+          <li><strong>Read the validation doc critically.</strong> Treat job <code>68670</code> as evidence for step mechanics under cudagraphs, not as a substitute for a long training soak.</li>
+        </ol>
+
+        <div class="callout good">
+          <p><strong>My current read:</strong> the PR looks ready for a focused human review. The code changes are small, the Commit-3 defensive-path bug was found and red/green repaired, the risky performance edit has both code-path reasoning and a real smoke record, the real checkpoint-load surface has live PASS evidence, and write/resume has separate lifecycle PASS evidence. The remaining caution is the known 2-GPU partial-node pretrained smoke-harness hang, not a checkpoint-load failure.</p>
+        </div>
+      </section>
+
+      <section id="glossary">
+        <h2>Mini Glossary</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Term</th>
+              <th>Plain meaning in this PR</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>DDP</code></td>
+              <td>PyTorch <code>DistributedDataParallel</code>. It wraps modules for multi-GPU training and stores the raw module under <code>.module</code>.</td>
+            </tr>
+            <tr>
+              <td><code>state_dict()</code></td>
+              <td>A mapping of parameter/buffer names to tensors. Loading checkpoints is mostly aligning checkpoint keys with model keys.</td>
+            </tr>
+            <tr>
+              <td><code>.module.</code> prefix</td>
+              <td>The extra key segment that appears when a submodule is wrapped in DDP, for example <code>backbone.module.norm.weight</code>.</td>
+            </tr>
+            <tr>
+              <td><code>.item()</code></td>
+              <td>Converts a one-element tensor into a Python scalar. On GPU tensors, that conversion forces the CPU to wait for the GPU.</td>
+            </tr>
+            <tr>
+              <td><code>cudagraphs</code></td>
+              <td>CUDA graph capture/replay. It is sensitive to unexpected syncs and dynamic behavior in the training step.</td>
+            </tr>
+            <tr>
+              <td><code>DTensor</code></td>
+              <td>PyTorch distributed tensor type used in the FSDP2 path. Its <code>full_tensor()</code> can involve communication.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="sources">
+        <h2>Source Map</h2>
+        <ul>
+          <li><a href="../../dinov3/checkpointer/checkpointer.py">dinov3/checkpointer/checkpointer.py</a>: helpers around lines 383-418, DDP/FSDP2 checkpoint loading around 465-527, eval loader around 565-589.</li>
+          <li><a href="../../dinov3/train/train.py">dinov3/train/train.py</a>: grad clipping around 629-649, metric reduction around 651-668, explicit step synchronization around 692-696.</li>
+          <li><a href="../../dinov3/models/__init__.py">dinov3/models/__init__.py</a>: <code>build_model_for_eval</code> wiring around lines 100-133; consolidated checkpoints load before optional sharding.</li>
+          <li><a href="../../dinov3/logging/helpers.py">dinov3/logging/helpers.py</a>: <code>MetricLogger.update</code> tensor-to-scalar conversion around lines 25-30 and JSON median scalar around lines 168-171.</li>
+          <li><a href="../../dinov3/fsdp/ac_compile_parallelize.py">dinov3/fsdp/ac_compile_parallelize.py</a>: compile/cudagraph wrapping scope around lines 65-127.</li>
+          <li><a href="../../dinov3/train/ssl_meta_arch.py">dinov3/train/ssl_meta_arch.py</a>: cudagraph step marker around lines 379-388.</li>
+          <li><a href="../../tests/test_ddp_checkpoint.py">tests/test_ddp_checkpoint.py</a>: fake DDP setup around 30-40, helper tests around 72-179, eval integration tests around 211-270, including wrapped-path weight-equality and all-keys-land coverage.</li>
+          <li><a href="../ddp_checkpoint_cleanup_results_2026-06-05.md">docs/ddp_checkpoint_cleanup_results_2026-06-05.md</a>: committed validation record, including jobs <code>68670</code>, <code>68971</code>, <code>69781</code>, <code>69782</code>, <code>69783</code>, and the June 10 Commit-3 repair notes.</li>
+          <li><code>/mnt/weka/adovlatyan/logs/ddp-smoke-ckpt-68971.out</code>: live real-checkpoint load evidence at lines 469-471 and training start at line 487.</li>
+          <li><code>/mnt/weka/adovlatyan/logs/ddp-smoke-ckpt-68971.err</code>: NCCL device-ID warning and Slurm time-limit cancellation for the later iter-0 hang.</li>
+          <li><code>/mnt/weka/adovlatyan/ckpt_writeresume_smoke</code>: shared output directory for the write/resume smoke recorded in jobs <code>69782</code>/<code>69783</code>.</li>
+          <li><a href="../handoff_ddp_checkpoint_cleanup.md">docs/handoff_ddp_checkpoint_cleanup.md</a>: original handoff and problem statement.</li>
+        </ul>
+      </section>
+    </main>
+
+    <aside>
+      <h2>Contents</h2>
+      <a href="#quick-read">Quick Read</a>
+      <a href="#background">DDP Background</a>
+      <a href="#mental-model">Checkpoint Keys</a>
+      <a href="#commits">Commits</a>
+      <a href="#external-review">Review Verdicts</a>
+      <a href="#state-dict">state_dict Cleanup</a>
+      <a href="#eval-unwrap">Eval Unwrap Repair</a>
+      <a href="#grad-norm">Grad Norm</a>
+      <a href="#tests">Tests</a>
+      <a href="#live-smoke">Live Smokes</a>
+      <a href="#validation">Validation</a>
+      <a href="#review-guide">Review Guide</a>
+      <a href="#glossary">Glossary</a>
+      <a href="#sources">Source Map</a>
+    </aside>
+  </div>
+
+  <footer class="wrap">
+    Generated as an uncommitted personal explainer for PR #2. Last source check: 2026-06-10, local branch <code>fix/ddp-checkpoint-perf-cleanup</code> at <code>42812b5</code>.
+  </footer>
+</body>
+</html>

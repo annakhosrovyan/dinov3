@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DINOv3 Phase 7 — Flat-MFU Residual Summary</title>
+<style>
+:root{
+  --bg:#f0f4f8;--surface:#fff;--text:#1e293b;--text-2:#64748b;--border:#e2e8f0;
+  --blue:#2563eb;--blue-soft:#eff6ff;--green:#16a34a;--green-soft:#ecfdf5;
+  --amber:#b45309;--amber-soft:#fffbeb;--red:#dc2626;--red-soft:#fef2f2;
+  --gray-soft:#f1f5f9;
+  --r:12px;--sh:0 1px 3px rgba(0,0,0,.08),0 8px 24px rgba(15,23,42,.06);
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 var(--sans)}
+.wrap{max-width:960px;margin:0 auto;padding:28px 18px 64px}
+.top-nav{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);padding:7px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.top-nav .inner{max-width:960px;margin:0 auto;padding:0 18px;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.top-nav a{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;color:var(--text-2);text-decoration:none;transition:all .15s}
+.top-nav a:hover,.top-nav a[aria-current=page]{background:var(--blue-soft);color:#1d4ed8}
+.card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);padding:24px 26px;margin:0 0 20px}
+h1{margin:0 0 6px;font-size:27px;letter-spacing:-.02em}
+.sub{color:var(--text-2);margin:0 0 4px;font-size:14px}
+.meta{color:var(--text-2);font-size:12.5px;margin:6px 0 0}
+h2{margin:0 0 14px;font-size:18px;letter-spacing:-.01em}
+h3{margin:18px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2)}
+p{margin:8px 0}
+code{font:12.5px/1.4 var(--mono);background:var(--gray-soft);padding:2px 5px;border-radius:5px}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid rgba(37,99,235,.25)}
+a:hover{border-bottom-color:var(--blue)}
+.lede{font-size:15.5px;line-height:1.65}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);font-weight:700}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.p-done{background:var(--green-soft);color:var(--green)}
+.p-run{background:var(--blue-soft);color:var(--blue)}
+.p-plan{background:var(--gray-soft);color:var(--text-2)}
+.p-rej{background:var(--red-soft);color:var(--red)}
+.p-demo{background:var(--amber-soft);color:var(--amber)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:8px 0 4px}
+.stat{background:var(--gray-soft);border-radius:10px;padding:14px 14px}
+.stat .v{font-size:24px;font-weight:700;letter-spacing:-.02em}
+.stat .l{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.35}
+.callout{border-left:4px solid var(--amber);background:var(--amber-soft);border-radius:0 10px 10px 0;padding:14px 16px;margin:14px 0}
+.callout.blue{border-color:var(--blue);background:var(--blue-soft)}
+.callout b{display:block;margin-bottom:4px}
+.bar{height:10px;border-radius:5px;background:var(--blue);display:inline-block;vertical-align:middle;margin-left:8px}
+ul{margin:8px 0;padding-left:20px}li{margin:4px 0}
+.foot{color:var(--text-2);font-size:12px;margin-top:8px}
+@media(max-width:720px){.grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<nav class="top-nav"><div class="inner">
+  <a href="index.html">Index</a>
+  <a href="status.html">Phase 5 Status</a>
+  <a href="phase6_ledger.html">Phase 6 Ledger</a>
+  <a href="phase7_summary.html" aria-current="page">Phase 7 Summary</a>
+  <a href="concepts.html">Concepts</a>
+</div></nav>
+
+<main class="wrap">
+
+<section class="card">
+  <h1>Phase 7 — The flat-MFU residual</h1>
+  <p class="sub">Why DDP+cudagraphs MFU pins flat at ~20–21% across bs=128/160/192 — and what to do about it.</p>
+  <p class="meta">Summary of <code>docs/phase7_perf_plan.md</code> · current as of 2026-06-23 · objective unchanged since 2026-06-11</p>
+</section>
+
+<section class="card">
+  <h2>The one-paragraph story</h2>
+  <p class="lede">
+    Phase 6 left a residual: increasing batch size (128 → 160 → 192) raised wall-clock throughput
+    modestly but <b>MFU stayed flat</b> — the GPUs were not getting more efficient. Phase 7
+    <b>opened believing the residual was compute</b> (head FLOPs, the "dynamic iBOT mask shape"
+    problem → pad → unlock <code>max-autotune</code>). The first real nsys trace (<b>job 75082</b>)
+    <b>disproved that</b>: the dominant residual is <b>inter-rank communication / synchronization,
+    not compute</b>. The compute analysis is preserved as the record of <i>why</i> we now know it's
+    comms, but all live work targets collectives and per-iteration sync barriers.
+  </p>
+  <div class="callout blue">
+    <b>Why it's still "Phase 7," not "Phase 8"</b>
+    A phase tracks an <i>objective</i> ("why is MFU flat, how do we fix it"), not a <i>mechanism</i>.
+    Only the suspected cause flipped (compute → comms); the objective is the same, so the sub-indexing
+    (7.0…7.7) is kept and artifacts citing 7.1/7.2 stay valid.
+  </div>
+</section>
+
+<section class="card">
+  <h2>The evidence — nsys trace, job 75082</h2>
+  <p class="sub">Champion config: DDP, <code>compile=true</code>, <code>cudagraphs=true</code>,
+    <code>compile_mode=null</code>, bs=128, 8×H100, torch 2.10. 44 clean steady-state iterations.</p>
+  <div class="grid">
+    <div class="stat"><div class="v">32.6%</div><div class="l">of wall in <code>allreduce_metrics</code> — a per-iter blocking barrier</div></div>
+    <div class="stat"><div class="v">~93%</div><div class="l">of NCCL is <b>exposed</b> (not overlapped behind compute)</div></div>
+    <div class="stat"><div class="v">22.4%</div><div class="l">GPU is <b>idle</b> (gap), waiting on launch/sync</div></div>
+    <div class="stat"><div class="v">~2.8%</div><div class="l">head matmul share of FLOPs — far too small to be the lever</div></div>
+  </div>
+
+  <h3>Per-iteration wall breakdown (rank 0)</h3>
+  <table>
+    <thead><tr><th>Range</th><th class="num">% of wall</th><th>What it is</th></tr></thead>
+    <tbody>
+      <tr><td><code>forward_backward</code></td><td class="num">57.0%<span class="bar" style="width:114px"></span></td><td>all student/teacher compute + graphed backbone + grad all-reduce</td></tr>
+      <tr><td><code>allreduce_metrics</code></td><td class="num">32.6%<span class="bar" style="width:65px"></span></td><td>per-iter blocking <code>all_gather</code>(loss) + <code>all_reduce</code>(metrics)</td></tr>
+      <tr><td>untracked</td><td class="num">6.0%<span class="bar" style="width:12px"></span></td><td>dataloader wait / logging / Python</td></tr>
+      <tr><td>grad_clip</td><td class="num">2.1%<span class="bar" style="width:4px"></span></td><td></td></tr>
+      <tr><td>optimizer_step</td><td class="num">1.7%<span class="bar" style="width:3px"></span></td><td></td></tr>
+      <tr><td>ema_update</td><td class="num">0.5%<span class="bar" style="width:1px"></span></td><td></td></tr>
+    </tbody>
+  </table>
+  <p class="foot">Step wall here (~769 ms, ~1,330 img/s) is slower than the bare champion screen (~428 ms,
+    ~2,394 img/s) because of nsys attach overhead. <b>Trust the shares, not absolute ms.</b></p>
+
+  <div class="callout">
+    <b>The crucial caveat — why the numbers mislead if read naively</b>
+    NVTX ranges are <b>CPU push/pop</b> times; NCCL collectives are enqueued <b>async</b> on a separate
+    stream. So the 32.6% in <code>allreduce_metrics</code> is largely <b>"the bill coming due"</b> — the
+    GPU finally waiting for deferred async collectives + rank skew at the first hard sync after backward —
+    <b>not</b> the intrinsic cost of its own scalar-sized collective. NVTX shows where Python <i>waited</i>,
+    not where the responsible GPU work was <i>created</i>.
+  </div>
+
+  <h3>The two communication sinks</h3>
+  <ul>
+    <li><b><code>allreduce_metrics</code></b> — an unconditional, blocking gather+reduce <b>every iteration</b>
+      for NaN-checking and logging (<code>train.py:652-667</code>), even though metrics are only <i>logged</i>
+      every ~10 iters. Payload is a few scalars, so it's almost entirely <b>synchronization wait</b>.</li>
+    <li><b>NCCL is ~93% exposed</b>, split into two kernels:
+      <code>AllReduce…bf16</code> (264 ms/iter) = the <b>DDP gradient all-reduce</b>; and
+      <code>AllReduce…f32</code> (494 ms/iter, largest single kernel) = a <b>mixture of loss-side fp32
+      collectives</b> (DINO/iBOT Sinkhorn + center + the metrics reduce), <b>not</b> gradients.
+      Protocol fell back to <code>RING_LL</code> because we <code>unset NCCL_NVLS_ENABLE</code>.</li>
+  </ul>
+  <p class="foot"><b>Leading hypothesis (unproven):</b> CUDA-graph backward materializes all grads at
+    replay-end, so the bf16 grad all-reduce can't hide behind backward compute → 93% exposed. The 7.5
+    control trace is the clean test of this.</p>
+</section>
+
+<section class="card">
+  <h2>Ladder &amp; status</h2>
+  <table>
+    <thead><tr><th>Step</th><th>What</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td><b>7.0</b></td><td>Compute-residual thesis: pad iBOT masks → static-shape heads → unlock <code>max-autotune</code>.</td><td><span class="pill p-rej">REJECTED</span></td></tr>
+      <tr><td><b>7.1</b></td><td>nsys residual attribution (job 75082).</td><td><span class="pill p-done">DONE</span></td></tr>
+      <tr><td><b>7.2</b></td><td><code>CUDA_DEVICE_MAX_CONNECTIONS</code> sweep (=1 vs =8…).</td><td><span class="pill p-run">RUNNING</span></td></tr>
+      <tr><td><b>7.3</b></td><td>Gate <code>allreduce_metrics</code> to logging iters (cheap per-iter NaN guard).</td><td><span class="pill p-plan">PLANNED</span></td></tr>
+      <tr><td><b>7.4</b></td><td>Sinkhorn collectives (≥3 blocking fp32 all-reduce/iter, teacher-side).</td><td><span class="pill p-plan">PLANNED</span></td></tr>
+      <tr><td><b>7.5</b></td><td>Matched <code>cudagraphs</code> true/false <b>control trace</b> (diagnostic only).</td><td><span class="pill p-demo">DEMOTED</span></td></tr>
+      <tr><td><b>7.6</b></td><td>Enable NVLS (stop unsetting <code>NCCL_NVLS_ENABLE</code>).</td><td><span class="pill p-plan">PLANNED</span></td></tr>
+      <tr><td><b>7.7</b></td><td>bs128-vs-bs160 differential capture (split constant sync from scaling compute).</td><td><span class="pill p-plan">PLANNED</span></td></tr>
+    </tbody>
+  </table>
+  <p class="foot">Order reflects the consolidated ranking from our analysis + two Codex (GPT-5.5, high
+    reasoning) reviews. Key tension on 7.3: gating the metrics reduce while keeping the per-iter NaN
+    <code>all_gather</code> tests almost nothing — the barrier <i>is</i> the gather. Gain is bounded &lt;32.6%
+    and must be <b>measured</b>, not assumed.</p>
+</section>
+
+<section class="card">
+  <h2>Running now — 7.2 stream-connections sweep</h2>
+  <p><b>Hypothesis (Codex #1 by info-per-GPU-hour):</b> <code>CUDA_DEVICE_MAX_CONNECTIONS=1</code> is
+    inherited from the FSDP2/Megatron-era recipe (where <code>=1</code> forces TP collective ordering).
+    It collapses CUDA streams onto <b>one hardware work queue</b>, which can serialize the NCCL stream
+    behind compute — exactly the 93%-exposed failure mode. For pure DDP (no tensor parallelism) it's
+    likely unnecessary and possibly harmful. NVIDIA's default is <b>8</b>.</p>
+  <table>
+    <thead><tr><th>Job</th><th>MAX_CONNECTIONS</th><th>Role</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>77672</td><td>1</td><td>matched re-baseline (removes node/thermal confound)</td><td><i>pending</i></td></tr>
+      <tr><td>77671</td><td>8</td><td>hypothesis (CUDA default)</td><td><i>pending</i></td></tr>
+      <tr><td>(next)</td><td>16 / 32</td><td>fan-out <b>only if =8 helps</b></td><td>not submitted</td></tr>
+    </tbody>
+  </table>
+  <p class="foot"><b>Honest expected outcome (Codex):</b> flat-to-single-digit gain more likely than a big
+    win; with cudagraphs the stream topology is captured at capture time, weakening any claim that
+    <code>=1</code> is <i>the</i> cause. Single variable, everything else pinned to the 67639 baseline.</p>
+</section>
+
+<section class="card">
+  <h2>Baselines — keep these distinct</h2>
+  <table>
+    <thead><tr><th>Role</th><th>Job</th><th>Numbers</th><th>Use it for</th></tr></thead>
+    <tbody>
+      <tr><td>Operative throughput</td><td>67639</td><td>~1,640 img/s, 2000/2000 PASS</td><td>apples-to-apples img/s (being refreshed by 77672)</td></tr>
+      <tr><td>Attribution</td><td>75082</td><td>93% exposed NCCL; NVTX shares</td><td>mechanism / where-time-goes. Trust shares, not absolute ms.</td></tr>
+      <tr><td>Historical screen</td><td>53708</td><td>2,394 img/s</td><td><b>do not</b> compare — torch-2.6-era, no eval/ckpt, different conditions</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Where to read more</h2>
+  <ul>
+    <li><b>Full plan</b> — <code>docs/phase7_perf_plan.md</code> (Part I = live comms thesis; Part II = archived compute thesis, capture/harness pipeline, both Codex reviews).</li>
+    <li><b>The archived compute thesis</b>, as an educational explainer —
+      <a href="../explainers/torch-compile-dispatch-phase7-2026-06-11.html">What actually compiles in Phase 7?</a>
+      (the torch.compile dispatch map; superseded by 7.1 as the residual driver, still accurate as background).</li>
+    <li><b>Capture harness</b> — <code>scripts/profiling/phase7_nsys_ddp_capture.sh</code> +
+      <code>scripts/profiling/phase7_nsys_report.py</code> (single-command capture → export → analyze;
+      <code>--diff a.json b.json</code> for side-by-side verdicts).</li>
+  </ul>
+</section>
+
+</main>
+</body>
+</html>

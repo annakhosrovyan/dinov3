@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DINOv3 Phase 7 torch.compile Dispatch Map</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --ink: #1b1f23;
+      --muted: #606875;
+      --surface: #fffdf8;
+      --line: #d9d0c2;
+      --code: #111827;
+      --blue: #155e75;
+      --green: #166534;
+      --amber: #92400e;
+      --red: #991b1b;
+      --soft-blue: #e7f5f8;
+      --soft-green: #edf7ed;
+      --soft-amber: #fff4d7;
+      --soft-red: #feecec;
+      --shadow: 0 10px 30px rgba(31, 27, 20, .08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(21, 94, 117, .16), transparent 34rem),
+        linear-gradient(135deg, #f4f1ea 0%, #faf7ef 48%, #eee7d9 100%);
+      font: 15px/1.55 Georgia, "Times New Roman", serif;
+    }
+
+    .wrap { max-width: 1220px; margin: 0 auto; padding: 34px 20px 80px; }
+    h1, h2, h3 { font-family: "Avenir Next", "Trebuchet MS", sans-serif; line-height: 1.18; }
+    h1 { margin: 0 0 10px; font-size: clamp(30px, 5vw, 54px); letter-spacing: -.04em; }
+    h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: -.02em; }
+    h3 { margin: 0 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    p { margin: 8px 0; }
+    a { color: var(--blue); text-decoration: none; border-bottom: 1px solid rgba(21, 94, 117, .25); }
+    a:hover { border-bottom-color: var(--blue); }
+
+    code {
+      font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      background: rgba(17, 24, 39, .07);
+      padding: 2px 5px;
+      border-radius: 5px;
+    }
+
+    pre {
+      margin: 12px 0 0;
+      padding: 14px 16px;
+      overflow-x: auto;
+      color: #e5e7eb;
+      background: var(--code);
+      border-radius: 12px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    pre code { background: transparent; color: inherit; padding: 0; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr);
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+
+    .panel {
+      background: rgba(255, 253, 248, .92);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .verdict {
+      background: linear-gradient(135deg, #12343b 0%, #1f5f67 100%);
+      color: #f8fafc;
+      border: 0;
+    }
+
+    .verdict code { background: rgba(255,255,255,.14); color: #fff; }
+    .lede { font-size: 18px; max-width: 78ch; }
+    .small { color: var(--muted); font-size: 13px; }
+    .verdict .small { color: #cde9ef; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font: 700 12px/1.25 "Avenir Next", "Trebuchet MS", sans-serif;
+      white-space: nowrap;
+    }
+
+    .pill-blue { color: #155e75; background: #cffafe; }
+    .pill-green { color: #166534; background: #dcfce7; }
+    .pill-amber { color: #92400e; background: #fef3c7; }
+    .pill-red { color: #991b1b; background: #fee2e2; }
+    .pill-gray { color: #374151; background: #f3f4f6; }
+
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .stack { display: grid; gap: 14px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 3px 16px rgba(31, 27, 20, .05);
+    }
+
+    .callout { border-left: 5px solid var(--blue); background: var(--soft-blue); }
+    .ok { border-left-color: var(--green); background: var(--soft-green); }
+    .warn { border-left-color: var(--amber); background: var(--soft-amber); }
+    .risk { border-left-color: var(--red); background: var(--soft-red); }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+      font-size: 14px;
+    }
+
+    th, td { padding: 11px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th {
+      color: #485160;
+      background: #efe7d8;
+      font: 700 12px/1.3 "Avenir Next", "Trebuchet MS", sans-serif;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    tr:last-child td { border-bottom: 0; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .step {
+      position: relative;
+      background: #fffdf8;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      min-height: 118px;
+    }
+    .step:not(:last-child)::after {
+      content: ">";
+      position: absolute;
+      right: -10px;
+      top: 42%;
+      color: var(--muted);
+      font: 700 18px/1 ui-monospace, monospace;
+    }
+    .step strong { display: block; font-family: "Avenir Next", "Trebuchet MS", sans-serif; margin-bottom: 5px; }
+
+    .lane {
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      gap: 12px;
+      align-items: stretch;
+      margin: 10px 0;
+    }
+    .lane-label {
+      border-radius: 16px;
+      padding: 14px;
+      color: #fff;
+      background: #243642;
+      font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+      font-weight: 700;
+    }
+    .lane-track {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      background: #fffdf8;
+    }
+    .box.highlight { border-color: #38bdf8; background: #ecfeff; }
+    .box.muted { opacity: .72; }
+
+    .sources li { margin-bottom: 4px; }
+
+    @media (max-width: 900px) {
+      .hero, .grid-2, .grid-3, .lane { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .step:not(:last-child)::after { content: "v"; right: 18px; top: auto; bottom: -15px; }
+      .lane-track { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <div class="panel verdict">
+        <h1>What actually compiles in Phase 7?</h1>
+        <p class="lede">
+          In the DDP champion path, <code>run_ddp.sh</code> does not select a special
+          <code>compile_mode</code>. It sets <code>train.cudagraphs=true</code>, so every ViT
+          backbone block enters the explicit fullgraph plus CUDA-graph branch. Heads are compiled
+          separately with plain <code>module.compile()</code>.
+        </p>
+        <p>
+          The important correction: DDP wrapping is not an alternate compile path. This repo
+          compiles modules first, then wraps the student submodules in DDP.
+        </p>
+        <p class="small">
+          Evidence: <code>run_ddp.sh:111-138</code>,
+          <code>config.py:71-90</code>, <code>ac_compile_parallelize.py:164-242</code>.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>Independent Review Verdict</h2>
+        <p><span class="pill pill-green">Correct</span> Branch 1 shadows <code>compile_mode</code> for backbone blocks when <code>cudagraphs=true</code>.</p>
+        <p><span class="pill pill-amber">Needs precision</span> A <code>compile_mode</code> override would affect heads across the compiled model dictionaries, not the backbone.</p>
+        <p><span class="pill pill-red">Stale</span> The old "iBOT K varies every iteration" explanation is contradicted by current collate and mask-generator code at fixed per-GPU batch size.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>The Config Path</h2>
+      <div class="flow">
+        <div class="step">
+          <strong>1. Defaults</strong>
+          <code>ssl_default_config.yaml</code><br>
+          <code>compile=true</code><br>
+          <code>compile_mode=null</code><br>
+          <code>cudagraphs=false</code>
+        </div>
+        <div class="step">
+          <strong>2. CLI Overrides</strong>
+          <code>run_ddp.sh</code><br>
+          <code>train.compile=true</code><br>
+          <code>train.cudagraphs=true</code><br>
+          <code>distributed_strategy=ddp</code>
+        </div>
+        <div class="step">
+          <strong>3. Merge</strong>
+          <code>OmegaConf.merge(default, file, cli)</code><br>
+          CLI wins over YAML.
+        </div>
+        <div class="step">
+          <strong>4. Prepare Models</strong>
+          <code>SSLMetaArch.prepare_for_distributed_training()</code><br>
+          passes student plus EMA/teacher dictionaries.
+        </div>
+        <div class="step">
+          <strong>5. Compile, Then DDP</strong>
+          <code>ac_compile_parallelize()</code><br>
+          compile first, distributed wrapper second.
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Actual Dispatch Table</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>Backbone blocks</th>
+            <th>Heads</th>
+            <th>Production meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Current <code>run_ddp.sh</code></strong><br><code>cudagraphs=true</code>, <code>compile_mode=null</code></td>
+            <td><span class="pill pill-green">branch 1</span><br><code>module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})</code></td>
+            <td><span class="pill pill-gray">branch 3</span><br><code>module.compile()</code></td>
+            <td>The champion path: backbone graph replay, no max-autotune, heads plain compiled.</td>
+          </tr>
+          <tr>
+            <td><strong>If only adding</strong><br><code>train.compile_mode=max-autotune-no-cudagraphs</code><br>while keeping <code>cudagraphs=true</code></td>
+            <td><span class="pill pill-green">still branch 1</span><br><code>compile_mode</code> is ignored because branch 1 wins first.</td>
+            <td><span class="pill pill-amber">branch 2</span><br><code>module.compile(mode="max-autotune-no-cudagraphs")</code></td>
+            <td>Not a valid backbone retest. It autotunes heads only, so expected upside is small.</td>
+          </tr>
+          <tr>
+            <td><strong>Config-only autotune isolation</strong><br><code>cudagraphs=false</code>, <code>compile_mode=max-autotune-no-cudagraphs</code></td>
+            <td><span class="pill pill-amber">branch 2</span><br><code>module.compile(mode="max-autotune-no-cudagraphs")</code></td>
+            <td><span class="pill pill-amber">branch 2</span><br><code>module.compile(mode="max-autotune-no-cudagraphs")</code></td>
+            <td>Measures autotune without graph replay. Useful as a go/no-go signal, not the champion path.</td>
+          </tr>
+          <tr>
+            <td><strong>Actual combined test</strong><br>code change in branch 1 options</td>
+            <td><span class="pill pill-blue">new branch 1 options</span><br><code>options={"max_autotune": True, "triton.cudagraphs": True}</code></td>
+            <td>Unchanged unless explicitly edited.</td>
+            <td>This is the real "max-autotune plus graphs" experiment for backbone blocks.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Which Modules Are In Each Bucket?</h2>
+      <div class="lane">
+        <div class="lane-label">Student ModuleDict</div>
+        <div class="lane-track">
+          <div class="box highlight"><strong>backbone</strong><br>12 ViT blocks compiled by branch 1 when <code>cudagraphs=true</code>, then DDP-wrapped.</div>
+          <div class="box"><strong>dino_head</strong><br>Whole head compiled by head path, then DDP-wrapped.</div>
+          <div class="box"><strong>ibot_head</strong><br>Whole head compiled by head path, then DDP-wrapped.</div>
+          <div class="box muted"><strong>loss objects</strong><br>Not entries in the ModuleDict compile loop.</div>
+        </div>
+      </div>
+      <div class="lane">
+        <div class="lane-label">EMA / Teacher ModuleDict</div>
+        <div class="lane-track">
+          <div class="box highlight"><strong>backbone</strong><br>Also compiled by branch 1 when <code>cudagraphs=true</code>. "Inference-only" does not mean "uncompiled."</div>
+          <div class="box"><strong>dino_head</strong><br>Compiled by the same head path.</div>
+          <div class="box"><strong>ibot_head</strong><br>Compiled by the same head path.</div>
+          <div class="box muted"><strong>DDP</strong><br>Not DDP-wrapped because no gradients.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card callout">
+        <h2>What "fullgraph" Means Here</h2>
+        <p>
+          In this repo, <code>fullgraph=True</code> is only used on backbone blocks in the
+          explicit branch-1 call. It requires the called block to be captured as one graph.
+          It is not the same thing as <code>mode="max-autotune"</code>.
+        </p>
+      </div>
+      <div class="card callout">
+        <h2>What "CUDA graphs" Means Here</h2>
+        <p>
+          <code>options={"triton.cudagraphs": True}</code> asks Inductor to replay captured
+          CUDA work to reduce CPU launch overhead. The Phase 6 fix
+          <code>cudagraph_mark_step_begin()</code> is already in
+          <code>forward_backward()</code>.
+        </p>
+      </div>
+      <div class="card callout">
+        <h2>What "max-autotune" Means Here</h2>
+        <p>
+          <code>max_autotune</code> profiles candidate matmul implementations and picks a faster
+          one for supported shapes. It is about kernel choice, not launch replay. PyTorch exposes
+          it through modes and through backend options.
+        </p>
+      </div>
+      <div class="card warn">
+        <h2>Why The Jargon Gets Confusing</h2>
+        <p>
+          <code>mode="max-autotune"</code> bundles autotuning with CUDA graphs on GPU, but this
+          repo currently bypasses the <code>mode</code> string for backbone blocks when
+          <code>cudagraphs=true</code>. That is why a config flag cannot combine autotune with
+          the champion branch today.
+        </p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>The iBOT Shape Story: What Changed</h2>
+      <div class="grid-3">
+        <div class="card risk">
+          <h3>Old Phase 6 Helper</h3>
+          <p>
+            The old helper said <code>mask_indices_list</code> has a variable shape because mask
+            counts are random. That matched the old comment in <code>collate.py:63</code>, but the
+            implementation does not support it at fixed batch size.
+          </p>
+        </div>
+        <div class="card ok">
+          <h3>Current Code</h3>
+          <p>
+            <code>collate_data_and_cast()</code> deterministically chooses how many samples are
+            masked and how many patches each target should contain. <code>complete_mask_randomly()</code>
+            tops every mask up to exactly its target count.
+          </p>
+        </div>
+        <div class="card warn">
+          <h3>Current Caveat</h3>
+          <p>
+            Positions are still random, and changing per-GPU batch size changes the static K.
+            Disabled paths such as multidistillation or some Gram token selections can have
+            different shape behavior.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Corrected Mental Model</h2>
+      <pre><code>effective run_ddp.sh:
+  train.compile = true
+  train.cudagraphs = true
+  train.compile_mode = null
+  train.distributed_strategy = ddp
+
+ac_compile_parallelize:
+  if cfg.train.compile:
+    compile student + inference-only model dictionaries
+      if key == "backbone":
+        compile each ViT block
+          if cudagraphs and is_backbone_block:
+            fullgraph=True, dynamic=False, options={"triton.cudagraphs": True}
+          elif compile_mode is not None:
+            mode=compile_mode
+          else:
+            default module.compile()
+      else:
+        compile whole head with use_cuda_graphs=False
+
+  if distributed_strategy == "ddp":
+    move to CUDA, cast params, DDP-wrap student backbone/dino_head/ibot_head</code></pre>
+    </section>
+
+    <section class="panel">
+      <h2>Phase 7 Decision Implications</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Question</th>
+            <th>Answer from current code</th>
+            <th>Actionable implication</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Does <code>run_ddp.sh</code> use <code>max-autotune-no-cudagraphs</code>?</td>
+            <td>No. It leaves <code>train.compile_mode</code> at <code>null</code>.</td>
+            <td>The champion baseline is backbone fullgraph plus CUDA graphs, not autotune.</td>
+          </tr>
+          <tr>
+            <td>Can a config-only override combine max-autotune with the champion backbone branch?</td>
+            <td>No. With <code>cudagraphs=true</code>, branch 1 takes the backbone first.</td>
+            <td>Combining them needs a code edit in <code>wrap_compile_block()</code>.</td>
+          </tr>
+          <tr>
+            <td>Is <code>max-autotune-no-cudagraphs</code> useless?</td>
+            <td>Not proven. It is a valid isolation test when <code>cudagraphs=false</code>.</td>
+            <td>Use it only as an autotune go/no-go run, not as the final target.</td>
+          </tr>
+          <tr>
+            <td>Should Phase 7 spend engineering time making heads static?</td>
+            <td>Not based on the current K evidence. The count is already static for the default fixed-bs path.</td>
+            <td>Prioritize nsys attribution and a controlled autotune ladder.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Primary References</h2>
+      <ul class="sources">
+        <li><code>run_ddp.sh:111-138</code> - DDP champion overrides.</li>
+        <li><code>dinov3/configs/config.py:71-90</code> - default, config file, then CLI merge.</li>
+        <li><code>dinov3/fsdp/ac_compile_parallelize.py:65-77</code> - compile branch order.</li>
+        <li><code>dinov3/fsdp/ac_compile_parallelize.py:217-233</code> - compile loop over model dictionaries and heads.</li>
+        <li><code>dinov3/fsdp/ac_compile_parallelize.py:316-357</code> - DDP wrapping happens after compile.</li>
+        <li><code>dinov3/train/ssl_meta_arch.py:379-387</code> - CUDA graph step marker.</li>
+        <li><code>dinov3/data/collate.py:42-66</code> and <code>dinov3/data/masking.py:87-93</code> - deterministic mask count at fixed local batch size.</li>
+        <li><a href="https://docs.pytorch.org/docs/2.10/generated/torch.compile.html">PyTorch 2.10 torch.compile docs</a> - modes, dynamic shapes, fullgraph, and backend options.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

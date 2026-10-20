@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Four-week pilot plan for a thin, local paper digest focused on GPU training performance engineering.">
+  <title>Automated Paper Ingestion Pipeline Plan</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f0e8;
+      --surface: #fffdf8;
+      --ink: #17202a;
+      --muted: #5f6873;
+      --line: #d8d0c3;
+      --blue: #155e75;
+      --green: #166534;
+      --amber: #92400e;
+      --purple: #5b21b6;
+      --red: #991b1b;
+      --soft-blue: #e7f5f8;
+      --soft-green: #edf7ed;
+      --soft-amber: #fff4d7;
+      --soft-purple: #f1ebfb;
+      --soft-red: #feecec;
+      --code: #111827;
+      --shadow: 0 12px 32px rgba(31, 27, 20, .08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(21, 94, 117, .15), transparent 32rem),
+        linear-gradient(135deg, var(--bg), #faf7ef 48%, #eee7d9);
+      font: 15px/1.58 Georgia, "Times New Roman", serif;
+    }
+    a { color: var(--blue); text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: 2px; }
+    a:focus-visible, summary:focus-visible {
+      outline: 3px solid #0ea5e9;
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+    .skip-link {
+      position: absolute;
+      left: 12px;
+      top: -80px;
+      z-index: 10;
+      padding: 10px 14px;
+      background: var(--code);
+      color: white;
+      border-radius: 8px;
+    }
+    .skip-link:focus { top: 12px; }
+    .wrap { max-width: 1220px; margin: 0 auto; padding: 34px 20px 80px; }
+    h1, h2, h3, h4, .sans {
+      font-family: "Avenir Next", "Trebuchet MS", Arial, sans-serif;
+      line-height: 1.18;
+    }
+    h1 { margin: 0 0 10px; font-size: clamp(30px, 5vw, 52px); letter-spacing: -.045em; }
+    h2 { margin: 0 0 12px; font-size: clamp(22px, 3vw, 28px); letter-spacing: -.025em; }
+    h3 { margin: 0 0 9px; font-size: 17px; letter-spacing: -.01em; }
+    h4 { margin: 18px 0 6px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    p { margin: 8px 0; }
+    section { margin-top: 46px; scroll-margin-top: 18px; }
+    ul, ol { margin: 8px 0 8px 22px; padding: 0; }
+    li { margin: 5px 0; }
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: rgba(17, 24, 39, .07);
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    pre {
+      margin: 12px 0 0;
+      padding: 15px 17px;
+      overflow-x: auto;
+      border-radius: 12px;
+      background: var(--code);
+      color: #e5e7eb;
+      font: 12px/1.52 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    pre code { padding: 0; background: transparent; color: inherit; }
+    .kicker {
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-family: "Avenir Next", "Trebuchet MS", Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .lede { max-width: 76ch; color: #333a44; font-size: 18px; }
+    .meta { color: var(--muted); font-size: 12.5px; }
+    .toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .toc a {
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--ink);
+      font-family: "Avenir Next", "Trebuchet MS", Arial, sans-serif;
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .toc a:hover { border-color: var(--blue); color: var(--blue); }
+    .grid { display: grid; gap: 16px; }
+    .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      padding: 20px 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .proposal { display: flex; flex-direction: column; border-top: 5px solid var(--line); }
+    .proposal.a { border-top-color: var(--green); }
+    .proposal.b { border-top-color: var(--purple); }
+    .proposal.c { border-top-color: var(--amber); }
+    .proposal .bottom { margin-top: auto; padding-top: 10px; }
+    .tag {
+      display: inline-block;
+      margin: 0 6px 7px 0;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-family: "Avenir Next", "Trebuchet MS", Arial, sans-serif;
+      font-size: 10.5px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .tag.green { background: var(--soft-green); color: var(--green); }
+    .tag.blue { background: var(--soft-blue); color: var(--blue); }
+    .tag.amber { background: var(--soft-amber); color: var(--amber); }
+    .tag.purple { background: var(--soft-purple); color: var(--purple); }
+    .tag.red { background: var(--soft-red); color: var(--red); }
+    .callout {
+      margin: 14px 0;
+      padding: 13px 17px;
+      border-left: 4px solid var(--blue);
+      border-radius: 0 12px 12px 0;
+      background: var(--soft-blue);
+    }
+    .callout.good { border-left-color: var(--green); background: var(--soft-green); }
+    .callout.warn { border-left-color: var(--amber); background: var(--soft-amber); }
+    .callout.limit { border-left-color: var(--red); background: var(--soft-red); }
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
+    .stat { padding: 15px 17px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+    .stat strong { display: block; color: var(--purple); font: 700 26px/1.15 "Avenir Next", "Trebuchet MS", Arial, sans-serif; }
+    .stat span { color: var(--muted); font-size: 12.5px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    caption { padding: 13px 14px 7px; color: var(--muted); font-size: 12.5px; text-align: left; }
+    th, td { padding: 9px 11px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-family: "Avenir Next", "Trebuchet MS", Arial, sans-serif; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .recommended-cell { background: var(--soft-purple); }
+    .flow-box { padding: 16px; overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+    .flow-box svg { display: block; width: 100%; min-width: 940px; height: auto; }
+    figcaption { margin-top: 9px; color: var(--muted); font-size: 12.5px; }
+    .score {
+      padding: 18px 20px;
+      border-radius: 14px;
+      background: var(--code);
+      color: #e5e7eb;
+      font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .score .plus { color: #86efac; }
+    .score .minus { color: #fca5a5; }
+    .steps { counter-reset: phase; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .phase { position: relative; padding-top: 48px; }
+    .phase::before {
+      counter-increment: phase;
+      content: counter(phase, decimal-leading-zero);
+      position: absolute;
+      top: 14px;
+      left: 18px;
+      color: var(--purple);
+      font: 700 24px/1 "Avenir Next", "Trebuchet MS", Arial, sans-serif;
+    }
+    .measure-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; list-style: none; margin: 0; }
+    .measure-list li { margin: 0; padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+    .measure-list b { display: block; font-family: "Avenir Next", "Trebuchet MS", Arial, sans-serif; }
+    .semantics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; list-style: none; margin: 0; }
+    .semantics li { margin: 0; padding: 13px 15px 13px 46px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); position: relative; }
+    .semantics li::before { content: "✓"; position: absolute; left: 16px; top: 12px; color: var(--green); font: 700 20px/1 "Avenir Next", sans-serif; }
+    .decision-gate { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+    .decision-gate div { padding: 15px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+    .decision-gate strong { display: block; margin-bottom: 4px; font-family: "Avenir Next", "Trebuchet MS", Arial, sans-serif; }
+    details { margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+    summary { cursor: pointer; padding: 14px 17px; font-family: "Avenir Next", "Trebuchet MS", Arial, sans-serif; font-weight: 700; }
+    details > div { padding: 0 17px 17px; }
+    .sources { columns: 2; column-gap: 32px; }
+    .sources li { break-inside: avoid; margin-bottom: 9px; }
+    .footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+    @media (max-width: 880px) {
+      .cols-3, .steps { grid-template-columns: 1fr 1fr; }
+      .stats, .decision-gate { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .wrap { padding: 26px 14px 60px; }
+      .cols-2, .cols-3, .steps, .measure-list, .semantics { grid-template-columns: 1fr; }
+      .card { padding: 17px; }
+      .sources { columns: 1; }
+      h1 { letter-spacing: -.03em; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media print {
+      body { background: white; }
+      .wrap { max-width: none; padding: 0; }
+      .card, .flow-box { box-shadow: none; }
+      .toc, .skip-link { display: none; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+<main id="main" class="wrap">
+  <header>
+    <div class="kicker">Research workflow plan · 2026-07-13</div>
+    <h1>Automated paper ingestion pipeline</h1>
+    <p class="lede">
+      Start with a thin local scheduled digest. Reuse official metadata APIs, keep Zotero as the durable paper library,
+      and use ResearchRabbit only after a paper passes triage. Run a four-week pilot before adding learned local ranking
+      or a larger web application.
+    </p>
+    <div class="stats" aria-label="Plan targets">
+      <div class="stat"><strong>0 to 3</strong><span>papers per digest. Empty output is allowed.</span></div>
+      <div class="stat"><strong>2 days</strong><span>between scheduled candidate digests.</span></div>
+      <div class="stat"><strong>180 min</strong><span>maximum weekly human reading and triage budget.</span></div>
+    </div>
+    <nav class="toc" aria-label="Page sections">
+      <a href="#decision">Decision</a>
+      <a href="#proposals">Three proposals</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#reuse">Reuse boundary</a>
+      <a href="#ranking">Ranking</a>
+      <a href="#comparison">Comparison</a>
+      <a href="#pilot">Pilot</a>
+      <a href="#measures">Measures</a>
+      <a href="#failures">Failure semantics</a>
+      <a href="#boundary">Version 1 boundary</a>
+      <a href="#sources">Sources</a>
+    </nav>
+  </header>
+
+  <section id="decision">
+    <h2>Decision and operating model</h2>
+    <div class="callout good">
+      <b>Recommendation:</b> pilot Proposal B, the thin scheduled digest. Local code fetches, normalizes,
+      deduplicates, filters, ranks, and renders. It does not crawl sites, download PDFs, create a vector database,
+      or replace ResearchRabbit.
+    </div>
+    <div class="grid cols-2">
+      <article class="card">
+        <h3>What the earlier report contributes</h3>
+        <ul>
+          <li>arXiv is the regular source.</li>
+          <li>Conference proceedings are event-driven sources.</li>
+          <li>ResearchRabbit expands the citation graph after triage.</li>
+          <li>Project notes hold conclusions that matter for DINOv3 work.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h3>What the deep-research report contributes</h3>
+        <p>It adds a useful venue taxonomy and a concrete weekly reading routine.</p>
+        <p>Its calendar does not become application logic. Venue dates remain replaceable configuration because at least two calendar claims conflict with current official venue pages.</p>
+      </article>
+    </div>
+    <p class="meta">The plan adds the pieces neither report specifies fully: automated deduplication, feedback ownership, source-failure behavior, and false-negative checks.</p>
+  </section>
+
+  <section id="proposals">
+    <h2>Three proposals</h2>
+    <div class="grid cols-3">
+      <article class="card proposal a">
+        <div><span class="tag green">Fallback</span><span class="tag green">Lowest upkeep</span></div>
+        <h3>A. Zotero-first feed hub</h3>
+        <p>arXiv feeds enter a Zotero inbox. Manual tags and saved searches produce a kept collection, which is imported into ResearchRabbit weekly.</p>
+        <ol>
+          <li>Subscribe to narrow feeds.</li>
+          <li>Use <code>paper-inbox</code>, <code>paper-keep</code>, <code>paper-defer</code>, and <code>paper-reject</code>.</li>
+          <li>Save selections to <code>GPU Performance</code>.</li>
+          <li>Create project notes only after deep reads.</li>
+        </ol>
+        <div class="bottom">
+          <p><b>Setup:</b> one or two hours. <b>Ranking:</b> feed order and saved searches.</p>
+          <p><b>Constraint:</b> the digest cap is manual and will not reliably yield two or three strong papers.</p>
+        </div>
+      </article>
+      <article class="card proposal b">
+        <div><span class="tag purple">Recommended pilot</span><span class="tag purple">Multi-source</span></div>
+        <h3>B. Thin scheduled digest</h3>
+        <p>A small local process combines arXiv, Hugging Face, and Semantic Scholar metadata, then applies canonical identity, hard rules, and a transparent score.</p>
+        <ul>
+          <li>Produces dated Markdown and self-contained HTML.</li>
+          <li>Returns zero to three papers rather than filling a quota.</li>
+          <li>Stores cache state in SQLite, not durable decisions.</li>
+          <li>Writes decisions to Zotero tags and collections.</li>
+        </ul>
+        <div class="bottom">
+          <p><b>Setup:</b> medium. <b>Maintenance:</b> low to medium.</p>
+          <p><b>Fit:</b> enough automation to test time savings without operating a persistent application.</p>
+        </div>
+      </article>
+      <article class="card proposal c">
+        <div><span class="tag amber">Defer</span><span class="tag amber">Learned ranking</span></div>
+        <h3>C. Self-hosted arxiv-sanity-lite</h3>
+        <p>Reuse the arXiv poller, abstract TF-IDF features, per-tag SVM ranking, tagging UI, and recommendation email process from <a href="https://github.com/karpathy/arxiv-sanity-lite">arxiv-sanity-lite</a>.</p>
+        <ul>
+          <li>ArXiv-centric unless extended.</li>
+          <li>Still needs Zotero export and ResearchRabbit handoff.</li>
+          <li>Still needs project-note conventions.</li>
+        </ul>
+        <div class="bottom">
+          <p><b>Setup:</b> half a day to several days. <b>Maintenance:</b> highest.</p>
+          <p><b>Use only if:</b> static ranking proves inadequate and a persistent browser UI is worth operating.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <h2>Recommended architecture flow</h2>
+    <p>Proposal B separates source adapters, deterministic selection, human decisions, and downstream discovery. Zotero remains the decision authority throughout.</p>
+    <figure class="flow-box">
+      <svg viewBox="0 0 1160 570" role="img" aria-labelledby="flow-title flow-desc" xmlns="http://www.w3.org/2000/svg">
+        <title id="flow-title">Thin scheduled digest architecture</title>
+        <desc id="flow-desc">Metadata from arXiv, Hugging Face, Semantic Scholar, and proceedings flows through normalization, deduplication, filtering, scoring, optional reranking, and a short digest. Human decisions are stored in Zotero, then kept papers can move to ResearchRabbit and project notes.</desc>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#5f6873"/>
+          </marker>
+        </defs>
+        <style>
+          .box { fill: #fffdf8; stroke: #d8d0c3; stroke-width: 1.5; }
+          .source { fill: #e7f5f8; stroke: #155e75; }
+          .process { fill: #f1ebfb; stroke: #5b21b6; }
+          .decision { fill: #edf7ed; stroke: #166534; }
+          .downstream { fill: #fff4d7; stroke: #92400e; }
+          .line { fill: none; stroke: #5f6873; stroke-width: 2; marker-end: url(#arrow); }
+          .dash { fill: none; stroke: #92400e; stroke-width: 1.6; stroke-dasharray: 5 4; marker-end: url(#arrow); }
+          text { fill: #17202a; font-family: Avenir Next, Trebuchet MS, Arial, sans-serif; font-size: 12px; }
+          .label { font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+          .small { fill: #5f6873; font-size: 10.5px; }
+        </style>
+        <text x="20" y="18" class="label">METADATA SOURCES</text>
+        <rect class="box source" x="20" y="32" width="190" height="58" rx="11"/>
+        <text x="115" y="57" text-anchor="middle" font-weight="700">arXiv API</text>
+        <text x="115" y="75" text-anchor="middle" class="small">primary broad source</text>
+        <rect class="box source" x="230" y="32" width="190" height="58" rx="11"/>
+        <text x="325" y="57" text-anchor="middle" font-weight="700">Hugging Face papers</text>
+        <text x="325" y="75" text-anchor="middle" class="small">secondary community signal</text>
+        <rect class="box source" x="440" y="32" width="220" height="58" rx="11"/>
+        <text x="550" y="57" text-anchor="middle" font-weight="700">Semantic Scholar</text>
+        <text x="550" y="75" text-anchor="middle" class="small">positive and negative seeds</text>
+        <rect class="box source" x="680" y="32" width="190" height="58" rx="11"/>
+        <text x="775" y="57" text-anchor="middle" font-weight="700">Proceedings</text>
+        <text x="775" y="75" text-anchor="middle" class="small">event-driven or manual</text>
+
+        <path class="line" d="M115 90 V122 H485"/>
+        <path class="line" d="M325 90 V122 H485"/>
+        <path class="line" d="M550 90 V122 H575"/>
+        <path class="line" d="M775 90 V122 H665"/>
+
+        <text x="500" y="112" class="label">LOCAL PIPELINE</text>
+        <rect class="box process" x="485" y="126" width="180" height="55" rx="11"/>
+        <text x="575" y="149" text-anchor="middle" font-weight="700">Normalize metadata</text>
+        <text x="575" y="166" text-anchor="middle" class="small">canonical IDs and timestamps</text>
+        <path class="line" d="M575 181 V213"/>
+        <rect class="box process" x="485" y="214" width="180" height="55" rx="11"/>
+        <text x="575" y="237" text-anchor="middle" font-weight="700">Deduplicate + filter</text>
+        <text x="575" y="254" text-anchor="middle" class="small">hard rules and prior decisions</text>
+        <path class="line" d="M575 269 V301"/>
+        <rect class="box process" x="485" y="302" width="180" height="55" rx="11"/>
+        <text x="575" y="325" text-anchor="middle" font-weight="700">Transparent score</text>
+        <text x="575" y="342" text-anchor="middle" class="small">optional top 10 to 20 rerank</text>
+        <path class="line" d="M575 357 V389"/>
+        <rect class="box process" x="450" y="390" width="250" height="62" rx="11"/>
+        <text x="575" y="415" text-anchor="middle" font-weight="700">0 to 3 paper digest</text>
+        <text x="575" y="434" text-anchor="middle" class="small">dated Markdown + standalone HTML</text>
+
+        <path class="line" d="M700 421 H798"/>
+        <text x="733" y="410" class="label">HUMAN LOOP</text>
+        <rect class="box decision" x="800" y="390" width="190" height="62" rx="11"/>
+        <text x="895" y="415" text-anchor="middle" font-weight="700">Keep / defer / reject</text>
+        <text x="895" y="434" text-anchor="middle" class="small">Zotero is authoritative</text>
+        <path class="line" d="M895 452 V487"/>
+        <rect class="box decision" x="800" y="488" width="190" height="58" rx="11"/>
+        <text x="895" y="511" text-anchor="middle" font-weight="700">Zotero collection</text>
+        <text x="895" y="529" text-anchor="middle" class="small">durable paper library</text>
+
+        <path class="line" d="M990 517 H1035"/>
+        <rect class="box downstream" x="1037" y="475" width="110" height="84" rx="11"/>
+        <text x="1092" y="504" text-anchor="middle" font-weight="700">Research</text>
+        <text x="1092" y="521" text-anchor="middle" font-weight="700">Rabbit</text>
+        <text x="1092" y="540" text-anchor="middle" class="small">graph expansion</text>
+
+        <path class="dash" d="M800 421 H748 V517 H700"/>
+        <rect class="box downstream" x="450" y="488" width="250" height="58" rx="11"/>
+        <text x="575" y="511" text-anchor="middle" font-weight="700">Project reading note</text>
+        <text x="575" y="529" text-anchor="middle" class="small">deep-read conclusions only</text>
+
+        <rect x="20" y="300" width="280" height="128" rx="12" fill="#fff4d7" stroke="#92400e" stroke-width="1.4"/>
+        <text x="38" y="325" class="label" fill="#92400e">SCHEDULE + STATE</text>
+        <text x="38" y="351"><tspan font-weight="700">Timer:</tspan> systemd --user every two days</text>
+        <text x="38" y="376"><tspan font-weight="700">Configuration:</tspan> one YAML file</text>
+        <text x="38" y="401"><tspan font-weight="700">Cache:</tspan> SQLite, no server</text>
+        <text x="38" y="416" class="small">cron is an acceptable timer fallback</text>
+        <path class="dash" d="M300 365 H450"/>
+      </svg>
+      <figcaption>Proceedings remain event-driven. Friday is a rollup of kept and deferred papers, not another candidate batch.</figcaption>
+    </figure>
+
+    <h3 style="margin-top:22px">Version 1 components</h3>
+    <div class="table-wrap">
+      <table>
+        <caption>Operational choices that accompany the architecture diagram.</caption>
+        <thead><tr><th>Component</th><th>Choice</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td>Scheduler</td><td><code>systemd --user</code> timer</td><td>Persistent logs and missed-run handling. Cron is a fallback.</td></tr>
+          <tr><td>Runtime</td><td>Small Python package or script</td><td>Source SDKs and XML parsing are available in Python.</td></tr>
+          <tr><td>Configuration</td><td>One YAML file</td><td>Owns queries, categories, negative terms, source weights, and threshold.</td></tr>
+          <tr><td>Fetch/cache state</td><td>SQLite</td><td>Enough for a personal metadata pipeline. No server required.</td></tr>
+          <tr><td>Durable decisions</td><td>Zotero tags and collections</td><td>Prevents SQLite and Zotero from becoming competing libraries.</td></tr>
+          <tr><td>Output</td><td>Dated Markdown and standalone HTML</td><td>Fast skim and durable record without a web server.</td></tr>
+          <tr><td>ResearchRabbit handoff</td><td>Zotero collection import</td><td>Uses the documented product workflow.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="reuse">
+    <h2>Reuse boundary and decision ownership</h2>
+    <div class="table-wrap">
+      <table>
+        <caption>Use existing products for their documented jobs. Write only the glue needed for the digest.</caption>
+        <thead><tr><th>Need</th><th>Reuse</th><th>Local code required</th></tr></thead>
+        <tbody>
+          <tr><td>Fresh broad metadata</td><td><a href="https://info.arxiv.org/help/api/user-manual.html">arXiv API</a></td><td>Query configuration and Atom normalization</td></tr>
+          <tr><td>Curated daily signal</td><td><a href="https://huggingface.co/docs/huggingface_hub/en/package_reference/hf_api">Hugging Face Hub paper methods</a></td><td>Adapter and installed-version probe</td></tr>
+          <tr><td>Feedback-based discovery</td><td><a href="https://api.semanticscholar.org/api-docs/recommendations">Semantic Scholar Recommendations API</a></td><td>ID resolution and score blending</td></tr>
+          <tr><td>Durable personal library</td><td><a href="https://www.zotero.org/support/quick_start_guide">Zotero feeds, collections, tags, and saved searches</a></td><td>Import-file generation only</td></tr>
+          <tr><td>Citation-graph expansion</td><td><a href="https://learn.researchrabbit.ai/en/articles/12796541-using-the-zotero-importer">ResearchRabbit Zotero importer</a></td><td>None in version 1</td></tr>
+          <tr><td>Optional learned local UI</td><td><a href="https://github.com/karpathy/arxiv-sanity-lite">arxiv-sanity-lite</a></td><td>Deployment and integration work</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="grid cols-2" style="margin-top:16px">
+      <div class="callout good">
+        <b>System of record:</b> Zotero tags and collections own keep, defer, and reject decisions. SQLite may mirror those decisions for scoring, but it is cache and pipeline state.
+      </div>
+      <div class="callout warn">
+        <b>One-way boundary:</b> ResearchRabbit imports Zotero collections and exports BibTeX, RIS, or CSV. Its current Zotero workflow is not documented as two-way synchronization, so treat it as downstream discovery.
+      </div>
+    </div>
+  </section>
+
+  <section id="source-policy">
+    <h2>Source policy and identity</h2>
+    <div class="grid cols-2">
+      <article class="card">
+        <h3>Source adapters</h3>
+        <ol>
+          <li><b>arXiv:</b> primary source. Query <code>cs.DC</code>, <code>cs.PF</code>, and filtered <code>cs.LG</code>. Add conditional <code>cs.AR</code>, <code>cs.PL</code>, and <code>cs.CV</code> terms for training systems or performance.</li>
+          <li><b>Hugging Face:</b> secondary popularity and code-community signal. Probe the installed <code>huggingface_hub</code> version, use <code>list_daily_papers</code> when available, and fall back to <code>list_papers</code>.</li>
+          <li><b>Semantic Scholar:</b> recommendations from a small positive and negative seed set. Resolve arXiv IDs or DOIs, cache good mappings, and skip uncertain title-only matches.</li>
+          <li><b>Proceedings:</b> event-driven adapter or manual import. Venue URLs and active dates belong in configuration.</li>
+        </ol>
+        <p class="meta">The arXiv adapter caches responses, uses small result pages, makes at most one equivalent query per day, and respects the documented delay for repeated calls.</p>
+      </article>
+      <article class="card">
+        <h3>Canonical identity</h3>
+        <ul>
+          <li><code>canonical_arxiv_id</code> without the version suffix</li>
+          <li><code>arxiv_version</code>, <code>published_at</code>, <code>updated_at</code>, and <code>first_seen_at</code></li>
+          <li>DOI when present</li>
+          <li>Semantic Scholar ID when confidently resolved</li>
+          <li>Normalized title hash only as a last-resort key</li>
+          <li>Source list and source-specific timestamps</li>
+        </ul>
+        <div class="callout warn">
+          <b>Update rule:</b> a new arXiv version does not re-enter the digest unless the title or abstract changes materially and the previous decision was <code>defer</code>. Formatting-only revisions stay suppressed.
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section id="ranking">
+    <h2>Filtering, scoring, and digest contract</h2>
+    <div class="grid cols-2">
+      <article class="card">
+        <span class="tag blue">Stage 1</span>
+        <h3>Hard rules</h3>
+        <ul>
+          <li>Accept configured categories and date window.</li>
+          <li>Require one positive family: distributed training, communication, compiler/runtime, input pipeline, memory, kernels, profiling, measurement, or training-system architecture.</li>
+          <li>Exclude application-only work with no systems or performance contribution.</li>
+          <li>Exclude already decided papers and exact duplicates.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="tag purple">Stage 2</span>
+        <h3>Transparent score</h3>
+        <div class="score" aria-label="Static scoring formula">
+          score = <span class="plus">topic_match</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ <span class="plus">source_agreement</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ <span class="plus">semantic_scholar_recommendation</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ <span class="plus">hugging_face_signal</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ <span class="plus">recency</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span class="minus">negative_topic_penalty</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span class="minus">near_duplicate_penalty</span>
+        </div>
+      </article>
+    </div>
+    <div class="callout limit">
+      <b>Version 1 scoring limits:</b> do not infer code or artifact availability from abstract prose. Score it only when an adapter supplies structured metadata. An optional LLM reranker sees only the top 10 to 20 abstracts, returns a short reason tied to configured interests, and may fail without blocking the digest.
+    </div>
+    <article class="card" style="margin-top:16px">
+      <h3>Digest contract</h3>
+      <div class="grid cols-2">
+        <div>
+          <p><b>Selection:</b> produce zero to three papers. Never fill the quota with low-scoring items.</p>
+          <p><b>Friday:</b> roll up kept and deferred papers instead of creating another independent candidate batch.</p>
+        </div>
+        <ul>
+          <li>Title, authors, date, and canonical links</li>
+          <li>Source provenance</li>
+          <li>Abstract compressed to at most three sentences</li>
+          <li>Why it may matter for DINOv3 performance work</li>
+          <li>One likely limitation or reason to skip</li>
+          <li><code>keep</code>, <code>defer</code>, and <code>reject</code> instructions</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <section id="comparison">
+    <h2>Comparison</h2>
+    <div class="table-wrap">
+      <table>
+        <caption>Proposal B is the starting point. A remains the low-operation fallback; C remains the learned-ranking exit option.</caption>
+        <thead><tr><th>Criterion</th><th>A. Zotero-first</th><th class="recommended-cell">B. Thin digest</th><th>C. arxiv-sanity-lite</th></tr></thead>
+        <tbody>
+          <tr><td>Initial work</td><td>Low</td><td class="recommended-cell">Medium</td><td>High</td></tr>
+          <tr><td>Ongoing maintenance</td><td>Low</td><td class="recommended-cell">Low to medium</td><td>Medium to high</td></tr>
+          <tr><td>Automatic two-to-three-paper cap</td><td>No</td><td class="recommended-cell">Yes</td><td>Yes</td></tr>
+          <tr><td>Multi-source ranking</td><td>No</td><td class="recommended-cell">Yes</td><td>No, without extensions</td></tr>
+          <tr><td>Feedback learning</td><td>Manual saved searches</td><td class="recommended-cell">S2 feedback, optional rerank</td><td>Per-tag SVM</td></tr>
+          <tr><td>False-negative audit</td><td>Manual</td><td class="recommended-cell">Built into pilot</td><td>Must be added</td></tr>
+          <tr><td>Zotero fit</td><td>Native</td><td class="recommended-cell">System of record</td><td>Export integration needed</td></tr>
+          <tr><td>Recommendation</td><td>Fallback</td><td class="recommended-cell"><b>Start here</b></td><td>Defer</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="pilot">
+    <h2>Four-week pilot</h2>
+    <div class="steps">
+      <article class="card phase">
+        <h3>Week 0: configure</h3>
+        <ul>
+          <li>Define queries, positive topic families, and negative terms.</li>
+          <li>Select three to five positive seeds and three to five clear negatives.</li>
+          <li>Create Zotero tags and <code>GPU Performance</code>.</li>
+          <li>Choose output directory and timer schedule.</li>
+        </ul>
+      </article>
+      <article class="card phase">
+        <h3>Week 1: minimum loop</h3>
+        <ul>
+          <li>Implement arXiv fetch and canonical identity.</li>
+          <li>Add dedupe, hard filters, static score, and SQLite cache.</li>
+          <li>Render Markdown and HTML.</li>
+          <li>Record authoritative decisions in Zotero.</li>
+        </ul>
+      </article>
+      <article class="card phase">
+        <h3>Week 2: secondary signals</h3>
+        <ul>
+          <li>Add Hugging Face dependency probing.</li>
+          <li>Add Semantic Scholar ID resolution and recommendations.</li>
+          <li>Add independent retries, source freshness, and provenance.</li>
+        </ul>
+      </article>
+      <article class="card phase">
+        <h3>Weeks 3 and 4: tune</h3>
+        <ul>
+          <li>Tune rules from decisions.</li>
+          <li>Audit five hard rejects and five just below threshold each week.</li>
+          <li>Record each missed paper and the hiding rule.</li>
+          <li>Add an LLM reranker only after repeated static-ranking errors.</li>
+        </ul>
+      </article>
+    </div>
+    <div class="callout warn">
+      <b>False-negative audit:</b> once per week, sample five hard-rejected papers plus the five candidates immediately below the threshold. Record relevant misses and the exact rule that hid each paper.
+    </div>
+    <h3 style="margin-top:24px">Week-four decision gate</h3>
+    <div class="decision-gate">
+      <div><strong>Keep B</strong>Tune configuration when the digest saves time and static ranking is adequate.</div>
+      <div><strong>Reduce to A</strong>Remove local automation when it saves too little time.</div>
+      <div><strong>Adopt C</strong>Operate learned ranking and a browser UI only when their value covers the extra work.</div>
+    </div>
+  </section>
+
+  <section id="measures">
+    <h2>Pilot measures and weekly human loop</h2>
+    <div class="grid cols-2">
+      <article>
+        <h3>Measures</h3>
+        <ul class="measure-list">
+          <li><b>Precision at three</b>Surfaced papers marked keep or defer.</li>
+          <li><b>Deep-read conversion</b>Surfaced papers that become full reading notes.</li>
+          <li><b>Miss rate audit</b>Relevant papers in rejected or below-threshold samples.</li>
+          <li><b>Duplicate rate</b>Resurfaced papers that should have stayed suppressed.</li>
+          <li><b>Source yield</b>Selected papers attributed to each source.</li>
+          <li><b>Weekly triage time</b>Decision time excluding deep reading.</li>
+          <li><b>Empty-digest rate</b>Track it, but do not treat it as failure by itself.</li>
+        </ul>
+      </article>
+      <article>
+        <h3>Weekly human loop</h3>
+        <div class="table-wrap">
+          <table>
+            <caption>Target total: three hours per week.</caption>
+            <thead><tr><th>Activity</th><th>Time</th></tr></thead>
+            <tbody>
+              <tr><td>Four short digest reviews</td><td>40 min</td></tr>
+              <tr><td>One or two deeper paper reads</td><td>100 min</td></tr>
+              <tr><td>ResearchRabbit expansion from kept papers</td><td>20 min</td></tr>
+              <tr><td>Project note and pipeline feedback</td><td>20 min</td></tr>
+              <tr><td><b>Total</b></td><td><b>180 min</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section id="failures">
+    <h2>Failure semantics</h2>
+    <ul class="semantics">
+      <li><b>Prevent overlap.</b> Run under a lock so timer overlap cannot create duplicate digests.</li>
+      <li><b>Bound retries.</b> Retry each source independently with backoff.</li>
+      <li><b>Preserve freshness state.</b> Keep the last successful response and timestamp per source.</li>
+      <li><b>Degrade by source.</b> Continue when one source fails and mark stale or missing provenance.</li>
+      <li><b>Generate idempotently.</b> Derive the digest from run date and candidate IDs.</li>
+      <li><b>Log enough to inspect.</b> Record source counts, filter counts, selected IDs, errors, and runtime.</li>
+      <li><b>Limit alerts.</b> Alert after two consecutive failed runs or when a source exceeds its expected stale interval.</li>
+      <li><b>Protect credentials.</b> Keep API keys outside the repository and prefer adequate unauthenticated endpoints.</li>
+    </ul>
+  </section>
+
+  <section id="boundary">
+    <h2>Version 1 boundary</h2>
+    <div class="grid cols-2">
+      <article class="card">
+        <h3>Planning layout</h3>
+        <pre><code>tools/paper_digest/
+  pyproject.toml
+  config.example.yaml
+  paper_digest/
+    cli.py
+    models.py
+    normalize.py
+    dedupe.py
+    score.py
+    render.py
+    sources/
+      arxiv.py
+      huggingface.py
+      semantic_scholar.py
+  templates/
+    digest.md.j2
+    digest.html.j2
+  systemd/
+    paper-digest.service
+    paper-digest.timer
+  tests/
+    test_identity.py
+    test_dedupe.py
+    test_scoring.py</code></pre>
+        <div class="callout warn"><b>Caveat:</b> this is a planning layout, not a commitment to create a new top-level service before the pilot is approved.</div>
+      </article>
+      <article class="card">
+        <h3>Non-goals</h3>
+        <ul>
+          <li>PDF download, parsing, OCR, or full-text embeddings</li>
+          <li>A vector database</li>
+          <li>A hosted multi-user service</li>
+          <li>Scraping alphaXiv, conference sites, or ResearchRabbit</li>
+          <li>Browser automation against Zotero or ResearchRabbit</li>
+          <li>Automatic project conclusions from abstracts</li>
+          <li>Hard-coded yearly conference calendars</li>
+          <li>Daily LLM processing of the full candidate pool</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section id="sources">
+    <h2>Source links</h2>
+    <p>Product and API links also appear next to the claims they support.</p>
+    <ul class="sources">
+      <li><a href="https://info.arxiv.org/help/api/user-manual.html">arXiv API User's Manual</a></li>
+      <li><a href="https://huggingface.co/docs/huggingface_hub/en/package_reference/hf_api">Hugging Face <code>HfApi</code> paper methods</a></li>
+      <li><a href="https://api.semanticscholar.org/api-docs/recommendations">Semantic Scholar Recommendations API</a></li>
+      <li><a href="https://www.zotero.org/support/quick_start_guide">Zotero Quick Start Guide</a></li>
+      <li><a href="https://www.zotero.org/support/preferences/advanced">Zotero advanced feed preferences</a></li>
+      <li><a href="https://learn.researchrabbit.ai/en/articles/12796541-using-the-zotero-importer">ResearchRabbit Zotero importer</a></li>
+      <li><a href="https://learn.researchrabbit.ai/en/articles/13192798-how-to-share-papers-and-collections">ResearchRabbit collection export</a></li>
+      <li><a href="https://github.com/karpathy/arxiv-sanity-lite">arxiv-sanity-lite</a></li>
+    </ul>
+  </section>
+
+  <footer class="footer">
+    Faithful explainer of <code>docs/research/automated-paper-ingestion-pipeline-plan-2026-07-13.md</code>.
+    Scope: GPU training performance engineering. Date: 2026-07-13.
+  </footer>
+</main>
+</body>
+</html>

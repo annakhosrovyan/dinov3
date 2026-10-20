@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 8 — The Optimization Ladder</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --ink: #1b1f23;
+      --muted: #606875;
+      --surface: #fffdf8;
+      --line: #d9d0c2;
+      --code: #111827;
+      --blue: #155e75;
+      --green: #166534;
+      --amber: #92400e;
+      --red: #991b1b;
+      --purple: #5b21b6;
+      --soft-blue: #e7f5f8;
+      --soft-green: #edf7ed;
+      --soft-amber: #fff4d7;
+      --soft-red: #feecec;
+      --soft-purple: #f1ebfb;
+      --shadow: 0 10px 30px rgba(31, 27, 20, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(21, 94, 117, .14), transparent 34rem),
+        linear-gradient(135deg, #f4f1ea 0%, #faf7ef 48%, #eee7d9 100%);
+      font: 15px/1.55 Georgia, "Times New Roman", serif;
+    }
+    .wrap { max-width: 1220px; margin: 0 auto; padding: 34px 20px 80px; }
+    h1, h2, h3 { font-family: "Avenir Next", "Trebuchet MS", sans-serif; line-height: 1.18; }
+    h1 { margin: 0 0 10px; font-size: clamp(28px, 4.6vw, 48px); letter-spacing: -.04em; }
+    h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: -.02em; }
+    h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    p { margin: 8px 0; }
+    a { color: var(--blue); text-decoration: none; border-bottom: 1px solid rgba(21, 94, 117, .25); }
+    a:hover { border-bottom-color: var(--blue); }
+    code {
+      font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: rgba(17, 24, 39, .07); padding: 2px 5px; border-radius: 5px;
+    }
+    pre {
+      background: var(--code); color: #e5e7eb; border-radius: 12px;
+      padding: 14px 16px; overflow-x: auto;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+    .kicker { font-family: "Avenir Next", "Trebuchet MS", sans-serif; text-transform: uppercase; letter-spacing: .14em; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .lede { font-size: 17px; max-width: 68ch; color: #333a44; }
+    .meta { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+    section { margin-top: 42px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+      padding: 20px 22px; box-shadow: var(--shadow);
+    }
+    .grid { display: grid; gap: 16px; }
+    .grid.cols2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+    .grid.cols3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .tag { display: inline-block; font-family: "Avenir Next", sans-serif; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; margin-right: 6px; }
+    .tag.green { background: var(--soft-green); color: var(--green); }
+    .tag.blue { background: var(--soft-blue); color: var(--blue); }
+    .tag.amber { background: var(--soft-amber); color: var(--amber); }
+    .tag.red { background: var(--soft-red); color: var(--red); }
+    .tag.purple { background: var(--soft-purple); color: var(--purple); }
+    .callout { border-left: 4px solid var(--blue); background: var(--soft-blue); border-radius: 0 12px 12px 0; padding: 12px 16px; margin: 14px 0; }
+    .callout.warn { border-left-color: var(--red); background: var(--soft-red); }
+    .callout.good { border-left-color: var(--green); background: var(--soft-green); }
+    .callout.note { border-left-color: var(--amber); background: var(--soft-amber); }
+    table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-family: "Avenir Next", sans-serif; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .num { font-family: "Avenir Next", sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -.02em; }
+    .statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+    .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+    .stat .lbl { font-size: 12px; color: var(--muted); }
+    figure { margin: 16px 0; }
+    figcaption { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+    .svgbox { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; box-shadow: var(--shadow); overflow-x: auto; }
+    .small { font-size: 12.5px; color: var(--muted); }
+    .short { border: 2px solid var(--blue); border-radius: 16px; background: var(--soft-blue); padding: 18px 22px; }
+    ul { margin: 8px 0 8px 22px; padding: 0; }
+    li { margin: 5px 0; }
+    .toc { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .toc a { font-family: "Avenir Next", sans-serif; font-size: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; border-bottom: 1px solid var(--line); }
+    .tablewrap { overflow-x: auto; }
+    .effort { display: inline-block; font-family: "Avenir Next", sans-serif; font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); background: #fff; color: var(--muted); white-space: nowrap; }
+    .rowlinks { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .rowlinks a.card { flex: 1 1 260px; text-decoration: none; color: var(--ink); display: block; }
+    .rowlinks a.card:hover { box-shadow: 0 14px 34px rgba(31,27,20,.14); }
+    .strike td { text-decoration: line-through; color: var(--muted); opacity: .75; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kicker">Perf roadmap · 2026-07-10</div>
+  <h1>Phase 8 — the optimization ladder</h1>
+  <p class="lede">
+    Phase 8 is a <b>two-stage program</b>: first remove host/storage arrival skew (the 7.9 straggler
+    root cause), then optimize actual DDP communication. Comms-side levers — bucket caps,
+    <code>CUDA_DEVICE_MAX_CONNECTIONS</code>, NVLS — are uninterpretable until rank-arrival skew is
+    cleaned, because a single late rank makes every collective look slow. This page exists to make the
+    <b>sequencing</b> of the nine candidate levers legible at a glance, not just their individual gain estimates.
+  </p>
+  <p class="meta">
+    Source: GPT-5.6-sol review at xhigh reasoning (Codex CLI 0.144.1, read-only, repo-grounded — read
+    <code>train.py</code>, <code>ssl_meta_arch.py</code>, <code>ac_compile_parallelize.py</code>,
+    <code>loaders.py</code>, <code>phase7_perf_plan.md</code> and cited line numbers). Every mechanism
+    claim was re-verified in the working tree before being recorded in
+    <code>docs/phase8_optimization_candidates.md</code>, the sole source for every number on this page.
+  </p>
+
+  <div class="toc">
+    <a href="#phase7">Phase 7 refresher</a>
+    <a href="#framing">The framing</a>
+    <a href="#stack">Sequencing diagram</a>
+    <a href="#table">Ranked candidates</a>
+    <a href="#today">What can start today</a>
+    <a href="#killed">Killed levers</a>
+    <a href="#corrections">Corrections to our framing</a>
+    <a href="#decisions">Decision log</a>
+    <a href="#exec">Execution sketch</a>
+  </div>
+
+  <!-- ============================================================ -->
+  <section id="phase7">
+    <h2>Phase 7 refresher — short, links to the full record</h2>
+    <p>
+      Phase 7's flat-MFU residual was communication/sync, not compute. A harness audit (F1–F5) corrected the
+      "exposed NCCL" basis after finding a 1.93× overstatement in the original measurement. 7.9 root-caused the
+      remaining straggler behavior to storage-NIC (mlx5) IRQ + <code>NET_RX</code> softirq load landing
+      <i>inside the job's own cpuset</i> on the affected node — not a NCCL or kernel problem. The verdict was to
+      ship w16 no-slice: CPU-slicing was rejected because, under the current IRQ placement, a fixed heavy loser
+      beats a rotating mild one. Phase 8 builds directly on this record; it does not repeat it here.
+    </p>
+    <div class="rowlinks">
+      <a class="card" href="../claude/phase7_summary.html">
+        <span class="tag blue">Full record</span>
+        <h3 style="margin-top:8px">phase7_summary.html</h3>
+        <p class="small" style="margin:0">Residual = comms thesis, ladder 7.0–7.7.</p>
+      </a>
+      <a class="card" href="../claude/phase7_recent_runs.html">
+        <span class="tag blue">Full record</span>
+        <h3 style="margin-top:8px">phase7_recent_runs.html</h3>
+        <p class="small" style="margin:0">bs128/160/192 differential + metric-gate result.</p>
+      </a>
+      <a class="card" href="../explainers/torch-compile-dispatch-phase7-2026-06-11.html">
+        <span class="tag blue">Background</span>
+        <h3 style="margin-top:8px">torch-compile-dispatch-phase7</h3>
+        <p class="small" style="margin:0">What actually compiles, and where.</p>
+      </a>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section id="framing">
+    <h2>The framing (accepted)</h2>
+    <div class="callout">
+      <p style="margin:0">
+        Comms-side experiments (buckets, <code>CUDA_DEVICE_MAX_CONNECTIONS</code>, NVLS) are
+        <b>uninterpretable until rank-arrival skew is cleaned</b> — a late rank makes every collective look slow.
+      </p>
+    </div>
+    <p>
+      The "exposed NCCL ≈ 56% of p50 wall" figure is largely <b>where late-rank waiting appears</b>
+      (NCCL LL kernels spin-wait), <b>not 56% transferable communication</b>. It is a symptom location, not a
+      comms-optimization budget. That is why #1 (IRQ steering) has to run — or at least be probed — before the
+      comms-tuning cluster (#3 screen, #5, #6) can produce a trustworthy read.
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <section id="stack">
+    <h2>How the optimizations stack</h2>
+    <p>
+      This is the centerpiece: not which lever gives what gain in isolation, but which levers depend on which.
+      <b>#1 (root IRQ steering) is a gate</b> — it sits outside the DDP/comms system entirely and unlocks a
+      cluster of comms experiments that are meaningless without it. A separate cluster can run today, rootless,
+      in parallel, because it never touches comms or the IRQ zone. A third cluster stays exploratory/deferred
+      until a cheap probe clears a bar.
+    </p>
+    <figure class="svgbox">
+      <svg viewBox="0 0 1180 640" xmlns="http://www.w3.org/2000/svg" font-family="Avenir Next, Trebuchet MS, sans-serif">
+        <defs>
+          <marker id="arrhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b21b6"/>
+          </marker>
+          <marker id="arrgrey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#606875"/>
+          </marker>
+        </defs>
+
+        <!-- GATE row -->
+        <rect x="430" y="18" width="320" height="92" rx="14" fill="#f1ebfb" stroke="#5b21b6" stroke-width="2.5"/>
+        <text x="590" y="42" text-anchor="middle" font-size="12" font-weight="800" fill="#5b21b6">THE GATE · AWAITING USER GO</text>
+        <text x="590" y="64" text-anchor="middle" font-size="14" font-weight="700" fill="#1b1f23">#1 Root IRQ steering</text>
+        <text x="590" y="83" text-anchor="middle" font-size="11.5" fill="#606875">mlx5 storage-NIC IRQs → reserved cores; removes NET_RX tax</text>
+        <text x="590" y="99" text-anchor="middle" font-size="11" fill="#5b21b6" font-weight="700">8–20% wall (≈25% upside unproven)</text>
+
+        <!-- elbow: gate → gated cluster (right). Lands on the amber cluster's top edge. -->
+        <path d="M 750 64 C 830 64, 870 96, 950 172" fill="none" stroke="#5b21b6" stroke-width="3" marker-end="url(#arrhead)"/>
+        <text x="792" y="58" font-size="11.5" fill="#5b21b6" font-weight="700">unlocks · makes measurable</text>
+
+        <!-- the green cluster is explicitly NOT gated: dashed independence marker -->
+        <path d="M 430 64 C 350 64, 320 108, 250 172" fill="none" stroke="#98a1ad" stroke-width="2" stroke-dasharray="5 4"/>
+        <text x="196" y="118" font-size="10.5" fill="#98a1ad" font-style="italic">no dependency</text>
+
+        <!-- RUN NOW cluster (left) -->
+        <rect x="20" y="178" width="340" height="200" rx="14" fill="#edf7ed" stroke="#166534" stroke-width="1.6"/>
+        <text x="190" y="202" text-anchor="middle" font-size="12" font-weight="800" fill="#166534">RUN NOW · ROOTLESS · PARALLEL</text>
+        <text x="190" y="218" text-anchor="middle" font-size="10.5" fill="#606875">no dependency on #1 — start today</text>
+
+        <rect x="36" y="230" width="308" height="38" rx="8" fill="#fffdf8" stroke="#166534"/>
+        <text x="46" y="253" font-size="12" fill="#1b1f23">#7 Fused AdamW — 0.3–1.5%, very low effort</text>
+
+        <rect x="36" y="274" width="308" height="38" rx="8" fill="#fffdf8" stroke="#166534"/>
+        <text x="46" y="297" font-size="12" fill="#1b1f23">#3 bucket-logging DUMP (measurement half)</text>
+
+        <rect x="36" y="318" width="308" height="38" rx="8" fill="#fffdf8" stroke="#166534"/>
+        <text x="46" y="341" font-size="12" fill="#1b1f23">#2 Worker hygiene (cv2 threads, HDF5 reopen)</text>
+
+        <!-- GATED cluster (right) -->
+        <rect x="820" y="178" width="340" height="245" rx="14" fill="#fff4d7" stroke="#92400e" stroke-width="1.6"/>
+        <text x="990" y="202" text-anchor="middle" font-size="12" font-weight="800" fill="#92400e">GATED ON #1 · POST-SKEW-CLEANUP</text>
+        <text x="990" y="218" text-anchor="middle" font-size="10.5" fill="#606875">uninterpretable before rank-arrival skew is cleaned</text>
+
+        <rect x="836" y="230" width="308" height="34" rx="8" fill="#fffdf8" stroke="#92400e"/>
+        <text x="846" y="251" font-size="12" fill="#1b1f23">#5 MAX_CONNECTIONS re-test — 0–5%</text>
+
+        <rect x="836" y="270" width="308" height="34" rx="8" fill="#fffdf8" stroke="#92400e"/>
+        <text x="846" y="291" font-size="12" fill="#1b1f23">#3 bucket-cap SCREEN (8/16/25/50 MiB) — 0–8%</text>
+
+        <rect x="836" y="310" width="308" height="34" rx="8" fill="#fffdf8" stroke="#92400e"/>
+        <text x="846" y="331" font-size="12" fill="#1b1f23">#6 NVLS validation — 0–5% after skew cleanup</text>
+
+        <rect x="836" y="350" width="308" height="58" rx="8" fill="#fff8e8" stroke="#92400e" stroke-dasharray="3 3"/>
+        <text x="990" y="372" text-anchor="middle" font-size="12" font-weight="700" fill="#92400e">then re-decide</text>
+        <text x="990" y="390" text-anchor="middle" font-size="12" font-weight="700" fill="#92400e">bs160 vs bs192</text>
+
+        <!-- EXPLORATORY / DEFERRED cluster (bottom, spanning) -->
+        <rect x="280" y="450" width="620" height="172" rx="14" fill="#e7f5f8" stroke="#155e75" stroke-width="1.6"/>
+        <text x="590" y="474" text-anchor="middle" font-size="12" font-weight="800" fill="#155e75">EXPLORATORY / DEFERRED · build only if a cheap probe clears a bar</text>
+
+        <rect x="296" y="486" width="280" height="98" rx="8" fill="#fffdf8" stroke="#155e75"/>
+        <text x="436" y="506" text-anchor="middle" font-size="12" fill="#1b1f23">#4 Host-sync removal</text>
+        <text x="436" y="522" text-anchor="middle" font-size="11" fill="#606875">0–4%, medium effort</text>
+        <text x="436" y="538" text-anchor="middle" font-size="10.5" fill="#606875">NaN detection needs redesign</text>
+        <text x="436" y="554" text-anchor="middle" font-size="10.5" fill="#606875">Open</text>
+
+        <rect x="590" y="486" width="290" height="98" rx="8" fill="#fffdf8" stroke="#155e75"/>
+        <text x="735" y="506" text-anchor="middle" font-size="12" fill="#1b1f23">#8 Teacher/student stream overlap</text>
+        <text x="735" y="522" text-anchor="middle" font-size="11" fill="#606875">0–5%, likely flat/negative</text>
+        <text x="735" y="538" text-anchor="middle" font-size="10.5" fill="#606875">high effort (graph trees, allocator)</text>
+        <text x="735" y="554" text-anchor="middle" font-size="10.5" fill="#606875">Exploratory only</text>
+
+        <text x="590" y="602" text-anchor="middle" font-size="10.5" fill="#155e75">#9 H2D double-buffer (0.5–2.2%) stays deferred — probe after #1, build only if &gt;2% wall</text>
+      </svg>
+      <figcaption>
+        One colour, one meaning: <b style="color:#5b21b6">purple = the gate</b> ·
+        <b style="color:#166534">green = run now, rootless</b> ·
+        <b style="color:#92400e">amber = gated on #1</b> ·
+        <b style="color:#155e75">blue = exploratory / deferred</b> ·
+        <b style="color:#991b1b">red = rejected</b> (see the decision log).
+        The only hard dependency is <b>#1 → the amber cluster</b>. The green cluster is independent of #1 and can
+        start today; the blue cluster is independent of both and is probe-gated, not #1-gated.
+      </figcaption>
+    </figure>
+    <div class="callout warn">
+      <b>Gains are NOT additive.</b> Many of these levers attack the <i>same</i> 56% comms wall or the
+      <i>same</i> arrival-skew symptom (a late rank shows up as slow allreduce, slow bucket flush, slow NVLS
+      path — one root cause, many observed locations). Summing the gain ranges in the table below
+      (e.g. "8–20% + 0–8% + 0–5% + 0–5%") overcounts what is actually available. Treat the ranges as
+      overlapping claims on the same underlying skew/comms budget, not independent, stackable wins.
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section id="table">
+    <h2>Ranked candidates</h2>
+    <p class="small">Gain estimates are against steady-state <b>wall</b> time — never CUDA-event MFU.</p>
+    <div class="statgrid">
+      <div class="stat"><div class="num" style="color:var(--purple)">8–20%</div>
+        <div class="lbl">#1 IRQ steering wall gain; ~25% upside <i>suggested, not proven</i> (345 vs 472 ms clean-iter p50 @ bs192)</div></div>
+      <div class="stat"><div class="num" style="color:var(--amber)">56%</div>
+        <div class="lbl">exposed NCCL ≈ p50 wall — where late-rank waiting appears, NOT 56% transferable comms</div></div>
+      <div class="stat"><div class="num" style="color:var(--green)">0.3–1.5%</div>
+        <div class="lbl">#7 fused AdamW — smallest, cheapest, run-now lever</div></div>
+      <div class="stat"><div class="num" style="color:var(--blue)">3–12%</div>
+        <div class="lbl">Codex's original worker-hygiene bundle — bulk of it was rejected #2a; expect the low end now</div></div>
+    </div>
+
+    <div class="tablewrap" style="margin-top:16px">
+      <table>
+        <tr>
+          <th>#</th><th>Lever</th><th>Mechanism / expected gain</th><th>Effort</th><th>First cheap probe</th><th>Status</th>
+        </tr>
+        <tr>
+          <td>1</td>
+          <td><b>Root IRQ steering</b> — storage-NIC (mlx5) IRQs → Slurm-reserved cores 48-55/104-111 + irqbalance ban, gpu01–08</td>
+          <td>Removes NET_RX softirq tax from job cpusets (7.9 root cause). <b>8–20% wall</b>; ~25% upside suggested (not proven) by 345 vs 472 ms clean-iter p50 at bs192</td>
+          <td><span class="effort">Medium (ops)</span></td>
+          <td>Steer only storage-NIC queues; verify <code>/proc/interrupts</code> + softirq counters move; matched same-node w16 no-slice A/B at bs160/192; judge raw wall + <code>[RANKDATA]</code> tails</td>
+          <td><span class="tag purple">Gate · awaiting user go</span></td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>DataLoader worker-runtime hygiene: <code>cv2.setNumThreads(1)</code> in workers, prefetch-factor screen, lazy per-worker HDF5 reopen (<code>hdf5_dataset.py:41</code> opens at construction)</td>
+          <td>Reduces per-worker CPU waste under a taxed/shared CPU budget. Part of Codex's 3–12% bundle (bulk of that bundle was <code>in_order=False</code>, now rejected — expect the low end)</td>
+          <td><span class="effort">Low–medium</span></td>
+          <td>One arm each on matched node, w16/pf8 baseline</td>
+          <td><span class="tag green">Open — run now</span></td>
+        </tr>
+        <tr class="strike">
+          <td>2a</td>
+          <td><code>in_order=False</code> on DataLoader</td>
+          <td>Slow worker can't block ready batches from peers</td>
+          <td>—</td>
+          <td>—</td>
+          <td><span class="tag red">REJECTED 2026-07-10 (user)</span></td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Measure real DDP bucket overlap</td>
+          <td>Backbone + heads are separate DDP instances, default 25 MiB buckets (<code>ac_compile_parallelize.py:347</code> — no <code>bucket_cap_mb</code>). cudagraphs is <b>per-block</b> capture, so hooks can fire between block backwards — overlap is measurable, not assumed. <b>0–8%</b> (zero possible)</td>
+          <td><span class="effort">Low–medium</span> (exact-gradient path)</td>
+          <td>Dump <code>_get_ddp_logging_data()</code> per wrapper at steady state; then screen 8/16/25/50 MiB caps. Also count buffer broadcasts; test <code>broadcast_buffers=False</code> after asserting buffer equality (RoPE periods etc. look immutable)</td>
+          <td><span class="tag green">Open (dump = run now)</span> <span class="tag amber">Screen = gated on #1</span></td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Remove both per-iter host syncs together</td>
+          <td>7.3 metric gating alone was flat because waiting relocated to <code>step_end_event.synchronize()</code> (<code>train.py:868</code>). Untested combo: <code>metrics_sync_period&gt;1</code> <b>plus</b> event-ring timing read every N iters → host can launch ahead. <b>0–4%</b></td>
+          <td><span class="effort">Medium</span> (NaN detection delayed unless redesigned)</td>
+          <td>Period-10 both; compare CPU launch-ahead / GPU gaps in nsys; flat result closes it</td>
+          <td><span class="tag blue">Open — exploratory</span></td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>Re-test <code>CUDA_DEVICE_MAX_CONNECTIONS=1</code> vs 8 on the cleaned recipe</td>
+          <td>"Validated optimal" (2116 vs 1953) was one run per arm, w24, before loader/IRQ contamination was known. <b>0–5%</b></td>
+          <td><span class="effort">Very low</span></td>
+          <td>Two same-node replicates per setting at bs192, w16 (ideally post-IRQ-fix); rank by raw wall</td>
+          <td><span class="tag amber">Open — after #1 (or at least on w16)</span></td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td>Validate NVLS; do not broadly force NCCL env vars</td>
+          <td>NVLS is the only SHARP path relevant on a single NVSwitch node. Unset <code>NCCL_NVLS_ENABLE</code> = automatic, not disabled — so first <i>verify</i> what NCCL actually selects. <b>0–5%</b> after skew cleanup</td>
+          <td><span class="effort">Low</span></td>
+          <td><code>NCCL_DEBUG=INFO</code> (algorithm/NVLS selection, NCCL version); <code>all_reduce_perf</code> at bucket-sized payloads, default vs forced NVLS</td>
+          <td><span class="tag amber">Open — after #1</span></td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td>Fused AdamW</td>
+          <td><code>build_optimizer()</code> (<code>train.py:110</code>) uses foreach default; fused shrinks the ~10 ms optimizer phase. <b>0.3–1.5%</b></td>
+          <td><span class="effort">Very low</span></td>
+          <td>One <code>fused=True</code> arm; check first-step state, checkpoint resume, reference losses. EMA already <code>_foreach_</code>-fused (~0.7 ms) — leave it</td>
+          <td><span class="tag green">Open — run now</span></td>
+        </tr>
+        <tr>
+          <td>8</td>
+          <td>Teacher/student forward stream overlap</td>
+          <td>Independent until loss construction (<code>ssl_meta_arch.py:416</code>), but both are large ViT workloads on the same SMs. <b>0–5%, likely flat/negative</b></td>
+          <td><span class="effort">High</span> (cuda-graph trees, allocator, collective ordering)</td>
+          <td>Single-GPU microbench: teacher on side stream, join before losses, exclude Sinkhorn collectives; continue only if ≥5%</td>
+          <td><span class="tag blue">Exploratory only</span></td>
+        </tr>
+        <tr>
+          <td>9</td>
+          <td>H2D copy-stream double-buffer</td>
+          <td>Exposed H2D bounded at 5.7–12.3 ms/iter → <b>0.5–2.2%</b></td>
+          <td><span class="effort">High vs payoff</span></td>
+          <td>Re-measure exposed H2D after IRQ cleanup; build only if &gt;2% wall</td>
+          <td><span class="tag red">Stays deferred</span></td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section id="today">
+    <h2>What can start today</h2>
+    <div class="grid cols2">
+      <div class="card" style="border-top: 4px solid var(--green)">
+        <span class="tag green">Rootless · one-day screens</span>
+        <h3 style="margin-top:10px;text-transform:none;letter-spacing:0;font-size:16px;color:var(--ink)">Queue-ready now, no dependency on #1</h3>
+        <ul>
+          <li><b>#7 fused AdamW</b> — one <code>fused=True</code> arm, verify checkpoint resume + reference losses.</li>
+          <li><b>#3 bucket-logging DUMP</b> (the measurement half only) — <code>_get_ddp_logging_data()</code> per DDP wrapper at steady state. The bucket-cap <i>screen</i> is separate and gated on #1.</li>
+          <li><b>#2 worker hygiene</b> — <code>cv2.setNumThreads(1)</code>, prefetch-factor screen, lazy HDF5 reopen arms.</li>
+        </ul>
+      </div>
+      <div class="card" style="border-top: 4px solid var(--red)">
+        <span class="tag purple">Gate · shared infra · awaiting go</span>
+        <h3 style="margin-top:10px;text-transform:none;letter-spacing:0;font-size:16px;color:var(--ink)">#1 Root IRQ steering</h3>
+        <p>Needs root, an audit doc, and a reversal plan (same pattern as the earlier perf-sysctl change) before
+        it touches shared infra across gpu01–08. This is the one item on the ladder that is a user decision, not
+        an engineering task — everything in the gated amber cluster stays blocked until it is approved and run.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section id="killed">
+    <h2>Killed levers (frozen-convergence constraint)</h2>
+    <div class="card">
+      <p class="small" style="margin-top:0">Verified in code — these are closed, not open questions.</p>
+      <ul>
+        <li><b>bf16 gradient-compression DDP hooks</b>: dead. The DDP path casts params to bf16
+        <i>before</i> wrapping (<code>ac_compile_parallelize.py:336-343</code>), so gradients already reduce
+        in bf16; a hook saves zero bytes.</li>
+        <li><b>fp32-reduce tuning</b>: <code>reduce_dtype</code> is FSDP2-policy-only
+        (<code>ac_compile_parallelize.py:269</code>); the DDP path never uses it. Implementing fp32 DDP
+        reduction would double traffic.</li>
+        <li><b>PowerSGD</b>: approximate gradients + error-feedback state; conflicts with the
+        convergence-parity requirement.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section id="corrections">
+    <h2>Corrections to our own framing (verified, adopt going forward)</h2>
+    <div class="card">
+      <ol style="margin:8px 0 8px 22px; padding:0">
+        <li style="margin:10px 0"><b><code>train.cudagraphs=true</code> is per-block CUDA-graph capture, not
+        full-step.</b> <code>wrap_compile_block()</code> does
+        <code>module.compile(fullgraph=True, dynamic=False, options={"triton.cudagraphs": True})</code> per
+        transformer block (<code>ac_compile_parallelize.py:71</code>). Do not claim "all gradients appear at
+        replay end".</li>
+        <li style="margin:10px 0"><b>56% exposed NCCL ≠ 56% comms opportunity</b> — it is where straggler wait
+        shows up (spin-wait in LL kernels; lands in whichever collective the late rank hits).</li>
+        <li style="margin:10px 0"><b>Logged <code>mfu</code> in <code>training_metrics.json</code> is
+        CUDA-event-based</b> (<code>step_start_event</code>→<code>step_end_event</code>). "Wall MFU" is a
+        separate offline recomputation.</li>
+        <li style="margin:10px 0"><b>7.9 diagnosed the straggler; it is not remediated</b> until IRQ steering
+        runs. The bs192 w16 −17% is <b>cross-node</b>; only the bs160 −11%/−6% is <b>node-controlled</b>.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section id="decisions">
+    <h2>Decision log</h2>
+    <div class="callout warn">
+      <b>2026-07-10 — <code>in_order=False</code> REJECTED (Aram).</b> Data ordering for transformer
+      pre-training is part of the training recipe, not a free knob: reproducibility and the data order/mix
+      matter for convergence (the same reason pre-/mid-/post-training curricula exist). Out-of-order batch
+      consumption would also break the <code>sampler_advance = iterations × batch</code> resume contract.
+      Throughput is not worth either cost. <b>Standing rule: no optimization that changes which samples arrive
+      in which order.</b>
+    </div>
+    <div class="callout note">
+      2026-07-10 — rest of the ladder accepted as reasonable by Aram. IRQ steering (#1) still awaiting
+      explicit go.
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section id="exec">
+    <h2>Execution sketch</h2>
+    <div class="card">
+      <ol style="margin:8px 0 8px 22px; padding:0">
+        <li style="margin:10px 0">User decision on #1 (IRQ steering). If go: prepare audit doc + reversal
+        procedure, steer, A/B same-node.</li>
+        <li style="margin:10px 0">In parallel, rootless one-day screens: #7 fused AdamW, #3 bucket-logging
+        dump, #2 worker hygiene arms.</li>
+        <li style="margin:10px 0">Post-IRQ-fix: #5 MAX_CONNECTIONS re-test, #3 bucket-cap screen, #6 NVLS
+        validation; re-decide bs160 vs bs192.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <div class="short">
+      <h2>Short version</h2>
+      <p>
+        The queue-ready next steps are the three rootless screens — #7 fused AdamW, #3 bucket-logging dump,
+        #2 worker hygiene — none of which touch comms or need root. #1 root IRQ steering is the force-multiplier
+        gate: it is awaiting explicit user go, and until it runs, the comms-tuning cluster (#5 MAX_CONNECTIONS,
+        #3 bucket-cap screen, #6 NVLS) stays uninterpretable because a late rank makes every collective look
+        slow. Gains across the ladder do not simply add — most levers attack the same 56% comms/arrival-skew
+        symptom, so treat the ranges as overlapping claims, not a stackable total.
+      </p>
+    </div>
+  </section>
+
+  <p class="small" style="margin-top:30px">
+    Source: <code>docs/phase8_optimization_candidates.md</code> (2026-07-10). Provenance: GPT-5.6-sol xhigh
+    reasoning via Codex CLI 0.144.1, read-only repo-grounded review; re-verified in the working tree.
+    Related: <code>docs/phase7_perf_plan.md</code>, <code>docs/phase7_harness_audit.md</code>,
+    <code>docs/html/claude/phase7_summary.html</code>, <code>docs/html/claude/phase7_recent_runs.html</code>.
+  </p>
+
+</div>
+</body>
+</html>

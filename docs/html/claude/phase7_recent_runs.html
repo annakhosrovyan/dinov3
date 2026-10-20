@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DINOv3 Phase 7 — Recent Runs (bs128/160/192 + metric-gate)</title>
+<style>
+:root{
+  --bg:#f0f4f8;--surface:#fff;--text:#1e293b;--text-2:#64748b;--border:#e2e8f0;
+  --blue:#2563eb;--blue-soft:#eff6ff;--green:#16a34a;--green-soft:#ecfdf5;
+  --amber:#b45309;--amber-soft:#fffbeb;--red:#dc2626;--red-soft:#fef2f2;
+  --gray-soft:#f1f5f9;
+  --r:12px;--sh:0 1px 3px rgba(0,0,0,.08),0 8px 24px rgba(15,23,42,.06);
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 var(--sans)}
+.wrap{max-width:960px;margin:0 auto;padding:28px 18px 64px}
+.top-nav{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);padding:7px 0;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.top-nav .inner{max-width:960px;margin:0 auto;padding:0 18px;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.top-nav a{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;color:var(--text-2);text-decoration:none;transition:all .15s}
+.top-nav a:hover,.top-nav a[aria-current=page]{background:var(--blue-soft);color:#1d4ed8}
+.card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);padding:24px 26px;margin:0 0 20px}
+h1{margin:0 0 6px;font-size:27px;letter-spacing:-.02em}
+.sub{color:var(--text-2);margin:0 0 4px;font-size:14px}
+.meta{color:var(--text-2);font-size:12.5px;margin:6px 0 0}
+h2{margin:0 0 14px;font-size:18px;letter-spacing:-.01em}
+h3{margin:18px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2)}
+p{margin:8px 0}
+code{font:12.5px/1.4 var(--mono);background:var(--gray-soft);padding:2px 5px;border-radius:5px}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid rgba(37,99,235,.25)}
+a:hover{border-bottom-color:var(--blue)}
+.lede{font-size:15.5px;line-height:1.65}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);font-weight:700}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.p-done{background:var(--green-soft);color:var(--green)}
+.p-run{background:var(--blue-soft);color:var(--blue)}
+.p-plan{background:var(--gray-soft);color:var(--text-2)}
+.p-rej{background:var(--red-soft);color:var(--red)}
+.p-demo{background:var(--amber-soft);color:var(--amber)}
+.p-promo{background:#fdf4ff;color:#7e22ce}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:8px 0 4px}
+.stat{background:var(--gray-soft);border-radius:10px;padding:14px 14px}
+.stat .v{font-size:24px;font-weight:700;letter-spacing:-.02em}
+.stat .l{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.35}
+.callout{border-left:4px solid var(--amber);background:var(--amber-soft);border-radius:0 10px 10px 0;padding:14px 16px;margin:14px 0}
+.callout.blue{border-color:var(--blue);background:var(--blue-soft)}
+.callout.red{border-color:var(--red);background:var(--red-soft)}
+.callout.green{border-color:var(--green);background:var(--green-soft)}
+.callout b{display:block;margin-bottom:4px}
+ul{margin:8px 0;padding-left:20px}li{margin:4px 0}
+.foot{color:var(--text-2);font-size:12px;margin-top:8px}
+.hl{background:#fef9c3;font-weight:600}
+@media(max-width:720px){.grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<nav class="top-nav"><div class="inner">
+  <a href="index.html">Index</a>
+  <a href="status.html">Phase 5 Status</a>
+  <a href="phase6_ledger.html">Phase 6 Ledger</a>
+  <a href="phase7_summary.html">Phase 7 Summary</a>
+  <a href="phase7_recent_runs.html" aria-current="page">Phase 7 Recent Runs</a>
+  <a href="concepts.html">Concepts</a>
+</div></nav>
+
+<main class="wrap">
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<section class="card">
+  <h1>Phase 7 — Recent Runs</h1>
+  <p class="sub">bs128/160/192 differential (§7.7) + metric-gate measurement (§7.3)</p>
+  <p class="meta">Captures dated 2026-06-26 · branch <code>exp/ddp-fullgraph-head-static-shapes</code> · source: <code>docs/phase7_perf_plan.md</code> §7.3 / §7.7</p>
+</section>
+
+<!-- ── Run table ─────────────────────────────────────────────────────── -->
+<section class="card">
+  <h2>Run inventory</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Job</th>
+        <th>Batch</th>
+        <th>Node</th>
+        <th>Special</th>
+        <th>Role</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>75082</b></td>
+        <td class="num">128</td>
+        <td>gpu06</td>
+        <td><code>metrics_sync_period=1</code> (default)</td>
+        <td>Attribution baseline (nsys trace, §7.1). Trust NVTX shares, not absolute ms.</td>
+      </tr>
+      <tr>
+        <td><b>80547</b></td>
+        <td class="num">128</td>
+        <td>gpu02</td>
+        <td><code>metrics_sync_period=10</code></td>
+        <td>§7.3 metric-gate measurement. Clean same-node anchor for §7.7 differential.</td>
+      </tr>
+      <tr>
+        <td><b>80546</b></td>
+        <td class="num">160</td>
+        <td>gpu02</td>
+        <td>—</td>
+        <td>§7.7 bs160 differential.</td>
+      </tr>
+      <tr>
+        <td><b>80545</b></td>
+        <td class="num">192</td>
+        <td>gpu02</td>
+        <td>—</td>
+        <td>§7.7 bs192 differential.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="foot">Jobs 80545/80546/80547 are all on gpu02, same date — a clean same-node comparison. 75082 is on gpu06 (nsys attach; different node, slower absolute ms). All use the champion config: DDP, <code>compile=true</code>, <code>cudagraphs=true</code>, <code>compile_mode=null</code>, 8×H100, torch 2.10.</p>
+</section>
+
+<!-- ── WALL CLOCK CAVEAT (prominent) ─────────────────────────────────── -->
+<section class="card">
+  <div class="callout red">
+    <b>METHODOLOGY CAVEAT — per-iteration wall clock is unusable in these 60 s captures</b>
+    The per-iteration wall clock from these captures is <b>non-monotonic and physically impossible</b>:
+    capture iter-p50 = bs128 769 ms / bs160 389 ms / bs192 341 ms — a <em>bigger</em> batch showing
+    <em>shorter</em> iterations cannot be real throughput. The artifact is <b>exposed-NCCL spin-wait</b>
+    dominating a short capture window (same issue as §7.2). Consequently: wall clock, GPU-idle gap, and
+    NCCL-time fields from these 60 s captures are <b>discarded</b>. Only <b>per-iteration GPU-kernel
+    durations</b> (less contaminated by the spin-wait artifact) are used below. These are still subject to
+    nsys graph-node tracing noise, stochastic mask shape, and thermal/clock variation — they are not
+    immune, just less contaminated.
+  </div>
+</section>
+
+<!-- ── §7.7 Finding 1 — U-shaped compute ────────────────────────────── -->
+<section class="card">
+  <h2>§7.7 Finding 1 — per-image GPU compute is U-shaped, sweet spot at bs160</h2>
+  <p>Per-rank non-NCCL GPU-kernel busy ÷ batch (Measurement A — all three gpu02, the clean set):</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Batch</th>
+        <th class="num">Per-rank compute ms/iter</th>
+        <th class="num">Per-image ms</th>
+        <th class="num">vs prev</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>128</td>
+        <td class="num">209.3</td>
+        <td class="num">1.635</td>
+        <td class="num">—</td>
+      </tr>
+      <tr>
+        <td class="hl">160</td>
+        <td class="num hl">250.9</td>
+        <td class="num hl">1.568</td>
+        <td class="num hl">−4.1%</td>
+      </tr>
+      <tr>
+        <td>192</td>
+        <td class="num">311.5</td>
+        <td class="num">1.622</td>
+        <td class="num">+3.5%</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="foot">Highlighted row = per-image efficiency sweet spot. bs192 <em>regresses</em> per-image relative to bs160.</p>
+
+  <div class="callout blue">
+    <b>Measurement B — corroborating direction only</b>
+    A dev-0 kernel-class sum gives per-image ms: 1.629 (bs128) → 1.524 (bs160) → 1.594 (bs192).
+    Direction matches Measurement A (U-shape, sweet spot at bs160), but Measurement B's bs128 anchor
+    is job 75082 on <b>gpu06</b> — a cross-node comparison — so treat B as supporting evidence, not an
+    independent replicate.
+  </div>
+
+  <div class="callout">
+    <b>Likely mechanism — HYPOTHESIS, not proven</b>
+    GEMM wave/tile quantization: the autotuner picks different <code>nvjet_*</code> tile shapes per
+    batch size; bs160 may select a tile (e.g. 256×160) that divides cleanly, while bs192 leaves a
+    partial-wave tail. Note: <code>elementwise_triton</code> grew the most in absolute terms across
+    batches (73.9 → 88.8 → 114.3 ms/iter), so memory-bound elementwise/reduction scaling is a live
+    alternative mechanism. The hypothesis is not proven.
+  </div>
+</section>
+
+<!-- ── §7.7 Finding 2 — growing residual ────────────────────────────── -->
+<section class="card">
+  <h2>§7.7 Finding 2 — the residual also grows with batch</h2>
+  <div class="callout red">
+    <b>This CORRECTS an earlier "fixed residual amortization" claim</b>
+    A prior framing assumed the comms residual was roughly batch-independent (fixed model size → fixed
+    gradient all-reduce), so increasing batch would amortize it for free. The data below refutes this:
+    the residual grows from 415 to 506 ms across bs128→192. The correction was caught by a Codex
+    GPT-5.5 high-reasoning review and then verified in the data.
+  </div>
+
+  <p>Residual reconstructed as: <code>iter_ms = batch × 8 / img_s</code> from soak throughput (§6.B.7 controlled runs), then subtract Measurement A compute.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Batch</th>
+        <th class="num">Iter ms (soak)</th>
+        <th class="num">Compute ms</th>
+        <th class="num">Residual ms</th>
+        <th class="num">Δ iter</th>
+        <th class="num">Δ compute</th>
+        <th class="num">Δ residual</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>128</td>
+        <td class="num">624</td>
+        <td class="num">209</td>
+        <td class="num"><b>415</b></td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+      </tr>
+      <tr>
+        <td>160</td>
+        <td class="num">696</td>
+        <td class="num">251</td>
+        <td class="num"><b>445</b></td>
+        <td class="num">+71</td>
+        <td class="num">+42</td>
+        <td class="num">+30</td>
+      </tr>
+      <tr>
+        <td class="hl">192</td>
+        <td class="num hl">817</td>
+        <td class="num hl">311</td>
+        <td class="num hl"><b>506</b></td>
+        <td class="num hl">+121</td>
+        <td class="num hl">+61</td>
+        <td class="num hl"><b>+61</b></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="foot">For the 160→192 step, the +121 ms iter-time growth splits <b>~evenly between compute (+61 ms) and residual (+61 ms)</b>.</p>
+
+  <p>The bf16 gradient all-reduce is batch-<em>independent</em> (fixed model size), so the <em>growing</em>
+  part of the residual must be the <b>f32 loss-side collectives — Sinkhorn over masked tokens (K ∝ batch),
+  plus DINO/iBOT center all-reduces</b>. This is the same target as ladder step <b>7.4 (Sinkhorn)</b>,
+  reached independently via the differential analysis.</p>
+</section>
+
+<!-- ── §7.7 Key conclusion ───────────────────────────────────────────── -->
+<section class="card">
+  <h2>§7.7 Conclusion — two effects, ~equal weight</h2>
+  <p>The 160→192 diminishing return in the §6.B.7 soak (wall img/s: +12% for 128→160, then only +2.6% for 160→192, at flat MFU) is explained by <b>two independent mechanisms of approximately equal weight</b>:</p>
+  <ul>
+    <li><b>Per-image GPU compute regression</b> — a U-shaped efficiency curve with sweet spot at bs160 (wave/tile quantization, −4.1% then +3.5%). Compute is <em>not</em> balanced due to a straggler; per-rank compute CV is &lt;1.5% at every batch size. This is <b>not</b> a compute straggler problem.</li>
+    <li><b>Residual growth</b> — the exposed-NCCL residual grows (+30 ms at 128→160, +61 ms at 160→192), driven by batch-scaling f32 loss-side collectives (Sinkhorn K∝batch), not by the fixed-size gradient all-reduce.</li>
+  </ul>
+  <p>The old "fixed-residual amortization" story (residual is constant → bigger batch always amortizes it) is <b>refuted</b>.</p>
+</section>
+
+<!-- ── §7.3 Metric-gate result ───────────────────────────────────────── -->
+<section class="card">
+  <h2>§7.3 Metric-gate result — NOT an MFU win</h2>
+  <div class="callout red">
+    <b>The metric-gate is NOT a throughput or MFU gain</b>
+    Gating <code>allreduce_metrics</code> to every 10 iters (job 80547, <code>period=10</code>) versus
+    every iter (baseline 75082, <code>period=1</code>) produced the following GPU-side result:
+    the NVTX <code>allreduce_metrics</code> range drops to <b>0.0 ms on skipped iters</b> (the gate
+    works mechanically) — but the deferred collective bill <b>relocated, it did not vanish</b>. This is
+    NOT an MFU win.
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th class="num">75082 (period=1, gpu06)</th>
+        <th class="num">80547 (period=10, gpu02)</th>
+        <th>Verdict</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>NVTX <code>allreduce_metrics</code> range (skipped iters)</td>
+        <td class="num">314.5 ms</td>
+        <td class="num"><b>0.0 ms</b></td>
+        <td>Gate works mechanically ✓</td>
+      </tr>
+      <tr>
+        <td>GPU-side exposed NCCL (nccl class, ms/iter)</td>
+        <td class="num">787</td>
+        <td class="num">760</td>
+        <td><b>−3.5%</b> — small lever</td>
+      </tr>
+      <tr>
+        <td>Exposed NCCL (ms/iter)</td>
+        <td class="num">729</td>
+        <td class="num">706</td>
+        <td>−3.2%</td>
+      </tr>
+      <tr>
+        <td><code>untracked</code> (ms/iter)</td>
+        <td class="num">37</td>
+        <td class="num">233</td>
+        <td><b>+521%</b> — wait relocated here</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>The 32.6% NVTX share attributed to <code>allreduce_metrics</code> in 75082 was mostly
+  <b>"the bill coming due"</b> — the deferred DDP gradient all-reduce surfacing at that barrier —
+  <em>not</em> the intrinsic cost of the metrics-specific scalar collective. When the gate removes
+  that barrier on skipped iters, the DDP-grad bill relocates into <code>untracked</code> instead
+  of vanishing. The f32 loss-side Sinkhorn/center bulk that <em>does</em> grow with batch (§7.7
+  Finding 2) is <b>unaffected by the metric gate</b>.</p>
+
+  <div class="callout">
+    <b>Implication — redirect to §7.4 (Sinkhorn)</b>
+    Metric-gating is a ~3% GPU-side lever at best. The prime comms target is now <b>7.4 — Sinkhorn
+    collectives</b> (≥3 blocking fp32 all-reduce/iter, teacher-side), confirmed as the batch-scaling
+    residual driver by both §7.3 and §7.7. NVTX-tag the Sinkhorn and center all-reduce callsites first
+    to confirm shares before touching training math.
+  </div>
+</section>
+
+<!-- ── Straggler finding ─────────────────────────────────────────────── -->
+<section class="card">
+  <h2>Straggler finding — arrival skew, not compute imbalance</h2>
+  <p>Compute is balanced across all ranks: per-rank non-NCCL compute CV is <b>&lt;1.5%</b> at every batch size tested. There is <b>no compute straggler</b>.</p>
+
+  <p>However, a consistent <b>collective-arrival straggler</b> was observed in the high ranks:</p>
+  <ul>
+    <li><b>gpu02 runs (jobs 80545/80546/80547)</b>: rank 6 reaches collectives late.</li>
+    <li><b>gpu06 run (job 75082)</b>: rank 7 reaches collectives late.</li>
+    <li>Example (bs192): ranks 6/7 NCCL-exposed ~65/107 ms vs ranks 0–5 ~880 ms, at identical ~311 ms compute per rank.</li>
+  </ul>
+  <p>The other ranks spin-wait for the straggler at the collective barrier (~880 ms exposed NCCL in
+  bs192). The delay is <b>host-side</b> (data loading, H2D transfer, NUMA topology), not GPU compute,
+  so GPU-compute load-balancing does not apply. This is orthogonal to the batch-scaling question
+  (§7.7 Finding 2) and worth a separate investigation.</p>
+</section>
+
+<!-- ── H2D footnote ───────────────────────────────────────────────────── -->
+<section class="card">
+  <h2>H2D footnote</h2>
+  <p>Host-to-device transfer time across all batch sizes is <b>100% exposed</b> (no overlap with compute):</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Batch</th>
+        <th class="num">H2D ms/iter</th>
+        <th class="num">Bandwidth GB/s</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>128</td><td class="num">5.4</td><td class="num">39.5</td></tr>
+      <tr><td>160</td><td class="num">9.0</td><td class="num">30.7</td></tr>
+      <tr><td>192</td><td class="num">12.2</td><td class="num">27.2</td></tr>
+    </tbody>
+  </table>
+  <p class="foot">Bandwidth is degrading as batch increases (39.5 → 27.2 GB/s). This is a minor
+  same-direction penalty at bs192; potentially reclaimable via a copy-stream double-buffer, but small
+  relative to the comms residual (~415–506 ms). Not the primary bottleneck.</p>
+</section>
+
+<!-- ── Ladder status footer ───────────────────────────────────────────── -->
+<section class="card">
+  <h2>Ladder status (updated 2026-06-26)</h2>
+  <table>
+    <thead><tr><th>Step</th><th>What</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>7.0</b></td>
+        <td>Compute-residual thesis: pad iBOT masks → static-shape heads → unlock <code>max-autotune</code>.</td>
+        <td><span class="pill p-rej">REJECTED</span></td>
+      </tr>
+      <tr>
+        <td><b>7.1</b></td>
+        <td>nsys residual attribution (job 75082). Residual is comms/sync, not compute.</td>
+        <td><span class="pill p-done">DONE</span></td>
+      </tr>
+      <tr>
+        <td><b>7.2</b></td>
+        <td><code>CUDA_DEVICE_MAX_CONNECTIONS</code> sweep (=1 vs =8). H1 not supported; keep =1.</td>
+        <td><span class="pill p-done">DONE</span></td>
+      </tr>
+      <tr>
+        <td><b>7.3</b></td>
+        <td>Gate <code>allreduce_metrics</code> (job 80547, period=10). <b>Small lever only</b> — GPU-side NCCL −3.5%; wait relocated not eliminated. Redirect to 7.4.</td>
+        <td><span class="pill p-done">IMPLEMENTED + MEASURED</span></td>
+      </tr>
+      <tr>
+        <td><b>7.4</b></td>
+        <td>Sinkhorn collectives (≥3 blocking fp32 all-reduce/iter, teacher-side). Confirmed as batch-scaling residual driver by §7.3 + §7.7. NVTX-tag callsites first before changing training math.</td>
+        <td><span class="pill p-promo">PROMOTED — prime lever</span></td>
+      </tr>
+      <tr>
+        <td><b>7.5</b></td>
+        <td>Matched <code>cudagraphs=true/false</code> control trace (diagnostic only).</td>
+        <td><span class="pill p-demo">DEMOTED</span></td>
+      </tr>
+      <tr>
+        <td><b>7.6</b></td>
+        <td>Enable NVLS (stop unsetting <code>NCCL_NVLS_ENABLE</code>). Helps transfer, not the tiny-payload barrier/skew that dominates.</td>
+        <td><span class="pill p-plan">PLANNED</span></td>
+      </tr>
+      <tr>
+        <td><b>7.7</b></td>
+        <td>bs128/160/192 differential capture (jobs 80545/80546/80547, gpu02). Two-mechanism finding: compute U-shape + residual growth.</td>
+        <td><span class="pill p-done">DONE</span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Where to read more ─────────────────────────────────────────────── -->
+<section class="card">
+  <h2>Where to read more</h2>
+  <ul>
+    <li><b>Full plan with all evidence</b> — <code>docs/phase7_perf_plan.md</code> §7.3 and §7.7 (source of truth for all numbers on this page).</li>
+    <li><b>Phase 7 overview</b> — <a href="phase7_summary.html">Phase 7 Summary</a> (the comms thesis, job 75082 breakdown, full ladder).</li>
+    <li><b>Capture harness</b> — <code>scripts/profiling/phase7_nsys_ddp_capture.sh</code> + <code>scripts/profiling/phase7_nsys_report.py</code>.</li>
+    <li><b>Trace outputs</b> — <code>/mnt/weka/adovlatyan/nsys_profiles/phase7/&lt;jobid&gt;/</code> (.nsys-rep, .sqlite, .phase7.md, .phase7.json).</li>
+  </ul>
+</section>
+
+</main>
+</body>
+</html>
