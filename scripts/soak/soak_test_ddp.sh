@@ -1,7 +1,7 @@
 #!/bin/bash
-# Long-run soak test for DDP + expandable_segments + bs=256.
+# Long-run soak test for a DDP candidate configuration.
 #
-# Purpose: validate that the best-known DDP config does not accumulate memory
+# Purpose: validate that a DDP candidate does not accumulate memory
 # over hundreds of iterations (no slow fragmentation creep, no late OOM).
 # Complements memprofile_ddp.sh (which checks per-phase peak memory in 70 iters)
 # by running many more iterations across multiple eval + checkpoint cycles.
@@ -14,8 +14,8 @@
 #
 # Usage: sbatch scripts/soak/soak_test_ddp.sh [batch_size] [expand_segments]
 # Example:
-#   sbatch scripts/soak/soak_test_ddp.sh 256 true     # recommended config
-#   sbatch scripts/soak/soak_test_ddp.sh 128 true     # conservative config
+#   sbatch scripts/soak/soak_test_ddp.sh 160 true     # Phase 7 candidate
+#   sbatch scripts/soak/soak_test_ddp.sh 192 true     # higher-batch candidate
 #
 #SBATCH --job-name=dinov3-soak-ddp
 #SBATCH --nodes=1
@@ -41,7 +41,7 @@ export MKL_NUM_THREADS=8
 # Enable per-phase memory profiling instrumentation in train.py
 export DINOV3_MEMORY_PROFILE=1
 
-BATCH_SIZE="${1:-256}"
+BATCH_SIZE="${1:-160}"
 EXPAND_SEG="${2:-true}"
 
 if [ "${EXPAND_SEG}" = "true" ]; then
@@ -73,7 +73,8 @@ echo "  Iter   400:   checkpoint fires (second) + eval (fourth)"
 echo "  Iters 400-499: final steady state"
 echo ""
 echo "If max_reserved_mb grows monotonically across [MEMPROFILE] checkpoints,"
-echo "there is memory creep. Stable peaks = production-safe."
+echo "there is memory creep. Stable peaks are evidence for this soak only;"
+echo "they do not by themselves establish a production configuration."
 echo ""
 
 torchrun --nproc_per_node=8 dinov3/train/train.py \
